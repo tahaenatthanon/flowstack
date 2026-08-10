@@ -18,6 +18,7 @@
 - เปลี่ยน label `STATUS_MAP.review` จาก "รออนุมัติ" → "รอเผยแพร่"
 - เพิ่ม entry `revision` ใน `STATUS_MAP` พร้อม label "รอแก้ไข"
 - รักษาความสอดคล้องของไอคอนตาม Design System
+- เพิ่มไอคอนในปุ่ม "ทั้งหมด" ของ Type Filter ให้มี icon สอดคล้องกับ tab อื่นในชุดเดียวกัน
 
 **Non-Goals:**
 - ไม่เพิ่ม filter ฝั่ง server-side (ใช้ client-side filtering จากข้อมูลที่มีอยู่)
@@ -70,7 +71,7 @@
 ## Risks / Trade-offs
 
 - **ข้อมูลเยอะมาก (>1000 items):** Client-side filtering อาจช้า → ในทางปฏิบัติ content items ต่อ tenant ไม่เกินหลักร้อย หากถึงจุดนั้นสามารถเพิ่ม server-side filter ทีหลัง
-- **Mobile layout:** Sub-tab เพิ่มอีก 1 แถว → tabs ใช้ `overflow-x-auto` และ `flex-wrap` อยู่แล้ว รองรับได้
+- **Mobile layout:** Sub-tab เพิ่มอีก 1 แถว → `TabsList` ใช้ `h-auto` + `flex-wrap` ทำให้ tab ที่เกินความกว้างจอขึ้นบรรทัดใหม่แทนการล้นออกนอกจอ รองรับได้
 
 ## Open Questions
 

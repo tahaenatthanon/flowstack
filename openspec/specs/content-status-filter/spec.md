@@ -1,4 +1,10 @@
-## ADDED Requirements
+# content-status-filter Specification
+
+## Purpose
+
+กำหนดพฤติกรรมของ Status Sub-tab สำหรับกรอง content items ตามสถานะ (`draft`, `revision`, `review`, `published`) ในแท็บ "ผลงานทั้งหมด" ของหน้า "ผลงานคอนเทนต์" รวมถึงการแสดงจำนวนนับ ลำดับการวาง label ของสถานะ และความสอดคล้องของไอคอนกับ Type Filter เดิม
+
+## Requirements
 
 ### Requirement: Status filter tabs in content list
 
@@ -55,7 +61,7 @@ Status Sub-tab SHALL วางอยู่ระหว่าง Tab หลัก
 #### Scenario: Visual order on mobile
 
 - **WHEN** ผู้ใช้เปิดหน้า "ผลงานคอนเทนต์" บน mobile
-- **THEN** Status Sub-tab ยังคงอยู่ใต้ Tab หลัก และอยู่เหนือ Type Filter โดยสามารถ scroll แนวนอนได้
+- **THEN** Status Sub-tab ยังคงอยู่ใต้ Tab หลัก และอยู่เหนือ Type Filter โดย tab ที่เกินความกว้างจอจะขึ้นบรรทัดใหม่ (wrap) และทุก tab ยังคงกดได้
 
 ### Requirement: Status `revision` available in database
 
@@ -98,3 +104,9 @@ Label ของสถานะ `review` ใน `STATUS_MAP` SHALL เป็น "
 
 - **WHEN** ผู้ใช้ดู Status Sub-tab และ Type Filter พร้อมกัน
 - **THEN** ระยะห่างระหว่างไอคอนกับข้อความเท่ากัน (`gap-1.5`)
+
+#### Scenario: Type filter "ทั้งหมด" has icon
+
+- **WHEN** ผู้ใช้ดู Type Filter
+- **THEN** ปุ่ม "ทั้งหมด" มีไอคอนเช่นเดียวกับปุ่ม "บทความ", "วีดีโอ", "รูปภาพ"
+

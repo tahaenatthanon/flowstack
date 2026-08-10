@@ -91,6 +91,8 @@ mockup/
 flowstack.sql
 flowstack/
 flowstack-*.sql
+migrations.zip
+**/migrations*.zip
 
 # Agent & AI assistant configs (project tooling only)
 .agent/

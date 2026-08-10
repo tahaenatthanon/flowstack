@@ -1,4 +1,4 @@
-import { Play, FileText, Image, Search, Trash2, Loader2, ImageIcon, Send, Calendar } from 'lucide-react';
+import { Play, FileText, Image, Search, Trash2, Loader2, ImageIcon, Send, Calendar, Layers, Edit3, RotateCcw, Clock, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -22,6 +22,7 @@ export default function ContentListTab() {
   const { confirm } = useConfirm();
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'draft' | 'revision' | 'review' | 'published'>('all');
   const [typeFilter, setTypeFilter] = useState<'all' | 'article' | 'video' | 'image'>('all');
   const [platformFilter, setPlatformFilter] = useState<string>('all');
   const [editItem, setEditItem] = useState<ContentItem | null>(null);
@@ -132,22 +133,52 @@ export default function ContentListTab() {
     image: items.filter(i => i.type === 'image').length,
   }), [items]);
 
+  const statusCounts = useMemo(() => ({
+    all: items.length,
+    draft: items.filter(i => i.status === 'draft').length,
+    revision: items.filter(i => i.status === 'revision').length,
+    review: items.filter(i => i.status === 'review').length,
+    published: items.filter(i => i.status === 'published').length,
+  }), [items]);
+
   const filtered = useMemo(() =>
     items.filter(c => {
+      const matchStatus = statusFilter === 'all' || c.status === statusFilter;
       const matchType = typeFilter === 'all' || c.type === typeFilter;
       const matchPlatform = platformFilter === 'all' || (c.platform || '').toLowerCase() === platformFilter;
       const matchSearch = !search || c.title?.toLowerCase().includes(search.toLowerCase());
-      return matchType && matchPlatform && matchSearch;
-    }), [items, typeFilter, platformFilter, search]);
+      return matchStatus && matchType && matchPlatform && matchSearch;
+    }), [items, statusFilter, typeFilter, platformFilter, search]);
 
   return (
     <>
       <div className="space-y-4">
+        {/* Status filter tabs */}
+        <Tabs value={statusFilter} onValueChange={v => setStatusFilter(v as 'all' | 'draft' | 'revision' | 'review' | 'published')}>
+          <TabsList className="h-auto p-1 flex flex-wrap gap-0.5">
+            <TabsTrigger value="all" className="gap-1.5 text-xs sm:text-sm">
+              <Layers className="h-3.5 w-3.5" />ทั้งหมด<span className="ml-1 text-[10px] px-1.5 py-0 rounded-full bg-muted font-semibold">{statusCounts.all}</span>
+            </TabsTrigger>
+            <TabsTrigger value="draft" className="gap-1.5 text-xs sm:text-sm">
+              <Edit3 className="h-3.5 w-3.5" />ฉบับร่าง<span className="ml-1 text-[10px] px-1.5 py-0 rounded-full bg-muted font-semibold">{statusCounts.draft}</span>
+            </TabsTrigger>
+            <TabsTrigger value="revision" className="gap-1.5 text-xs sm:text-sm">
+              <RotateCcw className="h-3.5 w-3.5" />รอแก้ไข<span className="ml-1 text-[10px] px-1.5 py-0 rounded-full bg-muted font-semibold">{statusCounts.revision}</span>
+            </TabsTrigger>
+            <TabsTrigger value="review" className="gap-1.5 text-xs sm:text-sm">
+              <Clock className="h-3.5 w-3.5" />รอเผยแพร่<span className="ml-1 text-[10px] px-1.5 py-0 rounded-full bg-muted font-semibold">{statusCounts.review}</span>
+            </TabsTrigger>
+            <TabsTrigger value="published" className="gap-1.5 text-xs sm:text-sm">
+              <CheckCircle2 className="h-3.5 w-3.5" />เผยแพร่แล้ว<span className="ml-1 text-[10px] px-1.5 py-0 rounded-full bg-muted font-semibold">{statusCounts.published}</span>
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+
         {/* Type filter tabs */}
         <Tabs value={typeFilter} onValueChange={v => setTypeFilter(v as 'all' | 'article' | 'video' | 'image')}>
           <TabsList className="h-auto p-1 flex flex-wrap gap-0.5">
             <TabsTrigger value="all" className="gap-1.5 text-xs sm:text-sm">
-              ทั้งหมด<span className="ml-1 text-[10px] px-1.5 py-0 rounded-full bg-muted font-semibold">{counts.all}</span>
+              <Layers className="h-3.5 w-3.5" />ทั้งหมด<span className="ml-1 text-[10px] px-1.5 py-0 rounded-full bg-muted font-semibold">{counts.all}</span>
             </TabsTrigger>
             <TabsTrigger value="article" className="gap-1.5 text-xs sm:text-sm">
               <FileText className="h-3.5 w-3.5" />บทความ<span className="ml-1 text-[10px] px-1.5 py-0 rounded-full bg-muted font-semibold">{counts.article}</span>

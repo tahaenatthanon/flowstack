@@ -11,6 +11,7 @@
 - เปลี่ยน label ของสถานะ `review` ใน `STATUS_MAP` จาก "รออนุมัติ" เป็น "รอเผยแพร่"
 - เพิ่ม entry ใหม่ `revision` ใน `STATUS_MAP` พร้อม label "รอแก้ไข"
 - ไอคอนของ Status Sub-tab ใช้รูปแบบเดียวกันกับ Type Filter เดิม เพื่อความสอดคล้องของ UI
+- เพิ่มไอคอนในปุ่ม "ทั้งหมด" ของ Type Filter ให้มี icon เหมือนกับ tab อื่น (บทความ/วีดีโอ/รูปภาพ)
 
 ## Capabilities
 
