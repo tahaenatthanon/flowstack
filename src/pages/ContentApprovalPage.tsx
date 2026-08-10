@@ -1,8 +1,12 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Check, X, Filter, AlertTriangle, FileText } from 'lucide-react';
+import {
+  Check, X, Filter, AlertTriangle, FileText, Clock, CheckCircle2, XCircle, ArrowUpDown,
+  Layers, Search, Shapes,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
@@ -24,25 +28,79 @@ import {
   STATUS_MAP, PLATFORM_MAP, TYPE_MAP, type ContentItem,
 } from '@/components/content/types';
 
+// Tab definitions — 'all' shows every status, the rest filter by ContentItem.status
+const TABS: { value: string; label: string; icon: React.ElementType }[] = [
+  { value: 'all',       label: 'ทั้งหมด',     icon: Layers },
+  { value: 'review',    label: 'รออนุมัติ',    icon: Clock },
+  { value: 'published', label: 'อนุมัติแล้ว',  icon: CheckCircle2 },
+  { value: 'revision',  label: 'ขอแก้ไข',     icon: AlertTriangle },
+  { value: 'rejected',  label: 'ปฏิเสธ',      icon: XCircle },
+];
+
+// Empty state copy per tab
+const EMPTY_STATE: Record<string, { icon: React.ElementType; title: string; hint: string }> = {
+  all:       { icon: FileText,      title: 'ไม่มีรายการคอนเทนต์',       hint: 'ยังไม่มีคอนเทนต์ในระบบ' },
+  review:    { icon: Clock,         title: 'ไม่มีรายการรออนุมัติ',       hint: 'เนื้อหาทั้งหมดได้รับการจัดการเรียบร้อยแล้ว' },
+  published: { icon: CheckCircle2,  title: 'ไม่มีรายการที่อนุมัติแล้ว',  hint: 'ยังไม่มีเนื้อหาที่ได้รับการอนุมัติ' },
+  revision:  { icon: AlertTriangle, title: 'ไม่มีรายการที่ขอแก้ไข',     hint: 'ยังไม่มีเนื้อหาที่ต้องแก้ไข' },
+  rejected:  { icon: XCircle,       title: 'ไม่มีรายการที่ถูกปฏิเสธ',    hint: 'ยังไม่มีเนื้อหาที่ถูกปฏิเสธ' },
+};
+
 export default function ContentApprovalPage() {
   const { toast } = useToast();
   const qc = useQueryClient();
   const { data: items = [], isLoading } = useContentItems();
 
+  const [activeTab, setActiveTab] = useState('all');
+  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
+  const [typeFilter, setTypeFilter] = useState('all');
   const [platformFilter, setPlatformFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [rejectDialog, setRejectDialog] = useState<{ open: boolean; item: ContentItem | null }>({ open: false, item: null });
   const [rejectReason, setRejectReason] = useState('');
   const [confirmApprove, setConfirmApprove] = useState<ContentItem | null>(null);
 
-  // Filter: only items with review status
-  const pendingItems = items
-    .filter(item => item.status === 'review')
+  // Stat counts — computed from all items, independent of the active tab/filters
+  const statusCounts = {
+    review:    items.filter(i => i.status === 'review').length,
+    published: items.filter(i => i.status === 'published').length,
+    revision:  items.filter(i => i.status === 'revision').length,
+    rejected:  items.filter(i => i.status === 'rejected').length,
+  };
+
+  // Tab counts — 'all' counts every item, others count their own status
+  const tabCounts: Record<string, number> = {
+    all:       items.length,
+    review:    statusCounts.review,
+    published: statusCounts.published,
+    revision:  statusCounts.revision,
+    rejected:  statusCounts.rejected,
+  };
+
+  // Filter in stages: tab → type → platform → search, then sort by created_at
+  const tabItems = items.filter(item => activeTab === 'all' || item.status === activeTab);
+
+  const visibleItems = tabItems
+    .filter(item => typeFilter === 'all' || item.type === typeFilter)
     .filter(item => platformFilter === 'all' || item.platform === platformFilter)
     .filter(item =>
       !searchQuery ||
       item.title?.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    )
+    .slice()
+    .sort((a, b) => {
+      const ta = new Date(a.created_at).getTime();
+      const tb = new Date(b.created_at).getTime();
+      return sortOrder === 'newest' ? tb - ta : ta - tb;
+    });
+
+  // Stat cards use semantic tokens, matching the StatCards component on the Projects page
+  const statCards = [
+    { key: 'review',    label: 'รออนุมัติ',   value: statusCounts.review,    icon: Clock,         color: 'text-warning',     bgColor: 'bg-warning/10' },
+    { key: 'published', label: 'อนุมัติแล้ว', value: statusCounts.published, icon: CheckCircle2,  color: 'text-success',     bgColor: 'bg-success/10' },
+    { key: 'revision',  label: 'ขอแก้ไข',     value: statusCounts.revision,  icon: AlertTriangle, color: 'text-info',        bgColor: 'bg-info/10' },
+    { key: 'rejected',  label: 'ปฏิเสธ',      value: statusCounts.rejected,  icon: XCircle,       color: 'text-destructive', bgColor: 'bg-destructive/10' },
+  ];
 
   const handleApprove = async (item: ContentItem) => {
     try {
@@ -64,9 +122,9 @@ export default function ContentApprovalPage() {
     try {
       await apiFetch(`/content-items.php?id=${item.id}`, {
         method: 'PUT',
-        body: JSON.stringify({ status: 'draft' }),
+        body: JSON.stringify({ status: 'rejected' }),
       });
-      toast({ title: 'ปฏิเสธแล้ว', description: `"${item.title}" ถูกส่งกลับไปแก้ไข` });
+      toast({ title: 'ปฏิเสธแล้ว', description: `"${item.title}" ถูกเปลี่ยนสถานะเป็นปฏิเสธ` });
       qc.invalidateQueries({ queryKey: contentKeys.items() });
     } catch {
       toast({ title: 'เกิดข้อผิดพลาด', description: 'ไม่สามารถปฏิเสธได้', variant: 'destructive' });
@@ -75,13 +133,20 @@ export default function ContentApprovalPage() {
     setRejectReason('');
   };
 
+  const typeOptions = Object.entries(TYPE_MAP).map(([k, v]) => ({ value: k, label: v.label }));
   const platformOptions = Object.entries(PLATFORM_MAP).map(([k, v]) => ({ value: k, label: v.label }));
-  const usedPlatforms = [...new Set(pendingItems.map(i => i.platform).filter(Boolean))];
+  // Options come from the tab-filtered set so the current selection doesn't hide the alternatives
+  const usedTypes = [...new Set(tabItems.map(i => i.type).filter(Boolean))];
+  const usedPlatforms = [...new Set(tabItems.map(i => i.platform).filter(Boolean))];
 
   const formatDate = (d?: string | null) => {
     if (!d) return '-';
     return new Date(d).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' });
   };
+
+  const emptyState = EMPTY_STATE[activeTab] ?? EMPTY_STATE.all;
+  const EmptyIcon = emptyState.icon;
+  const hasActiveFilters = !!searchQuery || typeFilter !== 'all' || platformFilter !== 'all';
 
   return (
     <PageShell
@@ -93,44 +158,104 @@ export default function ContentApprovalPage() {
       title="รายการอนุมัติ"
       description="ตรวจสอบและอนุมัติเนื้อหาก่อนเผยแพร่"
     >
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3 mb-4">
-        <div className="relative flex-1 min-w-[200px] max-w-sm">
-          <Input
-            placeholder="ค้นหาชื่อคอนเทนต์..."
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            className="pl-8"
-          />
-          <FileText className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+      {/* Stat Cards — same visual pattern as StatCards on the Projects page */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 mb-4">
+        {statCards.map((card) => {
+          const Icon = card.icon;
+          return (
+            <div key={card.key} className="stat-card card-hover p-3 sm:p-5">
+              <div className="flex items-center gap-2 mb-2 sm:mb-3">
+                <div className={`p-1.5 sm:p-2 rounded-lg ${card.bgColor}`}>
+                  <Icon className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${card.color}`} />
+                </div>
+              </div>
+              <p className="text-xl sm:text-2xl font-bold font-heading">{card.value}</p>
+              <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">{card.label}</p>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Toolbar: Tabs (top row) + Type / Platform / Search / Sort (bottom row) */}
+      <div className="space-y-3 mb-4">
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="h-auto p-1 flex flex-wrap gap-0.5">
+            {TABS.map(tab => {
+              const TabIcon = tab.icon;
+              return (
+                <TabsTrigger key={tab.value} value={tab.value} className="gap-1.5 text-xs sm:text-sm">
+                  <TabIcon className="h-3.5 w-3.5" />{tab.label}
+                  <span className="ml-1 text-[10px] px-1.5 py-0 rounded-full bg-muted font-semibold">{tabCounts[tab.value] ?? 0}</span>
+                </TabsTrigger>
+              );
+            })}
+          </TabsList>
+        </Tabs>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative flex-1 min-w-[200px] max-w-sm">
+            <Input
+              placeholder="ค้นหา content..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="pl-8"
+            />
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          </div>
+          <Select value={typeFilter} onValueChange={setTypeFilter}>
+            <SelectTrigger className="w-[150px]">
+              <Shapes className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
+              <SelectValue placeholder="ทุกประเภท" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">ทุกประเภท</SelectItem>
+              {typeOptions
+                .filter(t => usedTypes.includes(t.value))
+                .map(t => (
+                  <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+          <Select value={platformFilter} onValueChange={setPlatformFilter}>
+            <SelectTrigger className="w-[160px]">
+              <Filter className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
+              <SelectValue placeholder="ทุกแพลตฟอร์ม" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">ทุกแพลตฟอร์ม</SelectItem>
+              {platformOptions
+                .filter(p => usedPlatforms.includes(p.value))
+                .map(p => (
+                  <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+          <Select value={sortOrder} onValueChange={(v) => setSortOrder(v as 'newest' | 'oldest')}>
+            <SelectTrigger className="w-[150px]">
+              <ArrowUpDown className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="newest">ใหม่ → เก่า</SelectItem>
+              <SelectItem value="oldest">เก่า → ใหม่</SelectItem>
+            </SelectContent>
+          </Select>
+          <Badge variant="secondary" className="ml-auto">
+            {visibleItems.length} รายการ
+          </Badge>
         </div>
-        <Select value={platformFilter} onValueChange={setPlatformFilter}>
-          <SelectTrigger className="w-[160px]">
-            <Filter className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
-            <SelectValue placeholder="ทุกแพลตฟอร์ม" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">ทุกแพลตฟอร์ม</SelectItem>
-            {platformOptions
-              .filter(p => usedPlatforms.includes(p.value))
-              .map(p => (
-                <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
-              ))}
-          </SelectContent>
-        </Select>
-        <Badge variant="secondary" className="ml-auto">
-          {pendingItems.length} รายการ
-        </Badge>
       </div>
 
       {/* Table */}
       {isLoading ? (
         <div className="flex items-center justify-center py-20 text-muted-foreground">กำลังโหลด...</div>
-      ) : pendingItems.length === 0 ? (
+      ) : visibleItems.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-muted-foreground gap-3">
-          <AlertTriangle className="h-10 w-10 opacity-30" />
-          <p className="text-lg font-medium">ไม่มีรายการรออนุมัติ</p>
-          <p className="text-sm">เนื้อหาทั้งหมดได้รับการจัดการเรียบร้อยแล้ว</p>
+          <EmptyIcon className="h-10 w-10 opacity-30" />
+          <p className="text-lg font-medium">{emptyState.title}</p>
+          <p className="text-sm">
+            {hasActiveFilters ? 'ลองปรับคำค้นหา ตัวกรองประเภท หรือแพลตฟอร์ม' : emptyState.hint}
+          </p>
         </div>
       ) : (
         <div className="rounded-md border">
@@ -146,10 +271,11 @@ export default function ContentApprovalPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {pendingItems.map((item) => {
+              {visibleItems.map((item) => {
                 const platform = PLATFORM_MAP[item.platform ?? ''] ?? null;
                 const type = TYPE_MAP[item.type] ?? TYPE_MAP.article;
                 const status = STATUS_MAP[item.status] ?? { label: item.status, color: 'bg-gray-100 text-gray-600' };
+                const isPending = item.status === 'review';
                 return (
                   <TableRow key={item.id}>
                     <TableCell className="font-medium max-w-[200px] truncate">{item.title}</TableCell>
@@ -168,22 +294,26 @@ export default function ContentApprovalPage() {
                       <Badge variant="outline" className={status.color}>{status.label}</Badge>
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button
-                          variant="ghost" size="sm"
-                          onClick={() => setConfirmApprove(item)}
-                          className="text-green-600 hover:text-green-700 hover:bg-green-50"
-                        >
-                          <Check className="h-4 w-4 mr-1" />อนุมัติ
-                        </Button>
-                        <Button
-                          variant="ghost" size="sm"
-                          onClick={() => { setRejectDialog({ open: true, item }); setRejectReason(''); }}
-                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                        >
-                          <X className="h-4 w-4 mr-1" />ปฏิเสธ
-                        </Button>
-                      </div>
+                      {isPending ? (
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost" size="sm"
+                            onClick={() => setConfirmApprove(item)}
+                            className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                          >
+                            <Check className="h-4 w-4 mr-1" />อนุมัติ
+                          </Button>
+                          <Button
+                            variant="ghost" size="sm"
+                            onClick={() => { setRejectDialog({ open: true, item }); setRejectReason(''); }}
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          >
+                            <X className="h-4 w-4 mr-1" />ปฏิเสธ
+                          </Button>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">ดำเนินการแล้ว</span>
+                      )}
                     </TableCell>
                   </TableRow>
                 );
@@ -215,7 +345,7 @@ export default function ContentApprovalPage() {
           <DialogHeader>
             <DialogTitle>ปฏิเสธเนื้อหา</DialogTitle>
             <DialogDescription>
-              เนื้อหานี้จะถูกส่งกลับไปยังสถานะ "ร่าง" เพื่อให้ผู้สร้างแก้ไข
+              เนื้อหานี้จะถูกเปลี่ยนสถานะเป็น "ปฏิเสธ" และแสดงในแท็บปฏิเสธ
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
