@@ -1,0 +1,25 @@
+# Pass Authorization header to PHP
+SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+
+# CORS for API endpoints (Apache-level)
+<IfModule mod_headers.c>
+	# Allow specific origins (localhost dev + production domain)
+	SetEnvIfNoCase Origin "^https?://(localhost|127\.0\.0\.1)(:[0-9]+)?$" ACAO=$0
+	SetEnvIfNoCase Origin "^https?://platform\.ktnbs\.com(:[0-9]+)?$" ACAO=$0
+
+	Header always set Access-Control-Allow-Origin "%{ACAO}e" env=ACAO
+	Header always set Vary "Origin"
+	Header always set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+	Header always set Access-Control-Allow-Headers "Content-Type, Authorization, X-Requested-With, X-Superadmin-Tenant"
+	Header always set Access-Control-Allow-Credentials "true"
+
+	# Chrome Private Network Access (PNA) — allow public origin → localhost
+	Header always set Access-Control-Allow-Private-Network "true"
+</IfModule>
+
+# Short-circuit preflight requests
+<IfModule mod_rewrite.c>
+	RewriteEngine On
+	RewriteCond %{REQUEST_METHOD} OPTIONS
+	RewriteRule ^(.*)$ $1 [R=200,L]
+</IfModule>

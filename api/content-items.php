@@ -1,0 +1,102 @@
+<?php
+require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/auth.php';
+
+$db     = getDB();
+$method = getMethod();
+$auth   = requireAuth();
+$userId = $auth['user_id'];
+$tenantId = $auth['tenant_id'];
+
+try {
+    $db->exec("CREATE TABLE IF NOT EXISTS `content_publish_queue` (
+      `id` CHAR(36) NOT NULL,
+      `tenant_id` CHAR(36) NOT NULL,
+      `content_id` CHAR(36) NOT NULL,
+      `channel_id` CHAR(36) NOT NULL,
+      `scheduled_at` DATETIME NOT NULL,
+      `status` ENUM('pending','processing','sent','failed') NOT NULL DEFAULT 'pending',
+      `sent_at` DATETIME DEFAULT NULL,
+      `error_msg` VARCHAR(500) DEFAULT NULL,
+      `retry_count` TINYINT UNSIGNED NOT NULL DEFAULT 0,
+      `created_at` DATETIME NOT NULL DEFAULT current_timestamp(),
+      `updated_at` DATETIME NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+      PRIMARY KEY (`id`),
+      KEY `idx_tenant_status_scheduled` (`tenant_id`, `status`, `scheduled_at`),
+      KEY `idx_content_id` (`content_id`),
+      KEY `idx_channel_id` (`channel_id`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+} catch (Exception $e) { error_log('[migration] ' . $e->getMessage()); }
+
+if ($method === 'GET') {
+    $search = $_GET['search'] ?? '';
+    // Base query from content_items as primary content store
+    $sql    = 'SELECT
+                      ci.id,
+                      ci.tenant_id,
+                      ci.title,
+                      ci.type,
+                      ci.status,
+                      COALESCE(ci.views, 0)             AS views,
+                      COALESCE(ci.likes, 0)             AS likes,
+                      COALESCE(ci.created_by, \'\')      AS created_by,
+                      ci.plan_item_id,
+                      COALESCE(NULLIF(ci.caption,\'\'), cpi.caption)         AS caption,
+                      COALESCE(NULLIF(ci.image_brief,\'\'), cpi.image_brief) AS image_brief,
+                      COALESCE(NULLIF(ci.generated_image_url,\'\'), cpi.generated_image_url) AS generated_image_url,
+                      COALESCE(NULLIF(ci.article_content,\'\'), cpi.article_content) AS article_content,
+                      COALESCE(NULLIF(ci.platform,\'\'), cpi.platform)       AS platform,
+                      COALESCE(cpi.day_label, \'\')              AS day_label,
+                      COALESCE(ci.scheduled_date, cpi.scheduled_date) AS scheduled_date,
+                      cp.title                            AS plan_title,
+                      cp.id                               AS plan_id,
+                      cp.week_start,
+                      ci.created_at,
+                      ci.updated_at
+               FROM content_items ci
+               LEFT JOIN content_plan_items cpi ON cpi.id = ci.plan_item_id
+               LEFT JOIN content_plans cp ON cp.id = COALESCE(ci.plan_id, cpi.plan_id) AND cp.tenant_id = ?
+               WHERE ci.tenant_id = ?';
+    $params = [$tenantId, $tenantId];
+    if ($search) { $sql .= ' AND (ci.title LIKE ? OR ci.caption LIKE ? OR ci.platform LIKE ?)'; $params[] = "%$search%"; $params[] = "%$search%"; $params[] = "%$search%"; }
+    $sql .= ' ORDER BY ci.created_at DESC';
+    $stmt = $db->prepare($sql);
+    $stmt->execute($params);
+    jsonResponse($stmt->fetchAll());
+}
+
+if ($method === 'POST') {
+    $body = getRequestBody();
+    if (empty($body['title'])) jsonError('กรุณาระบุชื่อคอนเทนต์');
+    $id = generateUUID();
+    $planItemId = $body['plan_item_id'] ?? null;
+    $db->prepare('INSERT INTO content_items (id, tenant_id, title, type, status, created_by, plan_item_id, platform, scheduled_date, caption, image_brief, plan_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
+       ->execute([$id, $tenantId, $body['title'], $body['type'] ?? 'article', $body['status'] ?? 'draft', $userId, $planItemId, $body['platform'] ?? null, $body['scheduled_date'] ?? null, $body['caption'] ?? '', $body['image_brief'] ?? '', $body['plan_id'] ?? null]);
+    $stmt = $db->prepare('SELECT ci.*, cpi.day_label, cp.title AS plan_title, cp.id AS plan_id, cp.week_start FROM content_items ci LEFT JOIN content_plan_items cpi ON cpi.id=ci.plan_item_id LEFT JOIN content_plans cp ON cp.id=COALESCE(ci.plan_id, cpi.plan_id) WHERE ci.id=?');
+    $stmt->execute([$id]);
+    jsonResponse($stmt->fetch(), 201);
+}
+
+if ($method === 'PUT') {
+    $id = $_GET['id'] ?? null;
+    if (!$id) jsonError('Missing id');
+    $body    = getRequestBody();
+    $allowed = ['title', 'type', 'status', 'views', 'likes', 'caption', 'platform', 'scheduled_date', 'image_brief', 'article_content'];
+    $fields  = []; $values = [];
+    foreach ($allowed as $f) { if (array_key_exists($f, $body)) { $fields[] = "`$f` = ?"; $values[] = $body[$f]; } }
+    if (empty($fields)) jsonError('ไม่มีข้อมูลที่จะอัปเดต');
+    $values[] = $id; $values[] = $tenantId;
+    $db->prepare('UPDATE content_items SET ' . implode(', ', $fields) . ', updated_at=NOW() WHERE id = ? AND tenant_id = ?')->execute($values);
+    $stmt = $db->prepare('SELECT ci.*, cpi.day_label, cp.title AS plan_title, cp.id AS plan_id, cp.week_start FROM content_items ci LEFT JOIN content_plan_items cpi ON cpi.id=ci.plan_item_id LEFT JOIN content_plans cp ON cp.id=COALESCE(ci.plan_id, cpi.plan_id) WHERE ci.id=?');
+    $stmt->execute([$id]);
+    jsonResponse($stmt->fetch());
+}
+
+if ($method === 'DELETE') {
+    $id = $_GET['id'] ?? null;
+    if (!$id) jsonError('Missing id');
+    $db->prepare('DELETE FROM content_items WHERE id = ? AND tenant_id = ?')->execute([$id, $tenantId]);
+    jsonResponse(['deleted' => true]);
+}
+
+jsonError('Method not allowed', 405);

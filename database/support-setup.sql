@@ -1,0 +1,104 @@
+-- ImpactOS Support Module — Database Tables
+-- Run once to set up the helpdesk schema
+
+CREATE TABLE IF NOT EXISTS `support_contracts` (
+  `id`                 CHAR(36)        NOT NULL,
+  `company_id`         CHAR(36)        NULL,
+  `customer_id`        CHAR(36)        NULL,
+  `contract_number`    VARCHAR(100)    NOT NULL,
+  `title`              VARCHAR(255)    NOT NULL,
+  `description`        TEXT            NOT NULL DEFAULT '',
+  `type`               ENUM('hardware','software','ma','support','other') NOT NULL DEFAULT 'support',
+  `status`             ENUM('active','expiring','expired','cancelled')    NOT NULL DEFAULT 'active',
+  `start_date`         DATE            NOT NULL,
+  `end_date`           DATE            NOT NULL,
+  `value`              DECIMAL(15,2)   NOT NULL DEFAULT 0.00,
+  `renewal_alert_days` INT             NOT NULL DEFAULT 30,
+  `vendor`             VARCHAR(255)    NOT NULL DEFAULT '',
+  `contact_name`       VARCHAR(255)    NOT NULL DEFAULT '',
+  `contact_phone`      VARCHAR(50)     NOT NULL DEFAULT '',
+  `contact_email`      VARCHAR(255)    NOT NULL DEFAULT '',
+  `notes`              TEXT            NOT NULL DEFAULT '',
+  `created_by`         CHAR(36)        NOT NULL,
+  `created_at`         DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`         DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_company`  (`company_id`),
+  KEY `idx_end_date` (`end_date`),
+  KEY `idx_status`   (`status`),
+  CONSTRAINT `fk_sc_company`  FOREIGN KEY (`company_id`)  REFERENCES `companies`(`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_sc_customer` FOREIGN KEY (`customer_id`) REFERENCES `customers`(`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_sc_creator`  FOREIGN KEY (`created_by`)  REFERENCES `users`(`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `support_tickets` (
+  `id`               CHAR(36)        NOT NULL,
+  `ticket_number`    VARCHAR(20)     NOT NULL,
+  `contract_id`      CHAR(36)        NULL,
+  `company_id`       CHAR(36)        NULL,
+  `customer_id`      CHAR(36)        NULL,
+  `title`            VARCHAR(255)    NOT NULL,
+  `description`      TEXT            NOT NULL DEFAULT '',
+  `type`             ENUM('incident','request','problem','change') NOT NULL DEFAULT 'incident',
+  `priority`         ENUM('critical','high','medium','low')        NOT NULL DEFAULT 'medium',
+  `status`           ENUM('open','in-progress','pending','resolved','closed') NOT NULL DEFAULT 'open',
+  `channel`          ENUM('phone','email','walk-in','line','system') NOT NULL DEFAULT 'system',
+  `assigned_to`      CHAR(36)        NULL,
+  `reported_by`      VARCHAR(255)    NOT NULL DEFAULT '',
+  `reporter_phone`   VARCHAR(50)     NOT NULL DEFAULT '',
+  `reporter_email`   VARCHAR(255)    NOT NULL DEFAULT '',
+  `resolution`       TEXT            NOT NULL DEFAULT '',
+  `sla_hours`        INT             NOT NULL DEFAULT 8,
+  `first_response_at` DATETIME       NULL,
+  `resolved_at`      DATETIME        NULL,
+  `closed_at`        DATETIME        NULL,
+  `csat_score`       TINYINT         NULL COMMENT '1-5 rating',
+  `csat_comment`     TEXT            NOT NULL DEFAULT '',
+  `created_by`       CHAR(36)        NOT NULL,
+  `created_at`       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_ticket_number` (`ticket_number`),
+  KEY `idx_status`   (`status`),
+  KEY `idx_priority` (`priority`),
+  KEY `idx_assigned` (`assigned_to`),
+  KEY `idx_company`  (`company_id`),
+  CONSTRAINT `fk_st_contract`  FOREIGN KEY (`contract_id`)  REFERENCES `support_contracts`(`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_st_company`   FOREIGN KEY (`company_id`)   REFERENCES `companies`(`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_st_customer`  FOREIGN KEY (`customer_id`)  REFERENCES `customers`(`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_st_assigned`  FOREIGN KEY (`assigned_to`)  REFERENCES `users`(`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_st_creator`   FOREIGN KEY (`created_by`)   REFERENCES `users`(`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `support_ticket_comments` (
+  `id`          CHAR(36)  NOT NULL,
+  `ticket_id`   CHAR(36)  NOT NULL,
+  `user_id`     CHAR(36)  NOT NULL,
+  `comment`     TEXT      NOT NULL,
+  `is_internal` TINYINT(1) NOT NULL DEFAULT 0,
+  `created_at`  DATETIME  NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_ticket` (`ticket_id`),
+  CONSTRAINT `fk_stc_ticket` FOREIGN KEY (`ticket_id`) REFERENCES `support_tickets`(`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_stc_user`   FOREIGN KEY (`user_id`)   REFERENCES `users`(`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `support_attachments` (
+  `id`          CHAR(36)      NOT NULL,
+  `ticket_id`   CHAR(36)      NULL,
+  `contract_id` CHAR(36)      NULL,
+  `file_name`   VARCHAR(255)  NOT NULL,
+  `file_path`   VARCHAR(500)  NOT NULL,
+  `file_size`   INT           NOT NULL DEFAULT 0,
+  `mime_type`   VARCHAR(100)  NOT NULL DEFAULT '',
+  `uploaded_by` CHAR(36)      NOT NULL,
+  `created_at`  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_ticket`   (`ticket_id`),
+  KEY `idx_contract` (`contract_id`),
+  CONSTRAINT `fk_sa_ticket`   FOREIGN KEY (`ticket_id`)   REFERENCES `support_tickets`(`id`)   ON DELETE CASCADE,
+  CONSTRAINT `fk_sa_contract` FOREIGN KEY (`contract_id`) REFERENCES `support_contracts`(`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_sa_uploader` FOREIGN KEY (`uploaded_by`) REFERENCES `users`(`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Auto-update contract status daily (trigger simulation — app handles via GET)

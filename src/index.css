@@ -1,0 +1,340 @@
+
+/* Hide scrollbar utility */
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* FullCalendar Styles - imported via JavaScript in component */
+/* Base calendar styles */
+.fc-theme-standard .fc-scrollgrid {
+  border: 1px solid hsl(var(--border));
+}
+
+.fc-theme-standard td, .fc-theme-standard th {
+  border-color: hsl(var(--border));
+}
+
+.fc .fc-daygrid-day-number,
+.fc .fc-col-header-cell-cushion {
+  color: hsl(var(--foreground));
+  text-decoration: none;
+}
+
+.fc .fc-daygrid-day:hover {
+  background-color: hsl(var(--accent) / 0.1);
+}
+
+.fc-event {
+  border-radius: 4px;
+  padding: 2px 4px;
+  font-size: 0.85em;
+  cursor: pointer;
+}
+
+.fc-event:hover {
+  opacity: 0.9;
+}
+
+/* Subtask events — visual indent under parent task */
+.fc-event.calendar-subtask {
+  padding-left: 0;
+  font-size: 0.78em;
+  opacity: 0.92;
+}
+
+.fc-event.calendar-subtask .fc-subtask-inner {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-left: 8px;
+  border-left: 3px solid rgba(255, 255, 255, 0.5);
+  margin-left: 2px;
+  font-size: 0.92em;
+}
+
+/* Subtask row in list view */
+.fc-list-event.calendar-subtask td {
+  padding-left: 24px !important;
+  border-left: 3px solid rgba(0, 0, 0, 0.15);
+}
+
+.fc-list-event.calendar-subtask .fc-list-event-title {
+  font-size: 0.9em;
+}
+
+.fc-button-primary {
+  background-color: hsl(var(--primary)) !important;
+  border-color: hsl(var(--primary)) !important;
+}
+
+.fc-button-primary:hover {
+  background-color: hsl(var(--primary) / 0.9) !important;
+}
+
+.fc-button-primary:disabled {
+  background-color: hsl(var(--muted)) !important;
+  border-color: hsl(var(--muted)) !important;
+}
+
+.fc-toolbar-title {
+  font-family: var(--font-heading);
+  font-size: 1.25rem !important;
+}
+
+.fc-day-today {
+  background-color: hsl(var(--accent) / 0.1) !important;
+}
+
+.fc-event-title,
+.fc-event-time {
+  font-family: var(--font-body);
+}
+
+.fc-list-event:hover td {
+  background-color: hsl(var(--accent) / 0.1);
+}
+
+.fc-list-day-cushion {
+  background-color: hsl(var(--muted)) !important;
+}
+
+.fc-popover {
+  background-color: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+}
+
+.fc-more-popover .fc-popover-body {
+  background-color: hsl(var(--card));
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 220 20% 97%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --primary: 222 60% 18%;
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 220 14% 92%;
+    --secondary-foreground: 222 47% 11%;
+
+    --muted: 220 14% 95%;
+    --muted-foreground: 220 10% 46%;
+
+    --accent: 174 60% 40%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 13% 89%;
+    --input: 220 13% 89%;
+    --ring: 222 60% 18%;
+
+    --radius: 0.75rem;
+
+    --success: 160 60% 40%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 38 92% 15%;
+    --info: 210 80% 52%;
+    --info-foreground: 0 0% 100%;
+
+    --progress-bg: 220 14% 92%;
+    --progress-fill: 174 60% 40%;
+    --progress-fill-warning: 38 92% 50%;
+    --progress-fill-danger: 0 72% 51%;
+
+    --sidebar-background: 222 60% 14%;
+    --sidebar-foreground: 220 14% 90%;
+    --sidebar-primary: 174 60% 50%;
+    --sidebar-primary-foreground: 222 60% 10%;
+    --sidebar-accent: 222 50% 22%;
+    --sidebar-accent-foreground: 220 14% 90%;
+    --sidebar-border: 222 40% 24%;
+    --sidebar-ring: 174 60% 50%;
+
+    --font-heading: 'Prompt', 'Leelawadee UI', 'Noto Sans Thai', Tahoma, sans-serif;
+    --font-body: 'Prompt', 'Leelawadee UI', 'Noto Sans Thai', Tahoma, sans-serif;
+  }
+
+  .dark {
+    --background: 222 47% 6%;
+    --foreground: 210 40% 96%;
+    --card: 222 47% 9%;
+    --card-foreground: 210 40% 96%;
+    --popover: 222 47% 9%;
+    --popover-foreground: 210 40% 96%;
+    --primary: 174 60% 50%;
+    --primary-foreground: 222 60% 10%;
+    --secondary: 222 30% 16%;
+    --secondary-foreground: 210 40% 96%;
+    --muted: 222 30% 14%;
+    --muted-foreground: 220 10% 56%;
+    --accent: 174 60% 40%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 62% 30%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 222 30% 18%;
+    --input: 222 30% 18%;
+    --ring: 174 60% 50%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-body);
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
+  }
+}
+
+/* Force Prompt font inside all Radix dialog portals and editors */
+[role="dialog"],
+[role="dialog"] *,
+.ql-editor,
+.ql-toolbar,
+.ql-tooltip {
+  font-family: var(--font-body) !important;
+}
+
+@layer components {
+  .card-hover {
+    @apply transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5;
+  }
+
+  .progress-bar {
+    @apply h-2 rounded-full overflow-hidden;
+    background: hsl(var(--progress-bg));
+  }
+
+  .progress-fill {
+    @apply h-full rounded-full transition-all duration-500 ease-out;
+    background: hsl(var(--progress-fill));
+  }
+
+  .progress-fill-warning {
+    background: hsl(var(--progress-fill-warning));
+  }
+
+  .progress-fill-danger {
+    background: hsl(var(--progress-fill-danger));
+  }
+
+  .status-badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .status-completed {
+    background: hsl(var(--success) / 0.12);
+    color: hsl(var(--success));
+  }
+
+  .status-in-progress {
+    background: hsl(var(--info) / 0.12);
+    color: hsl(var(--info));
+  }
+
+  .status-pending {
+    background: hsl(var(--warning) / 0.12);
+    color: hsl(var(--warning));
+  }
+
+  .status-overdue {
+    background: hsl(var(--destructive) / 0.12);
+    color: hsl(var(--destructive));
+  }
+
+  .status-cancelled {
+    background: hsl(var(--muted-foreground) / 0.1);
+    color: hsl(var(--muted-foreground));
+    text-decoration: line-through;
+  }
+
+  .stat-card {
+    @apply p-5 rounded-xl border bg-card;
+  }
+}
+
+/* Print styles for report export */
+@media print {
+  /* Hide sidebar, topnav, and elements marked no-print */
+  aside,
+  header,
+  .no-print {
+    display: none !important;
+  }
+
+  /* Reset layout so content fills the page */
+  body {
+    background: white !important;
+    color: black !important;
+  }
+
+  #report-print-area {
+    width: 100% !important;
+  }
+
+  /* Show print-only elements */
+  .print\:block {
+    display: block !important;
+  }
+
+  /* Clean up card borders for print */
+  .stat-card {
+    border: 1px solid #ddd !important;
+    break-inside: avoid;
+  }
+
+  table {
+    font-size: 11px;
+  }
+
+  tr {
+    break-inside: avoid;
+  }
+
+  /* Ensure status badges print with color */
+  .status-badge {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Project report Sheet: hide chrome, show only report content */
+  [data-radix-popper-content-wrapper],
+  [role="dialog"] > button,
+  [data-sheet-overlay] {
+    display: none !important;
+  }
+
+  /* When printing from the Sheet, show report-content full-width */
+  #report-content {
+    width: 100% !important;
+    padding: 16px !important;
+    color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

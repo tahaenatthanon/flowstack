@@ -1,0 +1,98 @@
+# Dependencies
+node_modules/
+vendor/
+
+# Environment / Secrets
+.env
+.env.*
+!.env.example
+
+# Build
+dist/
+build/
+.next/
+out/
+
+# Test / Reports
+coverage/
+test-results/
+playwright-report/
+
+# Uploads / Generated files
+uploads/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*.swp
+
+# TypeScript
+*.tsbuildinfo
+
+# Local database
+*.sqlite
+*.sqlite3
+
+# Generated / temporary data
+response.json
+tasks_result.json
+auth_token.txt
+users.txt
+
+# Local scripts / temporary files
+cross-env
+sum
+vite_react_shadcn_ts@0.0.0
+analyze_excel.cjs
+fix_all.cjs
+fix_dates.cjs
+fix_excel.cjs
+fix_thai.ps1
+verify_fix.cjs
+test_impactos.ps1
+kill-port.bat
+temp_projectUtils.ts
+qa-loop-prompt.md
+
+# Lock files from other package managers (use pnpm)
+package-lock.json
+bun.lockb
+
+# Error logs directory
+error/
+
+# Merge conflict artifacts
+*.orig
+*.rej
+
+# Legacy mockup
+mockup/
+
+# Local configuration overrides
+*.local
+
+# Database exports / dumps
+flowstack.sql
+flowstack/
+flowstack-*.sql
+
+# Agent & AI assistant configs (project tooling only)
+.agent/
+.agents/
+.claude/

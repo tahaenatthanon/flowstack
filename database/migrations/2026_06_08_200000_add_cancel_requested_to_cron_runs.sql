@@ -1,0 +1,2 @@
+ALTER TABLE cron_runs
+  ADD COLUMN IF NOT EXISTS cancel_requested TINYINT(1) NOT NULL DEFAULT 0 AFTER finished_at;
