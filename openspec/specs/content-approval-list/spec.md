@@ -67,11 +67,11 @@
 - **THEN** Tab Navigation (แถวบน), ช่องค้นหาพร้อมไอคอน `Search` (แว่นขยาย), Type Filter, Platform Filter, และ Sort Dropdown (แถวล่าง) ถูกจัดวางใน toolbar บริเวณเดียวกันระหว่าง Stat Cards และตาราง
 
 ### Requirement: Stat cards show approval status summary
-ระบบ SHALL แสดง Stat Cards 4 ใบด้านบนตาราง สรุปจำนวน content items แยกตามสถานะ: รออนุมัติ, อนุมัติแล้ว, ขอแก้ไข, และปฏิเสธ — โดยใช้ Visual Style แบบ `stat-card card-hover` สอดคล้องกับ Stat Cards ของหน้า Projects
+ระบบ SHALL แสดง Stat Cards 4 ใบด้านบนตาราง สรุปจำนวน content items แยกตามสถานะ: รออนุมัติ, อนุมัติแล้ว, ขอแก้ไข, และปฏิเสธ — โดย Visual Style กำหนดไว้ที่ capability `approval-stat-card-style`
 
 #### Scenario: Stat cards display with correct visual style
 - **WHEN** ผู้ใช้เข้าถึง `/content-approval`
-- **THEN** เห็น Stat Card 4 ใบที่ใช้ CSS class `stat-card card-hover` พร้อม icon container แบบ `rounded-lg bg-{color}/10` อยู่ด้านบน, ค่าตัวเลขแบบ `font-bold font-heading`, และ label ภาษาไทยใต้ค่า พร้อมจำนวนที่อัปเดตตามข้อมูลจริง
+- **THEN** เห็น Stat Card 4 ใบที่ใช้ `Card` component จาก design system โดยมี Title และ Icon อยู่ในแถวเดียวกันและ Count อยู่ด้านล่าง พร้อม label ภาษาไทยและจำนวนที่อัปเดตตามข้อมูลจริง
 
 #### Scenario: Stat cards use semantic color tokens
 - **WHEN** ผู้ใช้เข้าถึง `/content-approval`
