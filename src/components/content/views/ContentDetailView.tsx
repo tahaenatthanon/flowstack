@@ -1,9 +1,10 @@
-﻿import { ChevronRight, FileText, Play, Clock, Pencil, Sparkles, Loader2 } from 'lucide-react';
+﻿import { ChevronRight, FileText, Play, Clock, Pencil, Sparkles, Loader2, Check, X, Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
@@ -16,10 +17,22 @@ import ContentArticleView from './ContentArticleView';
 import ContentVideoView from './ContentVideoView';
 import { ContentCardDialog } from '@/components/content/ContentCardDialog';
 
-export default function ContentDetailView({ item, onBack }: { item: ContentItem; onBack: () => void }) {
+export default function ContentDetailView({
+  item,
+  onBack,
+  context = 'content',
+}: {
+  item: ContentItem;
+  onBack: () => void;
+  context?: 'approval' | 'content';
+}) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const isVideo = item.type === 'video' || ['tiktok', 'youtube', 'reels', 'shorts'].includes((item.platform ?? '').toLowerCase());
+  const isApproval = context === 'approval';
+  const canApprove = isApproval && item.status === 'review';
+  // Authors send draft/revision work into the approval queue — never from the approver's side
+  const canRequestApproval = !isApproval && (item.status === 'draft' || item.status === 'revision');
 
   const [schedOpen, setSchedOpen] = useState(false);
   const [schedChannelId, setSchedChannelId] = useState('');
@@ -29,6 +42,16 @@ export default function ContentDetailView({ item, onBack }: { item: ContentItem;
   const [editOpen, setEditOpen] = useState(false);
   const [generatingImage, setGeneratingImage] = useState(false);
   const [generatingArticle, setGeneratingArticle] = useState(false);
+
+  // Approval actions — 'revision' and 'rejected' collect an optional reason
+  const [approveConfirm, setApproveConfirm] = useState(false);
+  const [reasonDialog, setReasonDialog] = useState<'revision' | 'rejected' | null>(null);
+  const [reason, setReason] = useState('');
+  const [savingDecision, setSavingDecision] = useState(false);
+
+  // Request approval — author-side action, draft/revision → review
+  const [requestApprovalConfirm, setRequestApprovalConfirm] = useState(false);
+  const [savingRequest, setSavingRequest] = useState(false);
 
   const { data: channels = [] } = usePublishChannels(schedOpen);
 
@@ -53,6 +76,73 @@ export default function ContentDetailView({ item, onBack }: { item: ContentItem;
       toast({ title: 'ตั้งเวลาไม่สำเร็จ', description: e.message, variant: 'destructive' });
     } finally {
       setSavingSched(false);
+    }
+  };
+
+  // Approval decisions — one PUT per decision, then refresh both list views.
+  // 'revision' and 'rejected' also persist the approver's reason.
+  const applyDecision = async (status: 'published' | 'revision' | 'rejected', note?: string) => {
+    setSavingDecision(true);
+    try {
+      await apiFetch(`/content-items.php?id=${item.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          status,
+          ...(status !== 'published' && { reject_reason: note?.trim() ? note.trim() : null }),
+        }),
+      });
+      qc.invalidateQueries({ queryKey: ['content', 'items'] });
+      qc.invalidateQueries({ queryKey: ['content', 'plans'] });
+      return true;
+    } catch (e: any) {
+      toast({ title: 'ดำเนินการไม่สำเร็จ', description: e.message, variant: 'destructive' });
+      return false;
+    } finally {
+      setSavingDecision(false);
+    }
+  };
+
+  const handleApproveFromDetail = async () => {
+    if (await applyDecision('published')) {
+      toast({ title: 'อนุมัติเรียบร้อย', description: `"${item.title}" ได้รับการอนุมัติแล้ว` });
+      setApproveConfirm(false);
+      onBack();
+    }
+  };
+
+  const handleRevisionRequest = async () => {
+    if (await applyDecision('revision', reason)) {
+      toast({ title: 'ขอแก้ไขแล้ว', description: `"${item.title}" ถูกส่งกลับให้แก้ไข` });
+      setReasonDialog(null);
+      setReason('');
+      onBack();
+    }
+  };
+
+  const handleRejectFromDetail = async () => {
+    if (await applyDecision('rejected', reason)) {
+      toast({ title: 'ปฏิเสธแล้ว', description: `"${item.title}" ถูกเปลี่ยนสถานะเป็นปฏิเสธ` });
+      setReasonDialog(null);
+      setReason('');
+      onBack();
+    }
+  };
+
+  const handleRequestApproval = async () => {
+    setSavingRequest(true);
+    try {
+      await apiFetch(`/content-items.php?id=${item.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ status: 'review' }),
+      });
+      qc.invalidateQueries({ queryKey: ['content', 'items'] });
+      qc.invalidateQueries({ queryKey: ['content', 'plans'] });
+      toast({ title: 'ส่งอนุมัติแล้ว', description: `"${item.title}" ถูกส่งเข้าสู่การอนุมัติ` });
+      setRequestApprovalConfirm(false);
+    } catch (e: any) {
+      toast({ title: 'ส่งอนุมัติไม่สำเร็จ', description: e.message, variant: 'destructive' });
+    } finally {
+      setSavingRequest(false);
     }
   };
 
@@ -190,24 +280,48 @@ export default function ContentDetailView({ item, onBack }: { item: ContentItem;
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {!item.article_content && (
-            <Button size="sm" variant="default" className="gap-1.5" onClick={handleGenerateArticle} disabled={generatingArticle}>
-              {generatingArticle ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              {generatingArticle ? 'กำลังสร้าง...' : 'สร้างเนื้อหา AI'}
-            </Button>
+          {/* Approval context: only approve/revision/reject, and only while awaiting review */}
+          {canApprove && (
+            <>
+              <Button size="sm" variant="outline" className="gap-1.5 text-green-600 hover:text-green-700 hover:bg-green-50" onClick={() => setApproveConfirm(true)}>
+                <Check className="h-3.5 w-3.5" />อนุมัติ
+              </Button>
+              <Button size="sm" variant="outline" className="gap-1.5 text-amber-600 hover:text-amber-700 hover:bg-amber-50" onClick={() => { setReasonDialog('revision'); setReason(''); }}>
+                <Pencil className="h-3.5 w-3.5" />ขอแก้ไข
+              </Button>
+              <Button size="sm" variant="outline" className="gap-1.5 text-red-600 hover:text-red-700 hover:bg-red-50" onClick={() => { setReasonDialog('rejected'); setReason(''); }}>
+                <X className="h-3.5 w-3.5" />ปฏิเสธ
+              </Button>
+            </>
           )}
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setEditOpen(true)}>
-            <Pencil className="h-3.5 w-3.5" />แก้ไข
-          </Button>
-          {item.plan_item_id && (
-            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setSchedOpen(true)}>
-              <Clock className="h-3.5 w-3.5" />ตั้งเวลาโพสต์
-            </Button>
+          {/* Content context keeps the authoring actions */}
+          {!isApproval && (
+            <>
+              {!item.article_content && (
+                <Button size="sm" variant="default" className="gap-1.5" onClick={handleGenerateArticle} disabled={generatingArticle}>
+                  {generatingArticle ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                  {generatingArticle ? 'กำลังสร้าง...' : 'สร้างเนื้อหา AI'}
+                </Button>
+              )}
+              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setEditOpen(true)}>
+                <Pencil className="h-3.5 w-3.5" />แก้ไข
+              </Button>
+              {item.plan_item_id && (
+                <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setSchedOpen(true)}>
+                  <Clock className="h-3.5 w-3.5" />ตั้งเวลาโพสต์
+                </Button>
+              )}
+              {canRequestApproval && (
+                <Button size="sm" variant="outline" className="gap-1.5 text-blue-600 hover:text-blue-700 hover:bg-blue-50" onClick={() => setRequestApprovalConfirm(true)}>
+                  <Send className="h-3.5 w-3.5" />ขออนุมัติ
+                </Button>
+              )}
+            </>
           )}
         </div>
       </div>
 
-      {isVideo ? <ContentVideoView item={item} /> : <ContentArticleView item={item} />}
+      {isVideo ? <ContentVideoView item={item} context={context} /> : <ContentArticleView item={item} context={context} />}
 
       {/* Schedule Dialog */}
       <Dialog open={schedOpen} onOpenChange={open => { setSchedOpen(open); if (!open) { setSchedChannelId(''); setSchedDt(''); } }}>
@@ -245,19 +359,91 @@ export default function ContentDetailView({ item, onBack }: { item: ContentItem;
         </DialogContent>
       </Dialog>
 
+      {/* Approve confirmation — approval context only */}
+      <Dialog open={approveConfirm} onOpenChange={open => { if (!open) setApproveConfirm(false); }}>
+        <DialogContent className="w-full sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>ยืนยันการอนุมัติ</DialogTitle>
+            <DialogDescription>
+              ต้องการอนุมัติ "{item.title}" ใช่หรือไม่? เนื้อหาจะถูกเปลี่ยนสถานะเป็นเผยแพร่แล้ว
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setApproveConfirm(false)}>ยกเลิก</Button>
+            <Button disabled={savingDecision} onClick={handleApproveFromDetail}>
+              {savingDecision ? 'กำลังบันทึก...' : 'ยืนยันการอนุมัติ'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Request approval confirmation — content context only */}
+      <Dialog open={requestApprovalConfirm} onOpenChange={open => { if (!open) setRequestApprovalConfirm(false); }}>
+        <DialogContent className="w-full sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>ยืนยันการขออนุมัติ</DialogTitle>
+            <DialogDescription>
+              ต้องการส่ง "{item.title}" เข้าสู่การอนุมัติใช่หรือไม่? เนื้อหาจะถูกเปลี่ยนสถานะเป็นรอเผยแพร่
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setRequestApprovalConfirm(false)}>ยกเลิก</Button>
+            <Button disabled={savingRequest} onClick={handleRequestApproval}>
+              {savingRequest ? 'กำลังบันทึก...' : 'ยืนยัน'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reason dialog — shared by ขอแก้ไข and ปฏิเสธ; reason is optional */}
+      <Dialog open={!!reasonDialog} onOpenChange={open => { if (!open) { setReasonDialog(null); setReason(''); } }}>
+        <DialogContent className="w-full sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{reasonDialog === 'revision' ? 'ขอแก้ไขเนื้อหา' : 'ปฏิเสธเนื้อหา'}</DialogTitle>
+            <DialogDescription>
+              {reasonDialog === 'revision'
+                ? 'เนื้อหานี้จะถูกเปลี่ยนสถานะเป็น "รอแก้ไข" และส่งกลับให้ผู้สร้าง'
+                : 'เนื้อหานี้จะถูกเปลี่ยนสถานะเป็น "ปฏิเสธ" และแสดงในแท็บปฏิเสธ'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label>{reasonDialog === 'revision' ? 'เหตุผลที่ขอแก้ไข (ไม่บังคับ)' : 'เหตุผลที่ปฏิเสธ (ไม่บังคับ)'}</Label>
+            <Textarea
+              placeholder="ระบุเหตุผลหรือคำแนะนำในการแก้ไข..."
+              value={reason}
+              onChange={e => setReason(e.target.value)}
+              rows={3}
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => { setReasonDialog(null); setReason(''); }}>ยกเลิก</Button>
+            <Button
+              variant={reasonDialog === 'revision' ? 'default' : 'destructive'}
+              disabled={savingDecision}
+              onClick={reasonDialog === 'revision' ? handleRevisionRequest : handleRejectFromDetail}
+            >
+              {savingDecision ? 'กำลังบันทึก...' : reasonDialog === 'revision' ? 'ยืนยันขอแก้ไข' : 'ยืนยันการปฏิเสธ'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Edit Dialog — same ContentCardDialog used by planner page */}
-      <ContentCardDialog
-        open={editOpen}
-        onOpenChange={setEditOpen}
-        date={null}
-        planId={item.plan_id || ''}
-        existingItem={planItem}
-        onSave={handleEditSave}
-        onDelete={handleEditDelete}
-        onRequestAI={handleEditAI}
-        onGenerateImage={handleEditGenerateImage}
-        isGeneratingImage={generatingImage}
-      />
+      {!isApproval && (
+        <ContentCardDialog
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          date={null}
+          planId={item.plan_id || ''}
+          existingItem={planItem}
+          contentStatus={item.status}
+          onSave={handleEditSave}
+          onDelete={handleEditDelete}
+          onRequestAI={handleEditAI}
+          onGenerateImage={handleEditGenerateImage}
+          isGeneratingImage={generatingImage}
+        />
+      )}
     </div>
   );
 }

@@ -371,15 +371,19 @@ export default function ContentApprovalPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      {/* Content Detail Dialog — read-only view opened by clicking a row */}
+      {/* Content Detail Dialog — full content view opened by clicking a row */}
       <Dialog open={!!detailItem} onOpenChange={(v) => { if (!v) setDetailItem(null); }}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader className="sr-only">
+          <DialogHeader>
             <DialogTitle>รายละเอียดคอนเทนต์</DialogTitle>
-            <DialogDescription>ดูรายละเอียดของคอนเทนต์ที่เลือก</DialogDescription>
+            <DialogDescription>ตรวจสอบเนื้อหาก่อนอนุมัติ ขอแก้ไข หรือปฏิเสธ</DialogDescription>
           </DialogHeader>
           {detailItem && (
-            <ContentDetailView item={detailItem} onBack={() => setDetailItem(null)} />
+            <ContentDetailView
+              item={detailItem}
+              context="approval"
+              onBack={() => setDetailItem(null)}
+            />
           )}
         </DialogContent>
       </Dialog>

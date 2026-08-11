@@ -7,6 +7,8 @@ export interface ContentItem {
   views: number; likes: number; created_at: string;
   plan_item_id?: string | null;
   caption?: string | null;
+  // Approver's reason when status is 'rejected' or 'revision'
+  reject_reason?: string | null;
   image_brief?: string | null;
   generated_image_url?: string | null;
   image_gen_status?: string | null;

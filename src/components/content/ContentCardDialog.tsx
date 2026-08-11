@@ -12,7 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import type { PlanItem } from '@/components/content/types';
 import { PLATFORM_MAP } from '@/components/content/types';
 import { getThaiDayName, formatThaiDate } from './calendarUtils';
-import { CalendarDays, Save, Trash2, Sparkles, ImagePlus, RefreshCw, Loader2, Image as ImageIcon, FileText, Hash, Lightbulb, Clapperboard, MessageSquare, Share2, BookOpen, ChevronDown, Video, Play } from 'lucide-react';
+import { CalendarDays, Save, Trash2, Sparkles, ImagePlus, RefreshCw, Loader2, Image as ImageIcon, FileText, Hash, Lightbulb, Clapperboard, MessageSquare, Share2, BookOpen, ChevronDown, Video, Play, Send } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { apiFetch } from '@/lib/api';
@@ -43,6 +43,8 @@ interface Props {
   date: Date | null;
   planId: string;
   existingItem?: PlanItem | null;
+  /** Status of the content item being edited — drives the "ขออนุมัติ" footer button */
+  contentStatus?: string;
   onSave: (data: {
     item_id?: string;
     topic: string;
@@ -64,7 +66,7 @@ const PLATFORM_ICONS: Record<string, React.ElementType> = {
 
 
 export function ContentCardDialog({
-  open, onOpenChange, date, planId, existingItem,
+  open, onOpenChange, date, planId, existingItem, contentStatus,
   onSave, onDelete, onRequestAI, onGenerateImage, isGeneratingImage,
 }: Props) {
   const qc = useQueryClient();
@@ -88,6 +90,11 @@ export function ContentCardDialog({
   const [imageViewerOpen, setImageViewerOpen] = useState(false);
   const [generatingVideo, setGeneratingVideo] = useState(false);
   const [generatingScenes, setGeneratingScenes] = useState(false);
+
+  // Request approval — author sends draft/revision work into the approval queue
+  const [requestApprovalConfirm, setRequestApprovalConfirm] = useState(false);
+  const [requestingApproval, setRequestingApproval] = useState(false);
+  const canRequestApproval = !!existingItem && (contentStatus === 'draft' || contentStatus === 'revision');
 
   const { data: kbArticles = [] } = useQuery<any[]>({
     queryKey: ['knowledge-base'],
@@ -230,6 +237,26 @@ export function ContentCardDialog({
     finally { setDeleting(false); }
   };
 
+  const handleRequestApproval = async () => {
+    if (!existingItem) return;
+    setRequestingApproval(true);
+    try {
+      await apiFetch(`/content-items.php?id=${existingItem.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ status: 'review' }),
+      });
+      qc.invalidateQueries({ queryKey: ['content', 'items'] });
+      qc.invalidateQueries({ queryKey: ['content', 'plans'] });
+      toast({ title: 'ส่งอนุมัติแล้ว', description: `"${topic}" ถูกส่งเข้าสู่การอนุมัติ` });
+      setRequestApprovalConfirm(false);
+      onOpenChange(false);
+    } catch (e: any) {
+      toast({ title: 'ส่งอนุมัติไม่สำเร็จ', description: e.message, variant: 'destructive' });
+    } finally {
+      setRequestingApproval(false);
+    }
+  };
+
   const handleAI = async () => {
     if (!topic.trim() || !existingItem?.id) return;
     setAiGenerating(true);
@@ -345,6 +372,7 @@ export function ContentCardDialog({
   const allScenesHaveImages = scenes.length > 0 && scenes.every((s: any) => !!s.image_url);
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="flex flex-col p-0 gap-0 overflow-hidden"
@@ -730,8 +758,32 @@ export function ContentCardDialog({
           <Button onClick={handleSave} disabled={saving || !topic.trim()} className="gap-1.5">
             <Save className="h-3.5 w-3.5" />{saving ? 'กำลังบันทึก...' : 'บันทึก'}
           </Button>
+          {canRequestApproval && (
+            <Button variant="default" size="sm" className="gap-1.5" onClick={() => setRequestApprovalConfirm(true)}>
+              <Send className="h-3.5 w-3.5" />ขออนุมัติ
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    {/* Request approval confirmation — sibling so it survives the edit dialog closing */}
+    <Dialog open={requestApprovalConfirm} onOpenChange={open => { if (!open) setRequestApprovalConfirm(false); }}>
+      <DialogContent className="w-full sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>ยืนยันการขออนุมัติ</DialogTitle>
+          <DialogDescription>
+            ต้องการส่ง "{topic}" เข้าสู่การอนุมัติใช่หรือไม่? เนื้อหาจะถูกเปลี่ยนสถานะเป็นรอเผยแพร่
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={() => setRequestApprovalConfirm(false)}>ยกเลิก</Button>
+          <Button disabled={requestingApproval} onClick={handleRequestApproval}>
+            {requestingApproval ? 'กำลังบันทึก...' : 'ยืนยัน'}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

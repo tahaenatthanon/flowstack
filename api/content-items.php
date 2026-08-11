@@ -81,7 +81,7 @@ if ($method === 'PUT') {
     $id = $_GET['id'] ?? null;
     if (!$id) jsonError('Missing id');
     $body    = getRequestBody();
-    $allowed = ['title', 'type', 'status', 'views', 'likes', 'caption', 'platform', 'scheduled_date', 'image_brief', 'article_content'];
+    $allowed = ['title', 'type', 'status', 'views', 'likes', 'caption', 'platform', 'scheduled_date', 'image_brief', 'article_content', 'reject_reason'];
     $fields  = []; $values = [];
     foreach ($allowed as $f) { if (array_key_exists($f, $body)) { $fields[] = "`$f` = ?"; $values[] = $body[$f]; } }
     if (empty($fields)) jsonError('ไม่มีข้อมูลที่จะอัปเดต');

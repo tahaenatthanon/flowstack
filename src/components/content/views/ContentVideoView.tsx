@@ -18,9 +18,17 @@ const PLATFORM_COLORS: Record<string, string> = {
   instagram: 'bg-pink-500 text-white', facebook: 'bg-indigo-600 text-white',
 };
 
-export default function ContentVideoView({ item }: { item: ContentItem }) {
+export default function ContentVideoView({
+  item,
+  context = 'content',
+}: {
+  item: ContentItem;
+  context?: 'approval' | 'content';
+}) {
   const { toast } = useToast();
   const qc = useQueryClient();
+  // Approvers review only — AI generation stays with the content authors
+  const isApproval = context === 'approval';
   const [showSections, setShowSections] = useState(true);
   const [generatingScenes, setGeneratingScenes] = useState(false);
   const [generatingVideo, setGeneratingVideo] = useState(false);
@@ -128,19 +136,21 @@ export default function ContentVideoView({ item }: { item: ContentItem }) {
             <p className="text-xs mt-2">กด "สร้างสคริปต์" ในหน้าวางแผนเพื่อเริ่ม</p>
           </>
         )}
-        {/* Action buttons always visible */}
-        <div className="flex items-center justify-center gap-2 mt-6 flex-wrap">
-          <Button variant="outline" size="sm" disabled={generatingScenes}
-            onClick={handleGenerateScenes}>
-            {generatingScenes ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Image className="h-3.5 w-3.5 mr-1.5" />}
-            สร้างภาพทุกฉาก
-          </Button>
-          <Button variant="default" size="sm" disabled={generatingVideo || isGenerating}
-            onClick={handleGenerateVideo}>
-            {generatingVideo ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Video className="h-3.5 w-3.5 mr-1.5" />}
-            {isGenerating ? 'กำลังสร้าง...' : 'สร้างวิดีโอ'}
-          </Button>
-        </div>
+        {/* Generation actions — authoring only, hidden while approving */}
+        {!isApproval && (
+          <div className="flex items-center justify-center gap-2 mt-6 flex-wrap">
+            <Button variant="outline" size="sm" disabled={generatingScenes}
+              onClick={handleGenerateScenes}>
+              {generatingScenes ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Image className="h-3.5 w-3.5 mr-1.5" />}
+              สร้างภาพทุกฉาก
+            </Button>
+            <Button variant="default" size="sm" disabled={generatingVideo || isGenerating}
+              onClick={handleGenerateVideo}>
+              {generatingVideo ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Video className="h-3.5 w-3.5 mr-1.5" />}
+              {isGenerating ? 'กำลังสร้าง...' : 'สร้างวิดีโอ'}
+            </Button>
+          </div>
+        )}
       </div>
     );
   }
@@ -289,16 +299,20 @@ export default function ContentVideoView({ item }: { item: ContentItem }) {
       <div className="flex items-center gap-2 flex-wrap border-t pt-4">
         <CopyButton text={art.scripts?.[activePlatform] || ''} label="คัดลอกสคริปต์" />
         <div className="flex-1" />
-        <Button variant="outline" size="sm" disabled={generatingScenes}
-          onClick={handleGenerateScenes}>
-          {generatingScenes ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Image className="h-3.5 w-3.5 mr-1.5" />}
-          สร้างภาพทุกฉาก
-        </Button>
-        <Button variant="default" size="sm" disabled={generatingVideo || pollingVideo}
-          onClick={handleGenerateVideo}>
-          {generatingVideo ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Video className="h-3.5 w-3.5 mr-1.5" />}
-          {item.video_gen_status === 'generating' || pollingVideo ? 'กำลังสร้าง...' : 'สร้างวิดีโอ'}
-        </Button>
+        {!isApproval && (
+          <>
+            <Button variant="outline" size="sm" disabled={generatingScenes}
+              onClick={handleGenerateScenes}>
+              {generatingScenes ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Image className="h-3.5 w-3.5 mr-1.5" />}
+              สร้างภาพทุกฉาก
+            </Button>
+            <Button variant="default" size="sm" disabled={generatingVideo || pollingVideo}
+              onClick={handleGenerateVideo}>
+              {generatingVideo ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Video className="h-3.5 w-3.5 mr-1.5" />}
+              {item.video_gen_status === 'generating' || pollingVideo ? 'กำลังสร้าง...' : 'สร้างวิดีโอ'}
+            </Button>
+          </>
+        )}
       </div>
     </div>
   );
