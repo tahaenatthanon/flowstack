@@ -61,6 +61,8 @@ export default function ContentApprovalPage() {
   const [rejectDialog, setRejectDialog] = useState<{ open: boolean; item: ContentItem | null }>({ open: false, item: null });
   const [rejectReason, setRejectReason] = useState('');
   const [confirmApprove, setConfirmApprove] = useState<ContentItem | null>(null);
+  // Row click opens a read-only detail dialog; null means closed
+  const [detailItem, setDetailItem] = useState<ContentItem | null>(null);
 
   // Stat counts — computed from all items, independent of the active tab/filters
   const statusCounts = {
@@ -279,7 +281,11 @@ export default function ContentApprovalPage() {
                 const status = STATUS_MAP[item.status] ?? { label: item.status, color: 'bg-gray-100 text-gray-600' };
                 const isPending = item.status === 'review';
                 return (
-                  <TableRow key={item.id}>
+                  <TableRow
+                    key={item.id}
+                    className="cursor-pointer hover:bg-muted/30"
+                    onClick={() => setDetailItem(item)}
+                  >
                     <TableCell className="font-medium max-w-[200px] truncate">{item.title}</TableCell>
                     <TableCell className="hidden md:table-cell">
                       <Badge variant="outline" className={type.color}>{type.label}</Badge>
@@ -300,14 +306,14 @@ export default function ContentApprovalPage() {
                         <div className="flex items-center justify-end gap-1">
                           <Button
                             variant="ghost" size="sm"
-                            onClick={() => setConfirmApprove(item)}
+                            onClick={(e) => { e.stopPropagation(); setConfirmApprove(item); }}
                             className="text-green-600 hover:text-green-700 hover:bg-green-50"
                           >
                             <Check className="h-4 w-4 mr-1" />อนุมัติ
                           </Button>
                           <Button
                             variant="ghost" size="sm"
-                            onClick={() => { setRejectDialog({ open: true, item }); setRejectReason(''); }}
+                            onClick={(e) => { e.stopPropagation(); setRejectDialog({ open: true, item }); setRejectReason(''); }}
                             className="text-red-600 hover:text-red-700 hover:bg-red-50"
                           >
                             <X className="h-4 w-4 mr-1" />ปฏิเสธ
@@ -363,6 +369,18 @@ export default function ContentApprovalPage() {
             <Button variant="outline" onClick={() => setRejectDialog({ open: false, item: null })}>ยกเลิก</Button>
             <Button variant="destructive" onClick={handleReject}>ยืนยันการปฏิเสธ</Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* Content Detail Dialog — read-only view opened by clicking a row */}
+      <Dialog open={!!detailItem} onOpenChange={(v) => { if (!v) setDetailItem(null); }}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader className="sr-only">
+            <DialogTitle>รายละเอียดคอนเทนต์</DialogTitle>
+            <DialogDescription>ดูรายละเอียดของคอนเทนต์ที่เลือก</DialogDescription>
+          </DialogHeader>
+          {detailItem && (
+            <ContentDetailView item={detailItem} onBack={() => setDetailItem(null)} />
+          )}
         </DialogContent>
       </Dialog>
     </PageShell>
