@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -27,6 +28,7 @@ import PageShell from '@/components/PageShell';
 import {
   STATUS_MAP, PLATFORM_MAP, TYPE_MAP, type ContentItem,
 } from '@/components/content/types';
+import ContentDetailView from '@/components/content/views/ContentDetailView';
 
 // Tab definitions — 'all' shows every status, the rest filter by ContentItem.status
 const TABS: { value: string; label: string; icon: React.ElementType }[] = [
@@ -94,12 +96,12 @@ export default function ContentApprovalPage() {
       return sortOrder === 'newest' ? tb - ta : ta - tb;
     });
 
-  // Stat cards use semantic tokens, matching the StatCards component on the Projects page
+  // Stat cards use semantic tokens, matching the KpiCard pattern on the Home page
   const statCards = [
-    { key: 'review',    label: 'รออนุมัติ',   value: statusCounts.review,    icon: Clock,         color: 'text-warning',     bgColor: 'bg-warning/10' },
-    { key: 'published', label: 'อนุมัติแล้ว', value: statusCounts.published, icon: CheckCircle2,  color: 'text-success',     bgColor: 'bg-success/10' },
-    { key: 'revision',  label: 'ขอแก้ไข',     value: statusCounts.revision,  icon: AlertTriangle, color: 'text-info',        bgColor: 'bg-info/10' },
-    { key: 'rejected',  label: 'ปฏิเสธ',      value: statusCounts.rejected,  icon: XCircle,       color: 'text-destructive', bgColor: 'bg-destructive/10' },
+    { key: 'review',    label: 'รออนุมัติ',   value: statusCounts.review,    icon: Clock,         color: 'text-warning' },
+    { key: 'published', label: 'อนุมัติแล้ว', value: statusCounts.published, icon: CheckCircle2,  color: 'text-success' },
+    { key: 'revision',  label: 'ขอแก้ไข',     value: statusCounts.revision,  icon: AlertTriangle, color: 'text-info' },
+    { key: 'rejected',  label: 'ปฏิเสธ',      value: statusCounts.rejected,  icon: XCircle,       color: 'text-destructive' },
   ];
 
   const handleApprove = async (item: ContentItem) => {
@@ -158,20 +160,20 @@ export default function ContentApprovalPage() {
       title="รายการอนุมัติ"
       description="ตรวจสอบและอนุมัติเนื้อหาก่อนเผยแพร่"
     >
-      {/* Stat Cards — same visual pattern as StatCards on the Projects page */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 mb-4">
+      {/* Stat Cards — Title + Icon on one row, count below (KpiCard pattern) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-4">
         {statCards.map((card) => {
           const Icon = card.icon;
           return (
-            <div key={card.key} className="stat-card card-hover p-3 sm:p-5">
-              <div className="flex items-center gap-2 mb-2 sm:mb-3">
-                <div className={`p-1.5 sm:p-2 rounded-lg ${card.bgColor}`}>
-                  <Icon className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${card.color}`} />
-                </div>
-              </div>
-              <p className="text-xl sm:text-2xl font-bold font-heading">{card.value}</p>
-              <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">{card.label}</p>
-            </div>
+            <Card key={card.key}>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">{card.label}</CardTitle>
+                <Icon className={`h-4 w-4 ${card.color}`} />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{card.value}</div>
+              </CardContent>
+            </Card>
           );
         })}
       </div>
