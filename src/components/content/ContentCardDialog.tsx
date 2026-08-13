@@ -759,7 +759,7 @@ export function ContentCardDialog({
             <Save className="h-3.5 w-3.5" />{saving ? 'กำลังบันทึก...' : 'บันทึก'}
           </Button>
           {canRequestApproval && (
-            <Button variant="default" size="sm" className="gap-1.5" onClick={() => setRequestApprovalConfirm(true)}>
+            <Button variant="default" className="gap-1.5" onClick={() => setRequestApprovalConfirm(true)}>
               <Send className="h-3.5 w-3.5" />ขออนุมัติ
             </Button>
           )}
