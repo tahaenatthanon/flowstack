@@ -30,22 +30,22 @@ import {
 } from '@/components/content/types';
 import ContentDetailView from '@/components/content/views/ContentDetailView';
 
-// Tab definitions — 'all' shows every status, the rest filter by ContentItem.status
+// Tab definitions — 'all' shows every approval-relevant status, the rest filter by ContentItem.status
 const TABS: { value: string; label: string; icon: React.ElementType }[] = [
-  { value: 'all',       label: 'ทั้งหมด',     icon: Layers },
-  { value: 'review',    label: 'รออนุมัติ',    icon: Clock },
-  { value: 'published', label: 'อนุมัติแล้ว',  icon: CheckCircle2 },
-  { value: 'revision',  label: 'ขอแก้ไข',     icon: AlertTriangle },
-  { value: 'rejected',  label: 'ปฏิเสธ',      icon: XCircle },
+  { value: 'all',              label: 'ทั้งหมด',     icon: Layers },
+  { value: 'pending_approval', label: 'รออนุมัติ',    icon: Clock },
+  { value: 'approved',         label: 'อนุมัติแล้ว',  icon: CheckCircle2 },
+  { value: 'revision',         label: 'ขอแก้ไข',     icon: AlertTriangle },
+  { value: 'rejected',         label: 'ปฏิเสธ',      icon: XCircle },
 ];
 
 // Empty state copy per tab
 const EMPTY_STATE: Record<string, { icon: React.ElementType; title: string; hint: string }> = {
-  all:       { icon: FileText,      title: 'ไม่มีรายการคอนเทนต์',       hint: 'ยังไม่มีคอนเทนต์ในระบบ' },
-  review:    { icon: Clock,         title: 'ไม่มีรายการรออนุมัติ',       hint: 'เนื้อหาทั้งหมดได้รับการจัดการเรียบร้อยแล้ว' },
-  published: { icon: CheckCircle2,  title: 'ไม่มีรายการที่อนุมัติแล้ว',  hint: 'ยังไม่มีเนื้อหาที่ได้รับการอนุมัติ' },
-  revision:  { icon: AlertTriangle, title: 'ไม่มีรายการที่ขอแก้ไข',     hint: 'ยังไม่มีเนื้อหาที่ต้องแก้ไข' },
-  rejected:  { icon: XCircle,       title: 'ไม่มีรายการที่ถูกปฏิเสธ',    hint: 'ยังไม่มีเนื้อหาที่ถูกปฏิเสธ' },
+  all:              { icon: FileText,      title: 'ไม่มีรายการคอนเทนต์',       hint: 'ยังไม่มีคอนเทนต์ในระบบ' },
+  pending_approval: { icon: Clock,         title: 'ไม่มีรายการรออนุมัติ',       hint: 'เนื้อหาทั้งหมดได้รับการจัดการเรียบร้อยแล้ว' },
+  approved:         { icon: CheckCircle2,  title: 'ไม่มีรายการที่อนุมัติแล้ว',  hint: 'ยังไม่มีเนื้อหาที่ได้รับการอนุมัติ' },
+  revision:         { icon: AlertTriangle, title: 'ไม่มีรายการที่ขอแก้ไข',     hint: 'ยังไม่มีเนื้อหาที่ต้องแก้ไข' },
+  rejected:         { icon: XCircle,       title: 'ไม่มีรายการที่ถูกปฏิเสธ',    hint: 'ยังไม่มีเนื้อหาที่ถูกปฏิเสธ' },
 };
 
 export default function ContentApprovalPage() {
@@ -66,23 +66,27 @@ export default function ContentApprovalPage() {
 
   // Stat counts — computed from all items, independent of the active tab/filters
   const statusCounts = {
-    review:    items.filter(i => i.status === 'review').length,
-    published: items.filter(i => i.status === 'published').length,
-    revision:  items.filter(i => i.status === 'revision').length,
-    rejected:  items.filter(i => i.status === 'rejected').length,
+    pending_approval: items.filter(i => i.status === 'pending_approval').length,
+    approved:         items.filter(i => i.status === 'approved').length,
+    revision:         items.filter(i => i.status === 'revision').length,
+    rejected:         items.filter(i => i.status === 'rejected').length,
   };
 
-  // Tab counts — 'all' counts every item, others count their own status
+  // Only approval-relevant statuses belong on this page — 'draft' has not entered
+  // the workflow yet and 'published' has already left it
+  const approvalItems = items.filter(i => !['draft', 'published'].includes(i.status));
+
+  // Tab counts — 'all' counts every approval-relevant item, others count their own status
   const tabCounts: Record<string, number> = {
-    all:       items.length,
-    review:    statusCounts.review,
-    published: statusCounts.published,
-    revision:  statusCounts.revision,
-    rejected:  statusCounts.rejected,
+    all:              approvalItems.length,
+    pending_approval: statusCounts.pending_approval,
+    approved:         statusCounts.approved,
+    revision:         statusCounts.revision,
+    rejected:         statusCounts.rejected,
   };
 
   // Filter in stages: tab → type → platform → search, then sort by created_at
-  const tabItems = items.filter(item => activeTab === 'all' || item.status === activeTab);
+  const tabItems = approvalItems.filter(item => activeTab === 'all' || item.status === activeTab);
 
   const visibleItems = tabItems
     .filter(item => typeFilter === 'all' || item.type === typeFilter)
@@ -100,17 +104,17 @@ export default function ContentApprovalPage() {
 
   // Stat cards use semantic tokens, matching the KpiCard pattern on the Home page
   const statCards = [
-    { key: 'review',    label: 'รออนุมัติ',   value: statusCounts.review,    icon: Clock,         color: 'text-warning' },
-    { key: 'published', label: 'อนุมัติแล้ว', value: statusCounts.published, icon: CheckCircle2,  color: 'text-success' },
-    { key: 'revision',  label: 'ขอแก้ไข',     value: statusCounts.revision,  icon: AlertTriangle, color: 'text-info' },
-    { key: 'rejected',  label: 'ปฏิเสธ',      value: statusCounts.rejected,  icon: XCircle,       color: 'text-destructive' },
+    { key: 'pending_approval', label: 'รออนุมัติ',   value: statusCounts.pending_approval, icon: Clock,         color: 'text-warning' },
+    { key: 'approved',         label: 'อนุมัติแล้ว', value: statusCounts.approved,         icon: CheckCircle2,  color: 'text-success' },
+    { key: 'revision',         label: 'ขอแก้ไข',     value: statusCounts.revision,         icon: AlertTriangle, color: 'text-info' },
+    { key: 'rejected',         label: 'ปฏิเสธ',      value: statusCounts.rejected,         icon: XCircle,       color: 'text-destructive' },
   ];
 
   const handleApprove = async (item: ContentItem) => {
     try {
       await apiFetch(`/content-items.php?id=${item.id}`, {
         method: 'PUT',
-        body: JSON.stringify({ status: 'published' }),
+        body: JSON.stringify({ status: 'approved' }),
       });
       toast({ title: 'อนุมัติเรียบร้อย', description: `"${item.title}" ได้รับการอนุมัติแล้ว` });
       qc.invalidateQueries({ queryKey: contentKeys.items() });
@@ -279,7 +283,7 @@ export default function ContentApprovalPage() {
                 const platform = PLATFORM_MAP[item.platform ?? ''] ?? null;
                 const type = TYPE_MAP[item.type] ?? TYPE_MAP.article;
                 const status = STATUS_MAP[item.status] ?? { label: item.status, color: 'bg-gray-100 text-gray-600' };
-                const isPending = item.status === 'review';
+                const isPending = item.status === 'pending_approval';
                 return (
                   <TableRow
                     key={item.id}
@@ -337,7 +341,7 @@ export default function ContentApprovalPage() {
           <DialogHeader>
             <DialogTitle>ยืนยันการอนุมัติ</DialogTitle>
             <DialogDescription>
-              ต้องการอนุมัติ "{confirmApprove?.title}" ใช่หรือไม่? เนื้อหาจะถูกเปลี่ยนสถานะเป็นเผยแพร่แล้ว
+              ต้องการอนุมัติ "{confirmApprove?.title}" ใช่หรือไม่? เนื้อหาจะถูกเปลี่ยนสถานะเป็นอนุมัติแล้ว
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

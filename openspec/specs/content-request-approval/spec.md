@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Allow content authors to send their own draft or revision work into the approval queue from the content detail view, moving `content_items.status` from `draft`/`revision` to `review`. This is the author-side counterpart to the approver-side actions in `approval-detail-actions` — the two must never appear together.
+Allow content authors to send their own draft or revision work into the approval queue from the content detail view, moving `content_items.status` from `draft`/`revision` to `pending_approval`. This is the author-side counterpart to the approver-side actions in `approval-detail-actions` — the two must never appear together.
 
 ## Requirements
 
@@ -17,9 +17,9 @@ The system SHALL display a "ขออนุมัติ" button in ContentDetail
 - **WHEN** user opens ContentDetailView with `context='content'` and `item.status === 'revision'`
 - **THEN** a "ขออนุมัติ" button is visible in the action bar
 
-#### Scenario: Button hidden for review content
-- **WHEN** user opens ContentDetailView with `context='content'` and `item.status === 'review'`
-- **THEN** the "ขออนุมัติ" button is NOT visible (already in review)
+#### Scenario: Button hidden for pending_approval content
+- **WHEN** user opens ContentDetailView with `context='content'` and `item.status === 'pending_approval'`
+- **THEN** the "ขออนุมัติ" button is NOT visible (already in pending approval)
 
 #### Scenario: Button hidden for published content
 - **WHEN** user opens ContentDetailView with `context='content'` and `item.status === 'published'`
@@ -38,7 +38,7 @@ The system SHALL show a confirmation dialog when user clicks "ขออนุม
 
 #### Scenario: User confirms approval request
 - **WHEN** user clicks "ยืนยัน" in the confirm dialog
-- **THEN** the system sends `PUT /content-items.php?id={id}` with `{ status: 'review' }`
+- **THEN** the system sends `PUT /content-items.php?id={id}` with `{ status: 'pending_approval' }`
 - **AND** the content list and plan queries are invalidated
 - **AND** a toast appears with title "ส่งอนุมัติแล้ว"
 

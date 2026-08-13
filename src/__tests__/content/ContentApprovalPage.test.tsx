@@ -4,16 +4,16 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import ContentApprovalPage from '@/pages/ContentApprovalPage';
 import type { ContentItem } from '@/components/content/types';
 
-// One item per status so the stat cards have distinct, checkable counts.
-// Only the `review` item renders the approve/reject buttons.
+// One item per approval-relevant status so the stat cards have distinct, checkable counts.
+// Only the `pending_approval` item renders the approve/reject buttons.
 const ITEMS: ContentItem[] = [
-  { id: 'ci-review',    title: 'รอตรวจ บทความ A', type: 'article', status: 'review',
+  { id: 'ci-pending',  title: 'รอตรวจ บทความ A', type: 'article', status: 'pending_approval',
     views: 0, likes: 0, created_at: '2026-01-04', platform: 'facebook', plan_item_id: null },
-  { id: 'ci-published', title: 'เผยแพร่แล้ว B',    type: 'article', status: 'published',
+  { id: 'ci-approved', title: 'อนุมัติแล้ว B',    type: 'article', status: 'approved',
     views: 0, likes: 0, created_at: '2026-01-03', platform: 'facebook', plan_item_id: null },
-  { id: 'ci-revision',  title: 'ขอแก้ไข C',        type: 'article', status: 'revision',
+  { id: 'ci-revision', title: 'ขอแก้ไข C',        type: 'article', status: 'revision',
     views: 0, likes: 0, created_at: '2026-01-02', platform: 'facebook', plan_item_id: null },
-  { id: 'ci-rejected',  title: 'ปฏิเสธ D',         type: 'article', status: 'rejected',
+  { id: 'ci-rejected', title: 'ปฏิเสธ D',         type: 'article', status: 'rejected',
     views: 0, likes: 0, created_at: '2026-01-01', platform: 'facebook', plan_item_id: null },
 ];
 
@@ -67,7 +67,7 @@ describe('ContentApprovalPage', () => {
     await renderPage();
     expect(detailDialog()).toBeNull();
 
-    fireEvent.click(screen.getByText('เผยแพร่แล้ว B'));
+    fireEvent.click(screen.getByText('อนุมัติแล้ว B'));
 
     await waitFor(() => expect(detailDialog()).toBeTruthy());
     // ContentDetailView renders its own header with a back button
@@ -78,7 +78,7 @@ describe('ContentApprovalPage', () => {
     await renderPage();
     apiCalls.length = 0;
 
-    fireEvent.click(screen.getByText('เผยแพร่แล้ว B'));
+    fireEvent.click(screen.getByText('อนุมัติแล้ว B'));
     await waitFor(() => expect(detailDialog()).toBeTruthy());
 
     expect(apiCalls.filter(c => c.method !== 'GET')).toEqual([]);
@@ -107,7 +107,7 @@ describe('ContentApprovalPage', () => {
     expect(detailDialog()).toBeNull();
   });
 
-  it('approve sends a PUT with status published', async () => {
+  it('approve sends a PUT with status approved', async () => {
     await renderPage();
     fireEvent.click(screen.getByRole('button', { name: /อนุมัติ/ }));
     await waitFor(() => screen.getByRole('heading', { name: 'ยืนยันการอนุมัติ' }));
@@ -116,7 +116,7 @@ describe('ContentApprovalPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'ยืนยันการอนุมัติ' }));
 
     await waitFor(() =>
-      expect(apiCalls).toContainEqual({ url: '/content-items.php?id=ci-review', method: 'PUT' })
+      expect(apiCalls).toContainEqual({ url: '/content-items.php?id=ci-pending', method: 'PUT' })
     );
   });
 });

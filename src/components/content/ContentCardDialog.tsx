@@ -243,7 +243,7 @@ export function ContentCardDialog({
     try {
       await apiFetch(`/content-items.php?id=${existingItem.id}`, {
         method: 'PUT',
-        body: JSON.stringify({ status: 'review' }),
+        body: JSON.stringify({ status: 'pending_approval' }),
       });
       qc.invalidateQueries({ queryKey: ['content', 'items'] });
       qc.invalidateQueries({ queryKey: ['content', 'plans'] });

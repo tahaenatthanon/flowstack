@@ -2,14 +2,14 @@
 
 ## Purpose
 
-กำหนดพฤติกรรมของ Stat Cards ด้านบนหน้า "รายการอนุมัติ" (`/content-approval`) ซึ่งสรุปจำนวน content items ตามสถานะ `review`, `published`, `revision`, และ `rejected`
+กำหนดพฤติกรรมของ Stat Cards ด้านบนหน้า "รายการอนุมัติ" (`/content-approval`) ซึ่งสรุปจำนวน content items ตามสถานะ `pending_approval`, `approved`, `revision`, และ `rejected`
 
 **Visual Style** ของ Stat Cards กำหนดไว้ที่ capability `approval-stat-card-style` (Card component จาก design system — Title + Icon แถวเดียวกัน, Count ด้านล่าง)
 
 ## Requirements
 
 ### Requirement: Approval list shows stat cards for each status
-ระบบ SHALL แสดง Stat Cards 4 ช่องด้านบนหน้ารายการอนุมัติ สรุปจำนวน content items ตามสถานะ: รออนุมัติ (`review`), อนุมัติแล้ว (`published`), ขอแก้ไข (`revision`), และปฏิเสธ (`rejected`)
+ระบบ SHALL แสดง Stat Cards 4 ช่องด้านบนหน้ารายการอนุมัติ สรุปจำนวน content items ตามสถานะ: รออนุมัติ (`pending_approval`), อนุมัติแล้ว (`approved`), ขอแก้ไข (`revision`), และปฏิเสธ (`rejected`)
 
 #### Scenario: Display four status stat cards
 - **WHEN** ผู้ใช้เข้าถึง `/content-approval`
@@ -30,3 +30,12 @@
 #### Scenario: Zero count display
 - **WHEN** สถานะใดไม่มีรายการ
 - **THEN** Stat Card ของสถานะนั้นแสดงเลข 0
+
+#### Scenario: Stat card keys updated
+- **WHEN** หน้ารายการอนุมัติคำนวณ stat counts
+- **THEN** `statusCounts` object ใช้ keys: `pending_approval`, `approved`, `revision`, `rejected`
+- **AND** stat cards array ใช้ key ตรงกับ `statusCounts` keys
+
+#### Scenario: Counts reflect new status keys
+- **WHEN** มี content items ที่มี status `pending_approval` จำนวน 3 รายการ
+- **THEN** stat card "รออนุมัติ" แสดงตัวเลข 3 โดยใช้ `statusCounts.pending_approval`

@@ -2,13 +2,13 @@
 
 ## Purpose
 
-กำหนดพฤติกรรมของ Status Sub-tab สำหรับกรอง content items ตามสถานะ (`draft`, `revision`, `review`, `published`) ในแท็บ "ผลงานทั้งหมด" ของหน้า "ผลงานคอนเทนต์" รวมถึงการแสดงจำนวนนับ ลำดับการวาง label ของสถานะ และความสอดคล้องของไอคอนกับ Type Filter เดิม
+กำหนดพฤติกรรมของ Status Sub-tab สำหรับกรอง content items ตามสถานะ (`draft`, `revision`, `approved`, `published`) ในแท็บ "ผลงานทั้งหมด" ของหน้า "ผลงานคอนเทนต์" รวมถึงการแสดงจำนวนนับ ลำดับการวาง label ของสถานะ และความสอดคล้องของไอคอนกับ Type Filter เดิม
 
 ## Requirements
 
 ### Requirement: Status filter tabs in content list
 
-ระบบ SHALL แสดง Sub-tab สำหรับกรอง content items ตามสถานะ ภายในแท็บ "ผลงานทั้งหมด" (`ContentListTab`) โดยมีตัวเลือก: ทั้งหมด (`all`), ฉบับร่าง (`draft`), รอแก้ไข (`revision`), รอเผยแพร่ (`review`), เผยแพร่แล้ว (`published`)
+ระบบ SHALL แสดง Sub-tab สำหรับกรอง content items ตามสถานะ ภายในแท็บ "ผลงานทั้งหมด" (`ContentListTab`) โดยมีตัวเลือก: ทั้งหมด (`all`), ฉบับร่าง (`draft`), รอแก้ไข (`revision`), รอเผยแพร่ (`approved`), เผยแพร่แล้ว (`published`)
 
 #### Scenario: User filters by draft status
 
@@ -20,10 +20,10 @@
 - **WHEN** ผู้ใช้คลิก Sub-tab "รอแก้ไข"
 - **THEN** ระบบแสดงเฉพาะ content items ที่มี `status === 'revision'`
 
-#### Scenario: User filters by review status
+#### Scenario: User filters by approved status (รอเผยแพร่)
 
 - **WHEN** ผู้ใช้คลิก Sub-tab "รอเผยแพร่"
-- **THEN** ระบบแสดงเฉพาะ content items ที่มี `status === 'review'`
+- **THEN** ระบบแสดงเฉพาะ content items ที่มี `status === 'approved'`
 
 #### Scenario: User filters by published status
 
@@ -72,14 +72,14 @@ Status Sub-tab SHALL วางอยู่ระหว่าง Tab หลัก
 - **WHEN** database migration รันสำเร็จ
 - **THEN** `content_items.status` รองรับค่า `'revision'`
 
-### Requirement: Review status label updated
+### Requirement: Pending approval status label updated
 
-Label ของสถานะ `review` ใน `STATUS_MAP` SHALL เป็น "รอเผยแพร่" แทน "รออนุมัติ"
+Label ของสถานะ `pending_approval` ใน `STATUS_MAP` SHALL เป็น "รออนุมัติ"
 
 #### Scenario: Label appears in status filter
 
 - **WHEN** ระบบแสดง Status Sub-tab
-- **THEN** Sub-tab สำหรับสถานะ `review` แสดงข้อความ "รอเผยแพร่"
+- **THEN** Sub-tab สำหรับสถานะ `pending_approval` ไม่แสดง (content page ใช้ `approved` สำหรับ tab "รอเผยแพร่" แทน)
 
 #### Scenario: Revision label appears in status filter
 
@@ -88,8 +88,17 @@ Label ของสถานะ `review` ใน `STATUS_MAP` SHALL เป็น "
 
 #### Scenario: Label appears in content cards
 
-- **WHEN** ระบบแสดง content item card ที่มี `status === 'review'`
-- **THEN** badge/card แสดงข้อความ "รอเผยแพร่"
+- **WHEN** ระบบแสดง content item card ที่มี `status === 'approved'`
+- **THEN** badge/card แสดงข้อความ "อนุมัติแล้ว"
+
+### Requirement: Draft status label
+
+Label ของสถานะ `draft` ใน `STATUS_MAP` SHALL เป็น "ฉบับร่าง" แทน "ร่าง"
+
+#### Scenario: Draft label appears in status filter
+
+- **WHEN** ระบบแสดง Status Sub-tab
+- **THEN** Sub-tab สำหรับสถานะ `draft` แสดงข้อความ "ฉบับร่าง"
 
 ### Requirement: Icon consistency with existing design system
 

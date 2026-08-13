@@ -81,6 +81,13 @@ if ($method === 'PUT') {
     $id = $_GET['id'] ?? null;
     if (!$id) jsonError('Missing id');
     $body    = getRequestBody();
+    // Whitelist the status values the content workflow actually supports, so an
+    // unrecognized value is rejected with a clear 400 instead of being silently
+    // coerced to an empty string by MariaDB's non-strict ENUM handling.
+    $validStatus = ['published', 'draft', 'revision', 'pending_approval', 'rejected', 'approved'];
+    if (array_key_exists('status', $body) && !in_array($body['status'], $validStatus, true)) {
+        jsonError('สถานะไม่ถูกต้อง', 400);
+    }
     $allowed = ['title', 'type', 'status', 'views', 'likes', 'caption', 'platform', 'scheduled_date', 'image_brief', 'article_content', 'reject_reason'];
     $fields  = []; $values = [];
     foreach ($allowed as $f) { if (array_key_exists($f, $body)) { $fields[] = "`$f` = ?"; $values[] = $body[$f]; } }

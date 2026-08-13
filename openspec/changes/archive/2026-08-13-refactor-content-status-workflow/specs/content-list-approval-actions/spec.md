@@ -1,59 +1,37 @@
-# content-list-approval-actions Specification
+## ข้อกำหนดที่แก้ไข
 
-## Purpose
-
-กำหนดพฤติกรรมของปุ่มอนุมัติ/ขอแก้ไข/ปฏิเสธใน hover actions ของหน้าผลงานคอนเทนต์ทั้งหมด (`ContentListTab`) — ให้ผู้อนุมัติตัดสินใจได้จากรายการโดยตรงโดยไม่ต้องเปิดหน้ารายการอนุมัติ พร้อมบันทึกเหตุผลลง `reject_reason`
-
-## Requirements
-
-### Requirement: User can approve content from Content List
-ระบบ SHALL แสดงปุ่ม "อนุมัติ" ในหน้า Content List สำหรับ content item ที่มีสถานะ `pending_approval`
+### Requirement: ผู้ใช้สามารถอนุมัติเนื้อหาจากรายการผลงาน
+ระบบ SHALL แสดงปุ่ม "อนุมัติ" ในหน้า Content List สำหรับ content item ที่มีสถานะ `pending_approval` และเปลี่ยนสถานะเป็น `approved`
 
 #### Scenario: Approve from content list
 - **WHEN** ผู้ใช้ hover บนรายการ content item ที่มี status `pending_approval` ในหน้า Content List
 - **THEN** ระบบแสดงปุ่ม "อนุมัติ" ในกลุ่ม hover actions พร้อม icon เช็ค (Check)
 
-#### Scenario: Confirm approve dialog
-- **WHEN** ผู้ใช้คลิกปุ่ม "อนุมัติ"
-- **THEN** ระบบแสดง dialog ยืนยัน "ยืนยันการอนุมัติ" พร้อมชื่อ content item
-
 #### Scenario: Approve success
 - **WHEN** ผู้ใช้ยืนยันใน dialog
 - **THEN** ระบบเปลี่ยน status ของ content item เป็น `approved` และแสดง toast "อนุมัติเรียบร้อย"
 
-### Requirement: User can request revision from Content List
+### Requirement: ผู้ใช้สามารถขอแก้ไขจากรายการผลงาน
 ระบบ SHALL แสดงปุ่ม "ขอแก้ไข" ในหน้า Content List สำหรับ content item ที่มีสถานะ `pending_approval`
 
 #### Scenario: Request revision from content list
 - **WHEN** ผู้ใช้ hover บนรายการ content item ที่มี status `pending_approval` ในหน้า Content List
 - **THEN** ระบบแสดงปุ่ม "ขอแก้ไข" ในกลุ่ม hover actions พร้อม icon ดินสอ (Pencil)
 
-#### Scenario: Revision reason dialog
-- **WHEN** ผู้ใช้คลิกปุ่ม "ขอแก้ไข"
-- **THEN** ระบบแสดง dialog ให้กรอกเหตุผลที่ขอแก้ไข (textarea) พร้อมปุ่มยืนยันและยกเลิก
-
 #### Scenario: Revision request success
 - **WHEN** ผู้ใช้กรอกเหตุผลและคลิกยืนยัน
 - **THEN** ระบบเปลี่ยน status ของ content item เป็น `revision` พร้อมบันทึก `reject_reason` และแสดง toast "ขอแก้ไขแล้ว"
 
-### Requirement: User can reject content from Content List
+### Requirement: ผู้ใช้สามารถปฏิเสธเนื้อหาจากรายการผลงาน
 ระบบ SHALL แสดงปุ่ม "ปฏิเสธ" ในหน้า Content List สำหรับ content item ที่มีสถานะ `pending_approval`
 
 #### Scenario: Reject from content list
 - **WHEN** ผู้ใช้ hover บนรายการ content item ที่มี status `pending_approval` ในหน้า Content List
 - **THEN** ระบบแสดงปุ่ม "ปฏิเสธ" ในกลุ่ม hover actions พร้อม icon กากบาท (X)
 
-#### Scenario: Reject with reason dialog
-- **WHEN** ผู้ใช้คลิกปุ่ม "ปฏิเสธ"
-- **THEN** ระบบแสดง dialog ให้กรอกเหตุผลที่ปฏิเสธ (textarea) พร้อมปุ่มยืนยันและยกเลิก
-
-#### Scenario: Reject success
-- **WHEN** ผู้ใช้กรอกเหตุผลและคลิกยืนยัน
-- **THEN** ระบบเปลี่ยน status ของ content item เป็น `rejected` พร้อมบันทึก `reject_reason` และแสดง toast "ปฏิเสธแล้ว"
-
-### Requirement: Approval actions visible only on pending_approval items
+### Requirement: ปุ่มอนุมัติแสดงเฉพาะรายการ pending_approval
 ระบบ SHALL แสดงปุ่ม อนุมัติ/ขอแก้ไข/ปฏิเสธ เฉพาะสำหรับ content items ที่มี status `pending_approval` เท่านั้น — รายการ status อื่นไม่แสดงปุ่มเหล่านี้
 
-#### Scenario: Non-pending_approval items show no approval actions
+#### Scenario: รายการที่ไม่ใช่ pending_approval ไม่แสดงปุ่มอนุมัติ
 - **WHEN** ผู้ใช้ hover บนรายการ content item ที่มี status `draft`, `approved`, `published`, `revision`, หรือ `rejected`
 - **THEN** ไม่มีปุ่ม อนุมัติ/ขอแก้ไข/ปฏิเสธ แสดงใน hover actions

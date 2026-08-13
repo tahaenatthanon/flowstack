@@ -25,7 +25,7 @@ export default function ContentListTab() {
   const { confirm } = useConfirm();
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'draft' | 'revision' | 'review' | 'published'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'draft' | 'revision' | 'pending_approval' | 'approved' | 'published'>('all');
   const [typeFilter, setTypeFilter] = useState<'all' | 'article' | 'video' | 'image'>('all');
   const [platformFilter, setPlatformFilter] = useState<string>('all');
   const [editItem, setEditItem] = useState<ContentItem | null>(null);
@@ -127,14 +127,14 @@ export default function ContentListTab() {
   };
 
   // Approval decisions — one PUT per decision; revision/reject also persist the reason
-  const applyDecision = async (item: ContentItem, status: 'published' | 'revision' | 'rejected', note?: string) => {
+  const applyDecision = async (item: ContentItem, status: 'approved' | 'revision' | 'rejected', note?: string) => {
     setSavingDecision(true);
     try {
       await apiFetch(`/content-items.php?id=${item.id}`, {
         method: 'PUT',
         body: JSON.stringify({
           status,
-          ...(status !== 'published' && { reject_reason: note?.trim() ? note.trim() : null }),
+          ...(status !== 'approved' && { reject_reason: note?.trim() ? note.trim() : null }),
         }),
       });
       qc.invalidateQueries({ queryKey: ['content', 'items'] });
@@ -149,7 +149,7 @@ export default function ContentListTab() {
   };
 
   const handleApprove = async (item: ContentItem) => {
-    if (await applyDecision(item, 'published')) {
+    if (await applyDecision(item, 'approved')) {
       toast({ title: 'อนุมัติเรียบร้อย', description: `"${item.title}" ได้รับการอนุมัติแล้ว` });
       setApproveConfirm(null);
     }
@@ -191,7 +191,8 @@ export default function ContentListTab() {
     all: items.length,
     draft: items.filter(i => i.status === 'draft').length,
     revision: items.filter(i => i.status === 'revision').length,
-    review: items.filter(i => i.status === 'review').length,
+    pending_approval: items.filter(i => i.status === 'pending_approval').length,
+    approved: items.filter(i => i.status === 'approved').length,
     published: items.filter(i => i.status === 'published').length,
   }), [items]);
 
@@ -208,7 +209,7 @@ export default function ContentListTab() {
     <>
       <div className="space-y-4">
         {/* Status filter tabs */}
-        <Tabs value={statusFilter} onValueChange={v => setStatusFilter(v as 'all' | 'draft' | 'revision' | 'review' | 'published')}>
+        <Tabs value={statusFilter} onValueChange={v => setStatusFilter(v as 'all' | 'draft' | 'revision' | 'pending_approval' | 'approved' | 'published')}>
           <TabsList className="h-auto p-1 flex flex-wrap gap-0.5">
             <TabsTrigger value="all" className="gap-1.5 text-xs sm:text-sm">
               <Layers className="h-3.5 w-3.5" />ทั้งหมด<span className="ml-1 text-[10px] px-1.5 py-0 rounded-full bg-muted font-semibold">{statusCounts.all}</span>
@@ -219,8 +220,8 @@ export default function ContentListTab() {
             <TabsTrigger value="revision" className="gap-1.5 text-xs sm:text-sm">
               <RotateCcw className="h-3.5 w-3.5" />รอแก้ไข<span className="ml-1 text-[10px] px-1.5 py-0 rounded-full bg-muted font-semibold">{statusCounts.revision}</span>
             </TabsTrigger>
-            <TabsTrigger value="review" className="gap-1.5 text-xs sm:text-sm">
-              <Clock className="h-3.5 w-3.5" />รอเผยแพร่<span className="ml-1 text-[10px] px-1.5 py-0 rounded-full bg-muted font-semibold">{statusCounts.review}</span>
+            <TabsTrigger value="approved" className="gap-1.5 text-xs sm:text-sm">
+              <Clock className="h-3.5 w-3.5" />รอเผยแพร่<span className="ml-1 text-[10px] px-1.5 py-0 rounded-full bg-muted font-semibold">{statusCounts.approved}</span>
             </TabsTrigger>
             <TabsTrigger value="published" className="gap-1.5 text-xs sm:text-sm">
               <CheckCircle2 className="h-3.5 w-3.5" />เผยแพร่แล้ว<span className="ml-1 text-[10px] px-1.5 py-0 rounded-full bg-muted font-semibold">{statusCounts.published}</span>
@@ -411,7 +412,7 @@ export default function ContentListTab() {
                       {new Date(item.created_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}
                     </span>
                     {/* Approval actions — review items only */}
-                    {item.status === 'review' && (
+                    {item.status === 'pending_approval' && (
                       <>
                         <Button
                           size="sm"
@@ -521,7 +522,7 @@ export default function ContentListTab() {
           <DialogHeader>
             <DialogTitle>ยืนยันการอนุมัติ</DialogTitle>
             <DialogDescription>
-              ต้องการอนุมัติ "{approveConfirm?.title}" ใช่หรือไม่? เนื้อหาจะถูกเปลี่ยนสถานะเป็นเผยแพร่แล้ว
+              ต้องการอนุมัติ "{approveConfirm?.title}" ใช่หรือไม่? เนื้อหาจะถูกเปลี่ยนสถานะเป็นอนุมัติแล้ว
             </DialogDescription>
           </DialogHeader>
           <div className="flex justify-end gap-2">

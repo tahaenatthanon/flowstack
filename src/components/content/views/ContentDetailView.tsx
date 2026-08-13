@@ -30,9 +30,11 @@ export default function ContentDetailView({
   const qc = useQueryClient();
   const isVideo = item.type === 'video' || ['tiktok', 'youtube', 'reels', 'shorts'].includes((item.platform ?? '').toLowerCase());
   const isApproval = context === 'approval';
-  const canApprove = isApproval && item.status === 'review';
+  const canApprove = isApproval && item.status === 'pending_approval';
   // Authors send draft/revision work into the approval queue — never from the approver's side
   const canRequestApproval = !isApproval && (item.status === 'draft' || item.status === 'revision');
+  // Publishing is the author's call once an approver has signed off
+  const canPublish = !isApproval && item.status === 'approved';
 
   const [schedOpen, setSchedOpen] = useState(false);
   const [schedChannelId, setSchedChannelId] = useState('');
@@ -49,9 +51,13 @@ export default function ContentDetailView({
   const [reason, setReason] = useState('');
   const [savingDecision, setSavingDecision] = useState(false);
 
-  // Request approval — author-side action, draft/revision → review
+  // Request approval — author-side action, draft/revision → pending_approval
   const [requestApprovalConfirm, setRequestApprovalConfirm] = useState(false);
   const [savingRequest, setSavingRequest] = useState(false);
+
+  // Publish — author-side action, approved → published
+  const [publishConfirm, setPublishConfirm] = useState(false);
+  const [savingPublish, setSavingPublish] = useState(false);
 
   const { data: channels = [] } = usePublishChannels(schedOpen);
 
@@ -81,14 +87,14 @@ export default function ContentDetailView({
 
   // Approval decisions — one PUT per decision, then refresh both list views.
   // 'revision' and 'rejected' also persist the approver's reason.
-  const applyDecision = async (status: 'published' | 'revision' | 'rejected', note?: string) => {
+  const applyDecision = async (status: 'approved' | 'revision' | 'rejected', note?: string) => {
     setSavingDecision(true);
     try {
       await apiFetch(`/content-items.php?id=${item.id}`, {
         method: 'PUT',
         body: JSON.stringify({
           status,
-          ...(status !== 'published' && { reject_reason: note?.trim() ? note.trim() : null }),
+          ...(status !== 'approved' && { reject_reason: note?.trim() ? note.trim() : null }),
         }),
       });
       qc.invalidateQueries({ queryKey: ['content', 'items'] });
@@ -103,7 +109,7 @@ export default function ContentDetailView({
   };
 
   const handleApproveFromDetail = async () => {
-    if (await applyDecision('published')) {
+    if (await applyDecision('approved')) {
       toast({ title: 'อนุมัติเรียบร้อย', description: `"${item.title}" ได้รับการอนุมัติแล้ว` });
       setApproveConfirm(false);
       onBack();
@@ -133,7 +139,7 @@ export default function ContentDetailView({
     try {
       await apiFetch(`/content-items.php?id=${item.id}`, {
         method: 'PUT',
-        body: JSON.stringify({ status: 'review' }),
+        body: JSON.stringify({ status: 'pending_approval' }),
       });
       qc.invalidateQueries({ queryKey: ['content', 'items'] });
       qc.invalidateQueries({ queryKey: ['content', 'plans'] });
@@ -143,6 +149,24 @@ export default function ContentDetailView({
       toast({ title: 'ส่งอนุมัติไม่สำเร็จ', description: e.message, variant: 'destructive' });
     } finally {
       setSavingRequest(false);
+    }
+  };
+
+  const handlePublish = async () => {
+    setSavingPublish(true);
+    try {
+      await apiFetch(`/content-items.php?id=${item.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ status: 'published' }),
+      });
+      qc.invalidateQueries({ queryKey: ['content', 'items'] });
+      qc.invalidateQueries({ queryKey: ['content', 'plans'] });
+      toast({ title: 'เผยแพร่แล้ว', description: `"${item.title}" ถูกเผยแพร่เรียบร้อย` });
+      setPublishConfirm(false);
+    } catch (e: any) {
+      toast({ title: 'เผยแพร่ไม่สำเร็จ', description: e.message, variant: 'destructive' });
+    } finally {
+      setSavingPublish(false);
     }
   };
 
@@ -316,6 +340,11 @@ export default function ContentDetailView({
                   <Send className="h-3.5 w-3.5" />ขออนุมัติ
                 </Button>
               )}
+              {canPublish && (
+                <Button size="sm" variant="default" className="gap-1.5 bg-green-600 hover:bg-green-700 text-white" onClick={() => setPublishConfirm(true)}>
+                  <Send className="h-3.5 w-3.5" />เผยแพร่
+                </Button>
+              )}
             </>
           )}
         </div>
@@ -365,7 +394,7 @@ export default function ContentDetailView({
           <DialogHeader>
             <DialogTitle>ยืนยันการอนุมัติ</DialogTitle>
             <DialogDescription>
-              ต้องการอนุมัติ "{item.title}" ใช่หรือไม่? เนื้อหาจะถูกเปลี่ยนสถานะเป็นเผยแพร่แล้ว
+              ต้องการอนุมัติ "{item.title}" ใช่หรือไม่? เนื้อหาจะถูกเปลี่ยนสถานะเป็นอนุมัติแล้ว
             </DialogDescription>
           </DialogHeader>
           <div className="flex justify-end gap-2">
@@ -383,13 +412,31 @@ export default function ContentDetailView({
           <DialogHeader>
             <DialogTitle>ยืนยันการขออนุมัติ</DialogTitle>
             <DialogDescription>
-              ต้องการส่ง "{item.title}" เข้าสู่การอนุมัติใช่หรือไม่? เนื้อหาจะถูกเปลี่ยนสถานะเป็นรอเผยแพร่
+              ต้องการส่ง "{item.title}" เข้าสู่การอนุมัติใช่หรือไม่? เนื้อหาจะถูกเปลี่ยนสถานะเป็นรออนุมัติ
             </DialogDescription>
           </DialogHeader>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setRequestApprovalConfirm(false)}>ยกเลิก</Button>
             <Button disabled={savingRequest} onClick={handleRequestApproval}>
               {savingRequest ? 'กำลังบันทึก...' : 'ยืนยัน'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Publish confirmation — content context only, approved → published */}
+      <Dialog open={publishConfirm} onOpenChange={open => { if (!open) setPublishConfirm(false); }}>
+        <DialogContent className="w-full sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>ยืนยันการเผยแพร่</DialogTitle>
+            <DialogDescription>
+              ต้องการเผยแพร่ "{item.title}" ใช่หรือไม่? เนื้อหาจะถูกเปลี่ยนสถานะเป็นเผยแพร่แล้ว
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setPublishConfirm(false)}>ยกเลิก</Button>
+            <Button disabled={savingPublish} onClick={handlePublish}>
+              {savingPublish ? 'กำลังบันทึก...' : 'ยืนยันการเผยแพร่'}
             </Button>
           </div>
         </DialogContent>

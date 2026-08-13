@@ -1,0 +1,29 @@
+## ข้อกำหนดที่เพิ่ม
+
+### Requirement: สถานะ approved มีใน STATUS_MAP
+ระบบ SHALL รวม `approved` เป็น status key ใน `STATUS_MAP` พร้อม label ภาษาไทย "อนุมัติแล้ว" และสีที่แตกต่าง
+
+#### Scenario: สถานะ approved ใน STATUS_MAP
+- **WHEN** STATUS_MAP ถูก query ด้วย key `approved`
+- **THEN** คืนค่า `{ label: 'อนุมัติแล้ว', color: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300' }`
+
+### Requirement: สถานะ approved ในฐานข้อมูล
+`content_items.status` ENUM SHALL รวมค่า `approved`
+
+#### Scenario: Migration เพิ่มค่า approved ใน enum
+- **WHEN** database migration รันสำเร็จ
+- **THEN** `content_items.status` รองรับค่า `approved`
+
+### Requirement: Tab หน้าผลงานคอนเทนต์แสดงรายการ approved เป็น "รอเผยแพร่"
+หน้าผลงานคอนเทนต์ (ContentListTab) SHALL แสดง tab ชื่อ "รอเผยแพร่" ที่กรองรายการด้วย `status === 'approved'`
+
+#### Scenario: รายการ approved แสดงใน tab รอเผยแพร่
+- **WHEN** ผู้ใช้คลิก tab "รอเผยแพร่" ในหน้าผลงานคอนเทนต์
+- **THEN** แสดงเฉพาะรายการที่มี `status === 'approved'`
+
+### Requirement: Tab หน้ารายการอนุมัติแสดงรายการ approved เป็น "อนุมัติแล้ว"
+หน้ารายการอนุมัติ (ContentApprovalPage) SHALL แสดง tab ชื่อ "อนุมัติแล้ว" ที่กรองรายการด้วย `status === 'approved'`
+
+#### Scenario: รายการ approved แสดงใน tab อนุมัติแล้ว
+- **WHEN** ผู้ใช้คลิก tab "อนุมัติแล้ว" ในหน้ารายการอนุมัติ
+- **THEN** แสดงเฉพาะรายการที่มี `status === 'approved'`

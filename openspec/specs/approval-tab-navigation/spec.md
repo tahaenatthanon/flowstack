@@ -7,7 +7,7 @@
 ## Requirements
 
 ### Requirement: Approval list has tab navigation for status filtering
-ระบบ SHALL แสดง Tab Navigation สำหรับกรองรายการตามสถานะ โดยใช้รูปแบบเดียวกับ Status Filter ในหน้าผลงานคอนเทนต์ (`ContentListTab.tsx`) — มี 5 Tab: ทั้งหมด, รออนุมัติ (`review`), อนุมัติแล้ว (`published`), ขอแก้ไข (`revision`), และปฏิเสธ (`rejected`) — TabsList ใช้ `h-auto p-1 flex flex-wrap gap-0.5`, TabsTrigger ใช้ `gap-1.5 text-xs sm:text-sm` พร้อม Icon `h-3.5 w-3.5` วางก่อนข้อความ และจำนวนรายการใน `<span>` badge ทรงกลมด้านหลังข้อความ
+ระบบ SHALL แสดง Tab Navigation สำหรับกรองรายการตามสถานะ โดยใช้รูปแบบเดียวกับ Status Filter ในหน้าผลงานคอนเทนต์ (`ContentListTab.tsx`) — มี 5 Tab: ทั้งหมด, รออนุมัติ (`pending_approval`), อนุมัติแล้ว (`approved`), ขอแก้ไข (`revision`), และปฏิเสธ (`rejected`) — TabsList ใช้ `h-auto p-1 flex flex-wrap gap-0.5`, TabsTrigger ใช้ `gap-1.5 text-xs sm:text-sm` พร้อม Icon `h-3.5 w-3.5` วางก่อนข้อความ และจำนวนรายการใน `<span>` badge ทรงกลมด้านหลังข้อความ
 
 #### Scenario: Display tabs with flex-wrap layout matching Status filter pattern
 - **WHEN** ผู้ใช้เข้าถึง `/content-approval`
@@ -19,7 +19,7 @@
 
 #### Scenario: Filter by tab
 - **WHEN** ผู้ใช้คลิก Tab "อนุมัติแล้ว"
-- **THEN** ตารางแสดงเฉพาะ content items ที่มี status `published`
+- **THEN** ตารางแสดงเฉพาะ content items ที่มี status `approved`
 
 #### Scenario: Tab "ทั้งหมด" shows all items
 - **WHEN** ผู้ใช้คลิก Tab "ทั้งหมด"

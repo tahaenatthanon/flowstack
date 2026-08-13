@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Show each content item's workflow status inline next to its title in the content list, so an author scanning the "ทั้งหมด" (All) tab can tell draft, revision, review, published, and rejected items apart at a glance — using text color only, without adding background fills to the row.
+Show each content item's workflow status inline next to its title in the content list, so an author scanning the "ทั้งหมด" (All) tab can tell draft, revision, pending_approval, approved, published, and rejected items apart at a glance — using text color only, without adding background fills to the row.
 
 ## Requirements
 
@@ -17,7 +17,7 @@ The system SHALL display a status badge after each content item title in Content
 - **WHEN** a status badge is rendered
 - **THEN** the badge uses ONLY text color classes from `STATUS_MAP[item.status].color` (e.g. `text-green-700 dark:text-green-300`)
 - **AND** the badge has NO background color, no bg classes, no pill style
-- **AND** the text colors match the Status Filter tabs (draft=gray, revision=orange, review=amber, published=green, rejected=red)
+- **AND** the text colors match the Status Filter tabs (draft=gray, revision=orange, pending_approval=amber, approved=blue, published=green, rejected=red)
 
 #### Scenario: Status badge hidden when filtered by that status
 - **WHEN** ContentListTab is showing a specific status tab (e.g., "ฉบับร่าง")

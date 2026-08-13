@@ -17,7 +17,7 @@ export default function ContentDashboardPage() {
   const totalItems = items.length;
   const publishedCount = items.filter(i => i.status === 'published').length;
   const draftCount = items.filter(i => i.status === 'draft').length;
-  const reviewCount = items.filter(i => i.status === 'review').length;
+  const pendingApprovalCount = items.filter(i => i.status === 'pending_approval').length;
 
   // Platform distribution
   const platformCounts = items.reduce<Record<string, number>>((acc, item) => {
@@ -39,8 +39,8 @@ export default function ContentDashboardPage() {
   const statCards = [
     { label: 'เนื้อหาทั้งหมด', value: totalItems, icon: FileText, color: 'text-blue-600 bg-blue-50 dark:bg-blue-950', border: 'border-blue-200 dark:border-blue-800' },
     { label: 'เผยแพร่แล้ว', value: publishedCount, icon: CheckCircle2, color: 'text-green-600 bg-green-50 dark:bg-green-950', border: 'border-green-200 dark:border-green-800' },
-    { label: 'รออนุมัติ', value: reviewCount, icon: Clock, color: 'text-amber-600 bg-amber-50 dark:bg-amber-950', border: 'border-amber-200 dark:border-amber-800' },
-    { label: 'ร่าง', value: draftCount, icon: AlertTriangle, color: 'text-gray-600 bg-gray-50 dark:bg-gray-800', border: 'border-gray-200 dark:border-gray-700' },
+    { label: 'รออนุมัติ', value: pendingApprovalCount, icon: Clock, color: 'text-amber-600 bg-amber-50 dark:bg-amber-950', border: 'border-amber-200 dark:border-amber-800' },
+    { label: 'ฉบับร่าง', value: draftCount, icon: AlertTriangle, color: 'text-gray-600 bg-gray-50 dark:bg-gray-800', border: 'border-gray-200 dark:border-gray-700' },
   ];
 
   return (
