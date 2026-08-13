@@ -1,9 +1,10 @@
-import { LayoutDashboard, FileText, Clock, CheckCircle2, AlertTriangle, TrendingUp, Plus, Eye } from 'lucide-react';
+import { LayoutDashboard, FileText, Clock, CheckCircle2, AlertTriangle, TrendingUp, Plus, Eye, ThumbsUp, ArrowRight } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { useContentItems, useOverdueCount } from '@/hooks/useContent';
+import { useContentItems, useOverdueCount, useAllSchedules, usePublishChannels } from '@/hooks/useContent';
 import PageShell from '@/components/PageShell';
 import { STATUS_MAP, PLATFORM_MAP, TYPE_MAP } from '@/components/content/types';
 import { useNavigate } from 'react-router-dom';
@@ -11,6 +12,8 @@ import { useNavigate } from 'react-router-dom';
 export default function ContentDashboardPage() {
   const { data: items = [], isLoading } = useContentItems();
   const { data: overdue } = useOverdueCount();
+  const { data: schedules = [] } = useAllSchedules();
+  const { data: channels = [] } = usePublishChannels();
   const overdueCount = overdue?.count ?? 0;
   const navigate = useNavigate();
 
@@ -18,6 +21,20 @@ export default function ContentDashboardPage() {
   const publishedCount = items.filter(i => i.status === 'published').length;
   const draftCount = items.filter(i => i.status === 'draft').length;
   const pendingApprovalCount = items.filter(i => i.status === 'pending_approval').length;
+
+  // Totals for engagement
+  const totalViews = items.reduce((s, i) => s + (Number(i.views) || 0), 0);
+  const totalLikes = items.reduce((s, i) => s + (Number(i.likes) || 0), 0);
+
+  // Status distribution for Work Progress
+  const statusCounts = {
+    published: publishedCount,
+    pending_approval: pendingApprovalCount,
+    approved: items.filter(i => i.status === 'approved').length,
+    revision: items.filter(i => i.status === 'revision').length,
+    draft: draftCount,
+  };
+  const workProgressStatuses = ['published', 'pending_approval', 'approved', 'revision', 'draft'] as const;
 
   // Platform distribution
   const platformCounts = items.reduce<Record<string, number>>((acc, item) => {
@@ -31,9 +48,35 @@ export default function ContentDashboardPage() {
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
     .slice(0, 5);
 
+  // Top content by views
+  const topContent = [...items]
+    .sort((a, b) => (Number(b.views) || 0) - (Number(a.views) || 0))
+    .slice(0, 5);
+
+  // Pending approval queue (oldest request first, null last)
+  const pendingItems = items
+    .filter(i => i.status === 'pending_approval')
+    .sort((a, b) => {
+      const ta = a.requested_at ? new Date(a.requested_at).getTime() : Number.MAX_SAFE_INTEGER;
+      const tb = b.requested_at ? new Date(b.requested_at).getTime() : Number.MAX_SAFE_INTEGER;
+      return ta - tb;
+    });
+
+  // Upcoming schedules (future only, soonest first)
+  const now = Date.now();
+  const upcomingSchedules = schedules
+    .filter(s => s.scheduled_at && new Date(s.scheduled_at).getTime() > now)
+    .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime())
+    .slice(0, 5);
+
   const formatDate = (d?: string | null) => {
     if (!d) return '-';
     return new Date(d).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' });
+  };
+
+  const formatDateTime = (d?: string | null) => {
+    if (!d) return '-';
+    return new Date(d).toLocaleString('th-TH', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
   const statCards = [
@@ -41,6 +84,8 @@ export default function ContentDashboardPage() {
     { label: 'เผยแพร่แล้ว', value: publishedCount, icon: CheckCircle2, color: 'text-green-600 bg-green-50 dark:bg-green-950', border: 'border-green-200 dark:border-green-800' },
     { label: 'รออนุมัติ', value: pendingApprovalCount, icon: Clock, color: 'text-amber-600 bg-amber-50 dark:bg-amber-950', border: 'border-amber-200 dark:border-amber-800' },
     { label: 'ฉบับร่าง', value: draftCount, icon: AlertTriangle, color: 'text-gray-600 bg-gray-50 dark:bg-gray-800', border: 'border-gray-200 dark:border-gray-700' },
+    { label: 'ยอดวิวรวม', value: totalViews, icon: Eye, color: 'text-cyan-600 bg-cyan-50 dark:bg-cyan-950', border: 'border-cyan-200 dark:border-cyan-800' },
+    { label: 'ยอดไลก์รวม', value: totalLikes, icon: ThumbsUp, color: 'text-pink-600 bg-pink-50 dark:bg-pink-950', border: 'border-pink-200 dark:border-pink-800' },
   ];
 
   return (
@@ -68,7 +113,7 @@ export default function ContentDashboardPage() {
       ) : (
         <div className="space-y-6">
           {/* Stats Cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
             {statCards.map((card) => {
               const Icon = card.icon;
               return (
@@ -97,6 +142,171 @@ export default function ContentDashboardPage() {
               </Button>
             </div>
           )}
+
+          {/* Work Progress */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">ความคืบหน้าการผลิต</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {workProgressStatuses.map(statusKey => {
+                const count = statusCounts[statusKey];
+                const percent = totalItems > 0 ? Math.round((count / totalItems) * 100) : 0;
+                const info = STATUS_MAP[statusKey];
+                return (
+                  <div key={statusKey}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-sm text-muted-foreground">{info.label}</span>
+                      <span className="text-sm font-medium">{count} ชิ้น ({percent}%)</span>
+                    </div>
+                    <Progress value={percent} className="h-2" />
+                  </div>
+                );
+              })}
+              <div className="pt-3 border-t flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">เนื้อหาทั้งหมด</span>
+                <span className="text-lg font-bold">{totalItems} ชิ้น</span>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Top Content + Pending Queue */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Top Content */}
+            <Card className="lg:col-span-2">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">เนื้อหายอดนิยม</CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                {topContent.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-8">ไม่มีเนื้อหา</p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="text-xs">ชื่อ</TableHead>
+                        <TableHead className="text-xs hidden sm:table-cell">ประเภท</TableHead>
+                        <TableHead className="text-xs hidden md:table-cell">แพลตฟอร์ม</TableHead>
+                        <TableHead className="text-xs text-right">ยอดวิว</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {topContent.map(item => {
+                        const type = TYPE_MAP[item.type] ?? TYPE_MAP.article;
+                        const platform = item.platform ? PLATFORM_MAP[item.platform] : null;
+                        return (
+                          <TableRow key={item.id}>
+                            <TableCell className="text-sm max-w-[150px] truncate">{item.title}</TableCell>
+                            <TableCell className="hidden sm:table-cell">
+                              <Badge variant="outline" className={type.color}>{type.label}</Badge>
+                            </TableCell>
+                            <TableCell className="hidden md:table-cell">
+                              {platform ? (
+                                <Badge variant="outline" className={platform.color}>{platform.label}</Badge>
+                              ) : '-'}
+                            </TableCell>
+                            <TableCell className="text-right text-sm font-medium">{(Number(item.views) || 0).toLocaleString()}</TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Pending Queue */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">คิวรออนุมัติ</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {pendingItems.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-8">ไม่มีรายการรออนุมัติ</p>
+                ) : (
+                  <div className="space-y-3">
+                    {pendingItems.map(item => (
+                      <div key={item.id} className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">{item.title}</p>
+                          <p className="text-xs text-muted-foreground">{formatDate(item.requested_at)}</p>
+                        </div>
+                        <Badge variant="outline" className={STATUS_MAP.pending_approval.color}>รออนุมัติ</Badge>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <Button variant="outline" size="sm" className="w-full mt-4" onClick={() => navigate('/content-approval')}>
+                  ดูรายการอนุมัติทั้งหมด
+                  <ArrowRight className="h-3.5 w-3.5 ml-1" />
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Upcoming Schedule + Channels */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Upcoming Schedule */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">กำหนดการโพสต์ถัดไป</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {upcomingSchedules.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-8">ไม่มีโพสต์ที่กำลังจะถึง</p>
+                ) : (
+                  <div className="space-y-3">
+                    {upcomingSchedules.map(s => {
+                      const platform = s.platform ? PLATFORM_MAP[s.platform] : null;
+                      return (
+                        <div key={s.id} className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">{s.topic || s.plan_title || 'ไม่มีชื่อ'}</p>
+                            <p className="text-xs text-muted-foreground">{formatDateTime(s.scheduled_at)}</p>
+                          </div>
+                          {platform ? (
+                            <Badge variant="outline" className={platform.color}>{platform.label}</Badge>
+                          ) : s.channel_name ? (
+                            <span className="text-xs text-muted-foreground shrink-0">{s.channel_name}</span>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Channels */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">สถานะช่องทาง</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {channels.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-8">ไม่มีช่องทางที่เชื่อมต่อ</p>
+                ) : (
+                  <div className="space-y-2">
+                    {channels.map(ch => {
+                      const platform = PLATFORM_MAP[ch.platform];
+                      const active = ch.is_active === 1;
+                      return (
+                        <div key={ch.id} className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className={`w-2 h-2 rounded-full ${active ? 'bg-green-500' : 'bg-gray-300'}`} />
+                            <span className="text-sm">{ch.name}</span>
+                          </div>
+                          {platform ? (
+                            <Badge variant="outline" className={platform.color}>{platform.label}</Badge>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Platform Distribution */}
