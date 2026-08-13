@@ -180,12 +180,14 @@ export default function ContentVideoView({
       ) : (
         /* Cover / preview when no video yet */
         item.generated_image_url && (
-          <div className="rounded-xl overflow-hidden border bg-muted/20 relative">
-            <img src={item.generated_image_url} alt={art.title || item.title}
-              className="w-full max-h-80 object-cover" />
-            <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-              <div className="p-4 rounded-full bg-white/80 shadow-lg">
-                <Play className="h-8 w-8 text-black fill-black" />
+          <div className="flex justify-center">
+            <div className="relative inline-block rounded-xl overflow-hidden border bg-muted/20">
+              <img src={item.generated_image_url} alt={art.title || item.title}
+                className="block w-auto max-w-full max-h-[32rem] h-auto object-contain" />
+              <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                <div className="p-4 rounded-full bg-white/80 shadow-lg">
+                  <Play className="h-8 w-8 text-black fill-black" />
+                </div>
               </div>
             </div>
           </div>

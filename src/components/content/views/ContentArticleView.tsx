@@ -113,13 +113,16 @@ export default function ContentArticleView({
       {/* Cover image */}
       {item.generated_image_url && (
         <div className={cn(
-          'rounded-xl overflow-hidden border bg-muted/20 cursor-zoom-in group',
+          'flex justify-center',
           isSocial && 'max-w-lg mx-auto'
-        )} onClick={() => setImageViewerOpen(true)}>
-          <img src={item.generated_image_url} alt={art.title || item.title}
-            className="w-full max-h-80 object-cover" loading="lazy" decoding="async" />
-          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
-            <Search className="h-6 w-6 text-white drop-shadow-lg" />
+        )}>
+          <div className="relative inline-block rounded-xl overflow-hidden border bg-muted/20 cursor-zoom-in group"
+            onClick={() => setImageViewerOpen(true)}>
+            <img src={item.generated_image_url} alt={art.title || item.title}
+              className="block w-auto max-w-full max-h-[32rem] h-auto object-contain" loading="lazy" decoding="async" />
+            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+              <Search className="h-6 w-6 text-white drop-shadow-lg" />
+            </div>
           </div>
         </div>
       )}
