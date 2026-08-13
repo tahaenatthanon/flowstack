@@ -1,11 +1,12 @@
 import {
-  PenTool, Plus, Wand2, Bot, Settings2, Clock, AlertTriangle,
+  PenTool, Plus, Wand2, Bot, Settings2, Clock, AlertTriangle, ClipboardCheck,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useState } from 'react';
 import ContentListTab from '@/components/content/tabs/ContentListTab';
+import ContentApprovalTab from '@/components/content/tabs/ContentApprovalTab';
 import SkillsTriggerTab from '@/components/content/tabs/SkillsTriggerTab';
 import AISettingsTab from '@/components/content/tabs/AISettingsTab';
 import ScheduleOverviewPanel from '@/components/content/tabs/ScheduleOverviewPanel';
@@ -52,10 +53,14 @@ export default function ContentPage() {
       )}
 
       <Tabs defaultValue="content" className="space-y-5">
-        <TabsList className="flex overflow-x-auto w-full text-xs sm:text-sm sm:grid sm:grid-cols-4">
+        <TabsList className="flex overflow-x-auto w-full text-xs sm:text-sm sm:grid sm:grid-cols-5">
           <TabsTrigger value="content"  className="gap-1 sm:gap-2 px-2 sm:px-3 shrink-0">
             <PenTool className="h-3.5 w-3.5 shrink-0" />
             <span className="hidden sm:inline">ผลงานทั้งหมด</span>
+          </TabsTrigger>
+          <TabsTrigger value="approval" className="gap-1 sm:gap-2 px-2 sm:px-3 shrink-0">
+            <ClipboardCheck className="h-3.5 w-3.5 shrink-0" />
+            <span className="hidden sm:inline">รายการอนุมัติ</span>
           </TabsTrigger>
           <TabsTrigger value="schedule" className="gap-1 sm:gap-2 px-2 sm:px-3 shrink-0">
             <Clock className="h-3.5 w-3.5 shrink-0" />
@@ -72,6 +77,7 @@ export default function ContentPage() {
         </TabsList>
 
         <TabsContent value="content"><ContentListTab /></TabsContent>
+        <TabsContent value="approval"><ContentApprovalTab /></TabsContent>
         <TabsContent value="schedule">
           <Card>
             <CardHeader className="pb-3">

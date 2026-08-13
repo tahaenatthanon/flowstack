@@ -1,0 +1,357 @@
+import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import {
+  Check, X, Filter, AlertTriangle, FileText, Clock, CheckCircle2, XCircle, ArrowUpDown,
+  Layers, Search, Shapes,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from '@/components/ui/table';
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter,
+  DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
+import { useToast } from '@/hooks/use-toast';
+import { useContentItems, contentKeys } from '@/hooks/useContent';
+import { apiFetch } from '@/lib/api';
+import {
+  STATUS_MAP, PLATFORM_MAP, TYPE_MAP, type ContentItem,
+} from '@/components/content/types';
+import ContentDetailView from '@/components/content/views/ContentDetailView';
+
+export default function ContentApprovalTab() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const { data: items = [], isLoading } = useContentItems();
+
+  const [statusFilter, setStatusFilter] = useState<'all' | 'approved' | 'pending_approval' | 'revision' | 'rejected'>('all');
+  const [sortOrder, setSortOrder] = useState<'requested_desc' | 'requested_asc'>('requested_desc');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [platformFilter, setPlatformFilter] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [rejectDialog, setRejectDialog] = useState<{ open: boolean; item: ContentItem | null }>({ open: false, item: null });
+  const [rejectReason, setRejectReason] = useState('');
+  const [confirmApprove, setConfirmApprove] = useState<ContentItem | null>(null);
+  // Row click opens a read-only detail dialog; null means closed
+  const [detailItem, setDetailItem] = useState<ContentItem | null>(null);
+
+  // Stat counts — computed from all items, independent of the active tab/filters
+  const statusCounts = {
+    pending_approval: items.filter(i => i.status === 'pending_approval').length,
+    approved:         items.filter(i => i.status === 'approved').length,
+    revision:         items.filter(i => i.status === 'revision').length,
+    rejected:         items.filter(i => i.status === 'rejected').length,
+  };
+
+  // Only approval-relevant statuses belong on this page — 'draft' has not entered
+  // the workflow yet and 'published' has already left it
+  const approvalItems = items.filter(i => !['draft', 'published'].includes(i.status));
+
+  // Filter in stages: status → type → platform → search, then sort by request date
+  const statusFiltered = approvalItems.filter(item => statusFilter === 'all' || item.status === statusFilter);
+
+  const visibleItems = statusFiltered
+    .filter(item => typeFilter === 'all' || item.type === typeFilter)
+    .filter(item => platformFilter === 'all' || item.platform === platformFilter)
+    .filter(item =>
+      !searchQuery ||
+      item.title?.toLowerCase().includes(searchQuery.toLowerCase())
+    )
+    .slice()
+    .sort((a, b) => {
+      const ta = new Date(a.requested_at ?? a.updated_at ?? a.created_at).getTime();
+      const tb = new Date(b.requested_at ?? b.updated_at ?? b.created_at).getTime();
+      return sortOrder === 'requested_desc' ? tb - ta : ta - tb;
+    });
+
+  // Stat cards use semantic tokens, matching the KpiCard pattern on the Home page
+  const statCards = [
+    { key: 'approved',         label: 'อนุมัติแล้ว', value: statusCounts.approved,         icon: CheckCircle2,  color: 'text-success' },
+    { key: 'pending_approval', label: 'รออนุมัติ',   value: statusCounts.pending_approval, icon: Clock,         color: 'text-warning' },
+    { key: 'revision',         label: 'ขอแก้ไข',     value: statusCounts.revision,         icon: AlertTriangle, color: 'text-info' },
+    { key: 'rejected',         label: 'ปฏิเสธ',      value: statusCounts.rejected,         icon: XCircle,       color: 'text-destructive' },
+  ];
+
+  const handleApprove = async (item: ContentItem) => {
+    try {
+      await apiFetch(`/content-items.php?id=${item.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ status: 'approved' }),
+      });
+      toast({ title: 'อนุมัติเรียบร้อย', description: `"${item.title}" ได้รับการอนุมัติแล้ว` });
+      qc.invalidateQueries({ queryKey: contentKeys.items() });
+    } catch {
+      toast({ title: 'เกิดข้อผิดพลาด', description: 'ไม่สามารถอนุมัติได้', variant: 'destructive' });
+    }
+    setConfirmApprove(null);
+  };
+
+  const handleReject = async () => {
+    const item = rejectDialog.item;
+    if (!item) return;
+    try {
+      await apiFetch(`/content-items.php?id=${item.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ status: 'rejected' }),
+      });
+      toast({ title: 'ปฏิเสธแล้ว', description: `"${item.title}" ถูกเปลี่ยนสถานะเป็นปฏิเสธ` });
+      qc.invalidateQueries({ queryKey: contentKeys.items() });
+    } catch {
+      toast({ title: 'เกิดข้อผิดพลาด', description: 'ไม่สามารถปฏิเสธได้', variant: 'destructive' });
+    }
+    setRejectDialog({ open: false, item: null });
+    setRejectReason('');
+  };
+
+  const typeOptions = Object.entries(TYPE_MAP).map(([k, v]) => ({ value: k, label: v.label }));
+  const platformOptions = Object.entries(PLATFORM_MAP).map(([k, v]) => ({ value: k, label: v.label }));
+  // Options come from the tab-filtered set so the current selection doesn't hide the alternatives
+  const usedTypes = [...new Set(statusFiltered.map(i => i.type).filter(Boolean))];
+  const usedPlatforms = [...new Set(statusFiltered.map(i => i.platform).filter(Boolean))];
+
+  const formatDate = (d?: string | null) => {
+    if (!d) return '-';
+    return new Date(d).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' });
+  };
+
+  const EmptyIcon = FileText;
+  const hasActiveFilters = !!searchQuery || statusFilter !== 'all' || typeFilter !== 'all' || platformFilter !== 'all';
+
+  return (
+    <>
+      {/* Stat Cards — Title + Icon on one row, count below (KpiCard pattern) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-4">
+        {statCards.map((card) => {
+          const Icon = card.icon;
+          return (
+            <Card key={card.key}>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">{card.label}</CardTitle>
+                <Icon className={`h-4 w-4 ${card.color}`} />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{card.value}</div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+
+      {/* Toolbar: Status / Type / Platform / Search / Sort filters */}
+      <div className="space-y-3 mb-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative flex-1 min-w-[200px] max-w-sm">
+            <Input
+              placeholder="ค้นหา content..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="pl-8"
+            />
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          </div>
+          <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as 'all' | 'approved' | 'pending_approval' | 'revision' | 'rejected')}>
+            <SelectTrigger className="w-[150px]">
+              <Layers className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
+              <SelectValue placeholder="ทุกสถานะ" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">ทุกสถานะ</SelectItem>
+              <SelectItem value="approved">อนุมัติแล้ว</SelectItem>
+              <SelectItem value="pending_approval">รออนุมัติ</SelectItem>
+              <SelectItem value="revision">ขอแก้ไข</SelectItem>
+              <SelectItem value="rejected">ปฏิเสธ</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={typeFilter} onValueChange={setTypeFilter}>
+            <SelectTrigger className="w-[150px]">
+              <Shapes className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
+              <SelectValue placeholder="ทุกประเภท" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">ทุกประเภท</SelectItem>
+              {typeOptions
+                .filter(t => usedTypes.includes(t.value))
+                .map(t => (
+                  <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+          <Select value={platformFilter} onValueChange={setPlatformFilter}>
+            <SelectTrigger className="w-[160px]">
+              <Filter className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
+              <SelectValue placeholder="ทุกแพลตฟอร์ม" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">ทุกแพลตฟอร์ม</SelectItem>
+              {platformOptions
+                .filter(p => usedPlatforms.includes(p.value))
+                .map(p => (
+                  <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+          <Select value={sortOrder} onValueChange={(v) => setSortOrder(v as 'requested_desc' | 'requested_asc')}>
+            <SelectTrigger className="w-[150px]">
+              <ArrowUpDown className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="requested_desc">ล่าสุด-เก่าสุด</SelectItem>
+              <SelectItem value="requested_asc">เก่าสุด-ล่าสุด</SelectItem>
+            </SelectContent>
+          </Select>
+          <Badge variant="secondary" className="ml-auto">
+            {visibleItems.length} รายการ
+          </Badge>
+        </div>
+      </div>
+
+      {/* Table */}
+      {isLoading ? (
+        <div className="flex items-center justify-center py-20 text-muted-foreground">กำลังโหลด...</div>
+      ) : visibleItems.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-20 text-muted-foreground gap-3">
+          <EmptyIcon className="h-10 w-10 opacity-30" />
+          <p className="text-lg font-medium">ไม่มีรายการ</p>
+          <p className="text-sm">
+            {hasActiveFilters ? 'ลองปรับคำค้นหา ตัวกรองสถานะ ประเภท หรือแพลตฟอร์ม' : 'ยังไม่มีเนื้อหาในระบบ'}
+          </p>
+        </div>
+      ) : (
+        <div className="rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>ชื่อคอนเทนต์</TableHead>
+                <TableHead className="hidden md:table-cell">ประเภท</TableHead>
+                <TableHead className="hidden md:table-cell">แพลตฟอร์ม</TableHead>
+                <TableHead className="hidden sm:table-cell">วันที่สร้าง</TableHead>
+                <TableHead>สถานะ</TableHead>
+                <TableHead className="text-right">จัดการ</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {visibleItems.map((item) => {
+                const platform = PLATFORM_MAP[item.platform ?? ''] ?? null;
+                const type = TYPE_MAP[item.type] ?? TYPE_MAP.article;
+                const status = STATUS_MAP[item.status] ?? { label: item.status, color: 'bg-gray-100 text-gray-600' };
+                const isPending = item.status === 'pending_approval';
+                return (
+                  <TableRow
+                    key={item.id}
+                    className="cursor-pointer hover:bg-muted/30"
+                    onClick={() => setDetailItem(item)}
+                  >
+                    <TableCell className="font-medium max-w-[200px] truncate">{item.title}</TableCell>
+                    <TableCell className="hidden md:table-cell">
+                      <Badge variant="outline" className={type.color}>{type.label}</Badge>
+                    </TableCell>
+                    <TableCell className="hidden md:table-cell">
+                      {platform ? (
+                        <Badge variant="outline" className={platform.color}>{platform.label}</Badge>
+                      ) : '-'}
+                    </TableCell>
+                    <TableCell className="hidden sm:table-cell text-muted-foreground text-sm">
+                      {formatDate(item.created_at)}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className={status.color}>{status.label}</Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {isPending ? (
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost" size="sm"
+                            onClick={(e) => { e.stopPropagation(); setConfirmApprove(item); }}
+                            className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                          >
+                            <Check className="h-4 w-4 mr-1" />อนุมัติ
+                          </Button>
+                          <Button
+                            variant="ghost" size="sm"
+                            onClick={(e) => { e.stopPropagation(); setRejectDialog({ open: true, item }); setRejectReason(''); }}
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          >
+                            <X className="h-4 w-4 mr-1" />ปฏิเสธ
+                          </Button>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">ดำเนินการแล้ว</span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+
+      {/* Approve Confirm Dialog */}
+      <Dialog open={!!confirmApprove} onOpenChange={(v) => { if (!v) setConfirmApprove(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>ยืนยันการอนุมัติ</DialogTitle>
+            <DialogDescription>
+              ต้องการอนุมัติ "{confirmApprove?.title}" ใช่หรือไม่? เนื้อหาจะถูกเปลี่ยนสถานะเป็นอนุมัติแล้ว
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmApprove(null)}>ยกเลิก</Button>
+            <Button onClick={() => confirmApprove && handleApprove(confirmApprove)}>ยืนยันการอนุมัติ</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reject Dialog */}
+      <Dialog open={rejectDialog.open} onOpenChange={(v) => { if (!v) setRejectDialog({ open: false, item: null }); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>ปฏิเสธเนื้อหา</DialogTitle>
+            <DialogDescription>
+              เนื้อหานี้จะถูกเปลี่ยนสถานะเป็น "ปฏิเสธ" และแสดงในแท็บปฏิเสธ
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <p className="text-sm font-medium">เหตุผลที่ปฏิเสธ (ไม่บังคับ)</p>
+            <Textarea
+              placeholder="ระบุเหตุผลหรือคำแนะนำในการแก้ไข..."
+              value={rejectReason}
+              onChange={e => setRejectReason(e.target.value)}
+              rows={3}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectDialog({ open: false, item: null })}>ยกเลิก</Button>
+            <Button variant="destructive" onClick={handleReject}>ยืนยันการปฏิเสธ</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Content Detail Dialog — full content view opened by clicking a row */}
+      <Dialog open={!!detailItem} onOpenChange={(v) => { if (!v) setDetailItem(null); }}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>รายละเอียดคอนเทนต์</DialogTitle>
+            <DialogDescription>ตรวจสอบเนื้อหาก่อนอนุมัติ ขอแก้ไข หรือปฏิเสธ</DialogDescription>
+          </DialogHeader>
+          {detailItem && (
+            <ContentDetailView
+              item={detailItem}
+              context="approval"
+              onBack={() => setDetailItem(null)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}

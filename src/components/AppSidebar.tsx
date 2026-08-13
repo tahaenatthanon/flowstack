@@ -9,7 +9,7 @@ import {
   ChevronDown, ChevronRight, Plus, Globe, Inbox,
   LifeBuoy, Megaphone, Layers, HelpCircle, BookOpen,
   Cpu, Sparkles, Send, PenTool, RefreshCw, CalendarDays, Calendar, GitBranch,
-  CreditCard, Wand2, Palette, UserSearch, LayoutDashboard, ClipboardCheck,
+  CreditCard, Wand2, Palette, UserSearch, LayoutDashboard,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
@@ -89,7 +89,6 @@ const NAV_GROUPS: NavGroup[] = [
       { title: 'คอนเทนต์โซเชียล',  href: '',                   icon: PenTool,         menuKey: 'marketing', children: [
         { title: 'แดชบอร์ด',        href: '/content-dashboard', icon: LayoutDashboard, menuKey: 'marketing' },
         { title: 'ผลงานคอนเทนต์',   href: '/content',           icon: PenTool,         menuKey: 'marketing' },
-        { title: 'รายการอนุมัติ',   href: '/content-approval',  icon: ClipboardCheck,  menuKey: 'content_approval' },
         { title: 'ปฏิทินคอนเทนต์',  href: '/content-planner',   icon: CalendarDays,    menuKey: 'marketing' },
       ]},
       { title: 'วิเคราะห์แคมเปญ',   href: '/campaign-analytics', icon: BarChart3,       menuKey: 'marketing' },
