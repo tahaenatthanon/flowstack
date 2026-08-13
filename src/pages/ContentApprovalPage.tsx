@@ -33,8 +33,8 @@ import ContentDetailView from '@/components/content/views/ContentDetailView';
 // Tab definitions — 'all' shows every approval-relevant status, the rest filter by ContentItem.status
 const TABS: { value: string; label: string; icon: React.ElementType }[] = [
   { value: 'all',              label: 'ทั้งหมด',     icon: Layers },
-  { value: 'pending_approval', label: 'รออนุมัติ',    icon: Clock },
   { value: 'approved',         label: 'อนุมัติแล้ว',  icon: CheckCircle2 },
+  { value: 'pending_approval', label: 'รออนุมัติ',    icon: Clock },
   { value: 'revision',         label: 'ขอแก้ไข',     icon: AlertTriangle },
   { value: 'rejected',         label: 'ปฏิเสธ',      icon: XCircle },
 ];
@@ -54,7 +54,7 @@ export default function ContentApprovalPage() {
   const { data: items = [], isLoading } = useContentItems();
 
   const [activeTab, setActiveTab] = useState('all');
-  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
+  const [sortOrder, setSortOrder] = useState<'requested_desc' | 'requested_asc'>('requested_desc');
   const [typeFilter, setTypeFilter] = useState('all');
   const [platformFilter, setPlatformFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -97,15 +97,15 @@ export default function ContentApprovalPage() {
     )
     .slice()
     .sort((a, b) => {
-      const ta = new Date(a.created_at).getTime();
-      const tb = new Date(b.created_at).getTime();
-      return sortOrder === 'newest' ? tb - ta : ta - tb;
+      const ta = new Date(a.requested_at ?? a.updated_at ?? a.created_at).getTime();
+      const tb = new Date(b.requested_at ?? b.updated_at ?? b.created_at).getTime();
+      return sortOrder === 'requested_desc' ? tb - ta : ta - tb;
     });
 
   // Stat cards use semantic tokens, matching the KpiCard pattern on the Home page
   const statCards = [
-    { key: 'pending_approval', label: 'รออนุมัติ',   value: statusCounts.pending_approval, icon: Clock,         color: 'text-warning' },
     { key: 'approved',         label: 'อนุมัติแล้ว', value: statusCounts.approved,         icon: CheckCircle2,  color: 'text-success' },
+    { key: 'pending_approval', label: 'รออนุมัติ',   value: statusCounts.pending_approval, icon: Clock,         color: 'text-warning' },
     { key: 'revision',         label: 'ขอแก้ไข',     value: statusCounts.revision,         icon: AlertTriangle, color: 'text-info' },
     { key: 'rejected',         label: 'ปฏิเสธ',      value: statusCounts.rejected,         icon: XCircle,       color: 'text-destructive' },
   ];
@@ -238,14 +238,14 @@ export default function ContentApprovalPage() {
                 ))}
             </SelectContent>
           </Select>
-          <Select value={sortOrder} onValueChange={(v) => setSortOrder(v as 'newest' | 'oldest')}>
+          <Select value={sortOrder} onValueChange={(v) => setSortOrder(v as 'requested_desc' | 'requested_asc')}>
             <SelectTrigger className="w-[150px]">
               <ArrowUpDown className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="newest">ใหม่ → เก่า</SelectItem>
-              <SelectItem value="oldest">เก่า → ใหม่</SelectItem>
+              <SelectItem value="requested_desc">ขออนุมัติล่าสุด → เก่าสุด</SelectItem>
+              <SelectItem value="requested_asc">ขออนุมัติเก่าสุด → ล่าสุด</SelectItem>
             </SelectContent>
           </Select>
           <Badge variant="secondary" className="ml-auto">

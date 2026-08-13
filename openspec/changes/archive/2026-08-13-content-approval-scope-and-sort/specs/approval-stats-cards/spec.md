@@ -1,12 +1,4 @@
-# approval-stats-cards Specification
-
-## Purpose
-
-กำหนดพฤติกรรมของ Stat Cards ด้านบนหน้า "รายการอนุมัติ" (`/content-approval`) ซึ่งสรุปจำนวน content items ตามสถานะ `pending_approval`, `approved`, `revision`, และ `rejected`
-
-**Visual Style** ของ Stat Cards กำหนดไว้ที่ capability `approval-stat-card-style` (Card component จาก design system — Title + Icon แถวเดียวกัน, Count ด้านล่าง)
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Approval list shows stat cards for each status
 ระบบ SHALL แสดง Stat Cards 4 ช่องด้านบนหน้ารายการอนุมัติ สรุปจำนวน content items ตามสถานะ: อนุมัติแล้ว (`approved`), รออนุมัติ (`pending_approval`), ขอแก้ไข (`revision`), และปฏิเสธ (`rejected`) — โดยให้ "อนุมัติแล้ว" อยู่ก่อน "รออนุมัติ"

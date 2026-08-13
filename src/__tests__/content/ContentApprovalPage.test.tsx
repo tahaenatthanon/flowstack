@@ -8,13 +8,13 @@ import type { ContentItem } from '@/components/content/types';
 // Only the `pending_approval` item renders the approve/reject buttons.
 const ITEMS: ContentItem[] = [
   { id: 'ci-pending',  title: 'รอตรวจ บทความ A', type: 'article', status: 'pending_approval',
-    views: 0, likes: 0, created_at: '2026-01-04', platform: 'facebook', plan_item_id: null },
+    views: 0, likes: 0, created_at: '2026-01-04', requested_at: '2026-02-10', platform: 'facebook', plan_item_id: null },
   { id: 'ci-approved', title: 'อนุมัติแล้ว B',    type: 'article', status: 'approved',
-    views: 0, likes: 0, created_at: '2026-01-03', platform: 'facebook', plan_item_id: null },
+    views: 0, likes: 0, created_at: '2026-01-03', requested_at: '2026-02-05', platform: 'facebook', plan_item_id: null },
   { id: 'ci-revision', title: 'ขอแก้ไข C',        type: 'article', status: 'revision',
-    views: 0, likes: 0, created_at: '2026-01-02', platform: 'facebook', plan_item_id: null },
+    views: 0, likes: 0, created_at: '2026-01-02', requested_at: '2026-02-01', platform: 'facebook', plan_item_id: null },
   { id: 'ci-rejected', title: 'ปฏิเสธ D',         type: 'article', status: 'rejected',
-    views: 0, likes: 0, created_at: '2026-01-01', platform: 'facebook', plan_item_id: null },
+    views: 0, likes: 0, created_at: '2026-01-01', requested_at: null, platform: 'facebook', plan_item_id: null },
 ];
 
 // Records every apiFetch call so we can assert the detail view issues no writes.
@@ -118,5 +118,17 @@ describe('ContentApprovalPage', () => {
     await waitFor(() =>
       expect(apiCalls).toContainEqual({ url: '/content-items.php?id=ci-pending', method: 'PUT' })
     );
+  });
+
+  it('sorts items by requested_at newest-first by default', async () => {
+    await renderPage();
+    const rows = screen.getAllByRole('row').map(r => r.textContent ?? '');
+    const pendingIdx = rows.findIndex(t => t.includes('รอตรวจ บทความ A'));
+    const approvedIdx = rows.findIndex(t => t.includes('อนุมัติแล้ว B'));
+    const revisionIdx = rows.findIndex(t => t.includes('ขอแก้ไข C'));
+    const rejectedIdx = rows.findIndex(t => t.includes('ปฏิเสธ D'));
+    expect(pendingIdx).toBeLessThan(approvedIdx);
+    expect(approvedIdx).toBeLessThan(revisionIdx);
+    expect(revisionIdx).toBeLessThan(rejectedIdx);
   });
 });

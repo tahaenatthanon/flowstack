@@ -9,6 +9,9 @@ export interface ContentItem {
   caption?: string | null;
   // Approver's reason when status is 'rejected' or 'revision'
   reject_reason?: string | null;
+  // When the item was sent for approval (transition into pending_approval)
+  requested_at?: string | null;
+  updated_at?: string | null;
   image_brief?: string | null;
   generated_image_url?: string | null;
   image_gen_status?: string | null;

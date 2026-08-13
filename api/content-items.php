@@ -52,7 +52,8 @@ if ($method === 'GET') {
                       cp.id                               AS plan_id,
                       cp.week_start,
                       ci.created_at,
-                      ci.updated_at
+                      ci.updated_at,
+                      ci.requested_at
                FROM content_items ci
                LEFT JOIN content_plan_items cpi ON cpi.id = ci.plan_item_id
                LEFT JOIN content_plans cp ON cp.id = COALESCE(ci.plan_id, cpi.plan_id) AND cp.tenant_id = ?
@@ -91,6 +92,10 @@ if ($method === 'PUT') {
     $allowed = ['title', 'type', 'status', 'views', 'likes', 'caption', 'platform', 'scheduled_date', 'image_brief', 'article_content', 'reject_reason'];
     $fields  = []; $values = [];
     foreach ($allowed as $f) { if (array_key_exists($f, $body)) { $fields[] = "`$f` = ?"; $values[] = $body[$f]; } }
+    // Record the moment a request for approval enters the queue
+    if (($body['status'] ?? null) === 'pending_approval') {
+        $fields[] = '`requested_at` = NOW()';
+    }
     if (empty($fields)) jsonError('ไม่มีข้อมูลที่จะอัปเดต');
     $values[] = $id; $values[] = $tenantId;
     $db->prepare('UPDATE content_items SET ' . implode(', ', $fields) . ', updated_at=NOW() WHERE id = ? AND tenant_id = ?')->execute($values);

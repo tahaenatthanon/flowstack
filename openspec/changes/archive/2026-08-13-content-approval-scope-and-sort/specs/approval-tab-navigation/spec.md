@@ -1,10 +1,4 @@
-# approval-tab-navigation Specification
-
-## Purpose
-
-กำหนดพฤติกรรมของ Tab Navigation สำหรับกรองรายการในหน้า "รายการอนุมัติ" (`/content-approval`) ตามสถานะ โดยใช้รูปแบบเดียวกับ Status Filter ในหน้าผลงานคอนเทนต์ (`ContentListTab.tsx`) ครอบคลุม layout แบบ flex-wrap, ไอคอนประจำสถานะ, count badge, และการกรองรายการตาม Tab ที่เลือก
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Approval list has tab navigation for status filtering
 ระบบ SHALL แสดง Tab Navigation สำหรับกรองรายการตามสถานะ โดยใช้รูปแบบเดียวกับ Status Filter ในหน้าผลงานคอนเทนต์ (`ContentListTab.tsx`) — มี 5 Tab: ทั้งหมด, อนุมัติแล้ว (`approved`), รออนุมัติ (`pending_approval`), ขอแก้ไข (`revision`), และปฏิเสธ (`rejected`) — โดยให้ "อนุมัติแล้ว" อยู่ก่อน "รออนุมัติ" — TabsList ใช้ `h-auto p-1 flex flex-wrap gap-0.5`, TabsTrigger ใช้ `gap-1.5 text-xs sm:text-sm` พร้อม Icon `h-3.5 w-3.5` วางก่อนข้อความ และจำนวนรายการใน `<span>` badge ทรงกลมด้านหลังข้อความ

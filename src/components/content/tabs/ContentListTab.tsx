@@ -1,8 +1,6 @@
-import { Play, FileText, Image, Search, Trash2, Loader2, ImageIcon, Send, Calendar, Layers, Edit3, RotateCcw, Clock, CheckCircle2, Check, X, Pencil } from 'lucide-react';
+import { Play, FileText, Image, Search, Trash2, Loader2, ImageIcon, Send, Calendar, Layers, Edit3, RotateCcw, Clock, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useState, useMemo } from 'react';
@@ -32,12 +30,6 @@ export default function ContentListTab() {
   const [generatingImage, setGeneratingImage] = useState(false);
   const [publishDialog, setPublishDialog] = useState<{ contentId: string; contentTitle: string; mode: 'schedule' | 'send_now'; defaultCaption?: string; defaultBody?: string } | null>(null);
   const [imageViewerSrc, setImageViewerSrc] = useState<string | null>(null);
-
-  // Approval actions — only offered on items still awaiting review
-  const [approveConfirm, setApproveConfirm] = useState<ContentItem | null>(null);
-  const [reasonDialog, setReasonDialog] = useState<{ item: ContentItem; kind: 'revision' | 'rejected' } | null>(null);
-  const [reason, setReason] = useState('');
-  const [savingDecision, setSavingDecision] = useState(false);
 
   const { data: items = [], isLoading } = useContentItems();
 
@@ -123,51 +115,6 @@ export default function ContentListTab() {
       toast({ title: 'สร้างภาพไม่สำเร็จ', description: e.message, variant: 'destructive' });
     } finally {
       setGeneratingImage(false);
-    }
-  };
-
-  // Approval decisions — one PUT per decision; revision/reject also persist the reason
-  const applyDecision = async (item: ContentItem, status: 'approved' | 'revision' | 'rejected', note?: string) => {
-    setSavingDecision(true);
-    try {
-      await apiFetch(`/content-items.php?id=${item.id}`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          status,
-          ...(status !== 'approved' && { reject_reason: note?.trim() ? note.trim() : null }),
-        }),
-      });
-      qc.invalidateQueries({ queryKey: ['content', 'items'] });
-      qc.invalidateQueries({ queryKey: ['content', 'plans'] });
-      return true;
-    } catch (e: any) {
-      toast({ title: 'ดำเนินการไม่สำเร็จ', description: e.message, variant: 'destructive' });
-      return false;
-    } finally {
-      setSavingDecision(false);
-    }
-  };
-
-  const handleApprove = async (item: ContentItem) => {
-    if (await applyDecision(item, 'approved')) {
-      toast({ title: 'อนุมัติเรียบร้อย', description: `"${item.title}" ได้รับการอนุมัติแล้ว` });
-      setApproveConfirm(null);
-    }
-  };
-
-  const handleRequestRevision = async (item: ContentItem, reasonText: string) => {
-    if (await applyDecision(item, 'revision', reasonText)) {
-      toast({ title: 'ขอแก้ไขแล้ว', description: `"${item.title}" ถูกส่งกลับให้แก้ไข` });
-      setReasonDialog(null);
-      setReason('');
-    }
-  };
-
-  const handleReject = async (item: ContentItem, reasonText: string) => {
-    if (await applyDecision(item, 'rejected', reasonText)) {
-      toast({ title: 'ปฏิเสธแล้ว', description: `"${item.title}" ถูกเปลี่ยนสถานะเป็นปฏิเสธ` });
-      setReasonDialog(null);
-      setReason('');
     }
   };
 
@@ -411,38 +358,6 @@ export default function ContentListTab() {
                     <span className="text-xs text-muted-foreground hidden sm:block">
                       {new Date(item.created_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}
                     </span>
-                    {/* Approval actions — review items only */}
-                    {item.status === 'pending_approval' && (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 hover:text-green-600 text-muted-foreground"
-                          onClick={e => { e.stopPropagation(); setApproveConfirm(item); }}
-                          title="อนุมัติ"
-                        >
-                          <Check className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 hover:text-amber-600 text-muted-foreground"
-                          onClick={e => { e.stopPropagation(); setReasonDialog({ item, kind: 'revision' }); setReason(''); }}
-                          title="ขอแก้ไข"
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 hover:text-red-600 text-muted-foreground"
-                          onClick={e => { e.stopPropagation(); setReasonDialog({ item, kind: 'rejected' }); setReason(''); }}
-                          title="ปฏิเสธ"
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </Button>
-                      </>
-                    )}
                     <Button
                       size="sm"
                       variant="ghost"
@@ -515,61 +430,6 @@ export default function ContentListTab() {
           defaultBody={publishDialog.defaultBody}
         />
       )}
-
-      {/* Approve confirmation */}
-      <Dialog open={!!approveConfirm} onOpenChange={open => { if (!open) setApproveConfirm(null); }}>
-        <DialogContent className="w-full sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>ยืนยันการอนุมัติ</DialogTitle>
-            <DialogDescription>
-              ต้องการอนุมัติ "{approveConfirm?.title}" ใช่หรือไม่? เนื้อหาจะถูกเปลี่ยนสถานะเป็นอนุมัติแล้ว
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setApproveConfirm(null)}>ยกเลิก</Button>
-            <Button disabled={savingDecision} onClick={() => approveConfirm && handleApprove(approveConfirm)}>
-              {savingDecision ? 'กำลังบันทึก...' : 'ยืนยันการอนุมัติ'}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Reason dialog — shared by ขอแก้ไข and ปฏิเสธ; reason is optional */}
-      <Dialog open={!!reasonDialog} onOpenChange={open => { if (!open) { setReasonDialog(null); setReason(''); } }}>
-        <DialogContent className="w-full sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{reasonDialog?.kind === 'revision' ? 'ขอแก้ไขเนื้อหา' : 'ปฏิเสธเนื้อหา'}</DialogTitle>
-            <DialogDescription>
-              {reasonDialog?.kind === 'revision'
-                ? 'เนื้อหานี้จะถูกเปลี่ยนสถานะเป็น "รอแก้ไข" และส่งกลับให้ผู้สร้าง'
-                : 'เนื้อหานี้จะถูกเปลี่ยนสถานะเป็น "ปฏิเสธ"'}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <Label>{reasonDialog?.kind === 'revision' ? 'เหตุผลที่ขอแก้ไข (ไม่บังคับ)' : 'เหตุผลที่ปฏิเสธ (ไม่บังคับ)'}</Label>
-            <Textarea
-              placeholder="ระบุเหตุผลหรือคำแนะนำในการแก้ไข..."
-              value={reason}
-              onChange={e => setReason(e.target.value)}
-              rows={3}
-            />
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => { setReasonDialog(null); setReason(''); }}>ยกเลิก</Button>
-            <Button
-              variant={reasonDialog?.kind === 'revision' ? 'default' : 'destructive'}
-              disabled={savingDecision}
-              onClick={() => {
-                if (!reasonDialog) return;
-                if (reasonDialog.kind === 'revision') handleRequestRevision(reasonDialog.item, reason);
-                else handleReject(reasonDialog.item, reason);
-              }}
-            >
-              {savingDecision ? 'กำลังบันทึก...' : reasonDialog?.kind === 'revision' ? 'ยืนยันขอแก้ไข' : 'ยืนยันการปฏิเสธ'}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* Image viewer */}
       <ImageViewer src={imageViewerSrc ?? ''} alt="" open={!!imageViewerSrc} onOpenChange={v => { if (!v) setImageViewerSrc(null); }} />
