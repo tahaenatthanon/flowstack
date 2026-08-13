@@ -7,18 +7,18 @@
 ## Requirements
 
 ### Requirement: User can view content approval list
-ระบบ SHALL แสดงหน้ารายการอนุมัติคอนเทนต์ที่ `/content-approval` โดยแสดง content items เฉพาะที่อยู่ใน workflow การอนุมัติ (`pending_approval`, `approved`, `revision`, `rejected`) — ไม่รวม `draft` และ `published` มี Tab Navigation สำหรับกรองตามสถานะโดยใช้รูปแบบเดียวกับ Status Filter ในหน้าผลงานคอนเทนต์ (`h-auto p-1 flex flex-wrap gap-0.5`) ประกอบด้วย: ทั้งหมด (ไม่รวม draft/published), รออนุมัติ (`pending_approval`), อนุมัติแล้ว (`approved`), ขอแก้ไข (`revision`), ปฏิเสธ (`rejected`)
+ระบบ SHALL แสดงหน้ารายการอนุมัติคอนเทนต์ที่ `/content-approval` โดยแสดง content items เฉพาะที่อยู่ใน workflow การอนุมัติ (`pending_approval`, `approved`, `revision`, `rejected`) — ไม่รวม `draft` และ `published` มี Filter Status Dropdown สำหรับกรองตามสถานะ ประกอบด้วย: ทุกสถานะ (ไม่รวม draft/published), อนุมัติแล้ว (`approved`), รออนุมัติ (`pending_approval`), ขอแก้ไข (`revision`), ปฏิเสธ (`rejected`)
 
 #### Scenario: View approval list with approval-relevant items only
 - **WHEN** ผู้ใช้ที่มีสิทธิ์ `content_approval` เข้าถึง `/content-approval`
 - **THEN** ระบบแสดงตารางรายการคอนเทนต์ที่มี status เป็น `pending_approval`, `approved`, `revision`, หรือ `rejected` — draft และ published items ไม่แสดง พร้อมข้อมูล: ชื่อคอนเทนต์, ประเภท, แพลตฟอร์ม, วันที่สร้าง, สถานะ และมี Stat Cards สรุปจำนวนแต่ละสถานะด้านบน
 
-#### Scenario: Default tab is "ทั้งหมด"
+#### Scenario: Default filter is "ทุกสถานะ"
 - **WHEN** ผู้ใช้เข้าถึง `/content-approval` ครั้งแรก
-- **THEN** Tab "ทั้งหมด" ถูกเลือกเป็น default และตารางแสดงเฉพาะ approval-relevant items
+- **THEN** Filter Status Dropdown ถูกเลือกเป็น default "ทุกสถานะ" และตารางแสดงเฉพาะ approval-relevant items
 
-#### Scenario: No items in selected tab
-- **WHEN** Tab ที่เลือกไม่มี content items
+#### Scenario: No items in selected status
+- **WHEN** สถานะที่เลือกไม่มี content items
 - **THEN** ระบบแสดงข้อความ "ไม่มีรายการ" พร้อมระบุสถานะที่เกี่ยวข้อง
 
 ### Requirement: User can approve a content item
@@ -26,14 +26,14 @@
 
 #### Scenario: Approve content
 - **WHEN** ผู้ใช้คลิก "อนุมัติ" บนรายการคอนเทนต์ที่สถานะ `pending_approval`
-- **THEN** ระบบแสดง dialog ยืนยัน และเมื่อยืนยันแล้ว สถานะเปลี่ยนเป็น `approved` และรายการนั้นปรากฏใน Tab "อนุมัติแล้ว"
+- **THEN** ระบบแสดง dialog ยืนยัน และเมื่อยืนยันแล้ว สถานะเปลี่ยนเป็น `approved` และรายการนั้นปรากฏในตัวกรองสถานะ "อนุมัติแล้ว"
 
 ### Requirement: User can reject a content item
 ระบบ SHALL ให้ผู้ใช้ที่มีสิทธิ์สามารถปฏิเสธ content item พร้อมระบุเหตุผล โดยเปลี่ยนสถานะเป็น `rejected` และบันทึกเหตุผลลง `reject_reason`
 
 #### Scenario: Reject content with reason
 - **WHEN** ผู้ใช้คลิก "ปฏิเสธ" บนรายการคอนเทนต์
-- **THEN** ระบบแสดง dialog ให้กรอกเหตุผล และเมื่อส่งแล้ว สถานะเปลี่ยนเป็น `rejected`, `reject_reason` ถูกบันทึก, และรายการนั้นปรากฏใน Tab "ปฏิเสธ"
+- **THEN** ระบบแสดง dialog ให้กรอกเหตุผล และเมื่อส่งแล้ว สถานะเปลี่ยนเป็น `rejected`, `reject_reason` ถูกบันทึก, และรายการนั้นปรากฏในตัวกรองสถานะ "ปฏิเสธ"
 
 ### Requirement: Content items store reject reason
 ระบบ SHALL รองรับการบันทึกเหตุผลการปฏิเสธ/ขอแก้ไข (`reject_reason`) ในตาราง `content_items`
@@ -58,18 +58,18 @@
 - **THEN** ระบบยังคงเปลี่ยน status เป็น `revision` — `reject_reason` เป็น NULL
 
 ### Requirement: Approval list supports filtering and sorting
-ระบบ SHALL รองรับการกรองรายการตามสถานะผ่าน Tab Navigation, การกรองตามประเภทผ่าน Type Filter, การกรองตามแพลตฟอร์มผ่าน Platform Filter, การค้นหาผ่านช่องค้นหา, และการจัดเรียงตามวันที่ขออนุมัติ (`requested_at`) ผ่าน Dropdown
+ระบบ SHALL รองรับการกรองรายการตามสถานะผ่าน Filter Status Dropdown, การกรองตามประเภทผ่าน Type Filter, การกรองตามแพลตฟอร์มผ่าน Platform Filter, การค้นหาผ่านช่องค้นหา, และการจัดเรียงตามวันที่ขออนุมัติ (`requested_at`) ผ่าน Dropdown
 
-#### Scenario: Filter by status tab
-- **WHEN** ผู้ใช้เลือก Tab "ขอแก้ไข"
+#### Scenario: Filter by status dropdown
+- **WHEN** ผู้ใช้เลือกสถานะ "ขอแก้ไข" จาก Filter Status Dropdown
 - **THEN** ระบบแสดงเฉพาะรายการที่มี status เป็น `revision`
 
 #### Scenario: Filter by content type
 - **WHEN** ผู้ใช้เลือก "บทความ" จาก Type Filter
 - **THEN** ระบบแสดงเฉพาะรายการที่มี `content_type` เป็น `article`
 
-#### Scenario: Type filter and tab work together
-- **WHEN** ผู้ใช้เลือก Tab "รออนุมัติ" และ Type Filter "วีดีโอ"
+#### Scenario: Type filter and status filter work together
+- **WHEN** ผู้ใช้เลือกสถานะ "รออนุมัติ" จาก Filter Status และ Type Filter "วีดีโอ"
 - **THEN** ระบบแสดงเฉพาะรายการที่สถานะ `pending_approval` และ `content_type` เป็น `video`
 
 #### Scenario: Filter by platform
@@ -77,20 +77,20 @@
 - **THEN** ระบบแสดงเฉพาะรายการที่ตรงกับแพลตฟอร์มที่เลือก
 
 #### Scenario: Search across filtered results
-- **WHEN** ผู้ใช้พิมพ์คำค้นหาในช่องค้นหา และเลือก Tab "รออนุมัติ"
+- **WHEN** ผู้ใช้พิมพ์คำค้นหาในช่องค้นหา และเลือกสถานะ "รออนุมัติ" จาก Filter Status
 - **THEN** ระบบแสดงเฉพาะรายการที่สถานะ `pending_approval` และชื่อตรงกับคำค้นหา
 
 #### Scenario: Sort by request approval date (newest first)
-- **WHEN** ผู้ใช้เลือก "ขออนุมัติล่าสุด → เก่าสุด" จาก Sort Dropdown
+- **WHEN** ผู้ใช้เลือก "ล่าสุด-เก่าสุด" จาก Sort Dropdown
 - **THEN** รายการในตารางเรียงตามวันที่ขออนุมัติ (`requested_at`) จากใหม่สุดไปเก่าสุด
 
 #### Scenario: Sort by request approval date (oldest first)
-- **WHEN** ผู้ใช้เลือก "ขออนุมัติเก่าสุด → ล่าสุด" จาก Sort Dropdown
+- **WHEN** ผู้ใช้เลือก "เก่าสุด-ล่าสุด" จาก Sort Dropdown
 - **THEN** รายการในตารางเรียงตามวันที่ขออนุมัติ (`requested_at`) จากเก่าสุดไปใหม่สุด
 
 #### Scenario: All tools grouped in toolbar
 - **WHEN** ผู้ใช้เข้าถึง `/content-approval`
-- **THEN** Tab Navigation (แถวบน), ช่องค้นหาพร้อมไอคอน `Search` (แว่นขยาย), Type Filter, Platform Filter, และ Sort Dropdown (แถวล่าง) ถูกจัดวางใน toolbar บริเวณเดียวกันระหว่าง Stat Cards และตาราง
+- **THEN** ช่องค้นหาพร้อมไอคอน `Search` (แว่นขยาย), Filter Status Dropdown, Type Filter, Platform Filter, และ Sort Dropdown ถูกจัดวางใน toolbar บริเวณเดียวกันระหว่าง Stat Cards และตาราง
 
 ### Requirement: Stat cards show approval status summary
 ระบบ SHALL แสดง Stat Cards 4 ใบด้านบนตาราง สรุปจำนวน content items แยกตามสถานะ: รออนุมัติ, อนุมัติแล้ว, ขอแก้ไข, และปฏิเสธ — โดย Visual Style กำหนดไว้ที่ capability `approval-stat-card-style`

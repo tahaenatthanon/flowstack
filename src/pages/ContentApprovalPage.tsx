@@ -7,7 +7,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
@@ -30,30 +29,12 @@ import {
 } from '@/components/content/types';
 import ContentDetailView from '@/components/content/views/ContentDetailView';
 
-// Tab definitions — 'all' shows every approval-relevant status, the rest filter by ContentItem.status
-const TABS: { value: string; label: string; icon: React.ElementType }[] = [
-  { value: 'all',              label: 'ทั้งหมด',     icon: Layers },
-  { value: 'approved',         label: 'อนุมัติแล้ว',  icon: CheckCircle2 },
-  { value: 'pending_approval', label: 'รออนุมัติ',    icon: Clock },
-  { value: 'revision',         label: 'ขอแก้ไข',     icon: AlertTriangle },
-  { value: 'rejected',         label: 'ปฏิเสธ',      icon: XCircle },
-];
-
-// Empty state copy per tab
-const EMPTY_STATE: Record<string, { icon: React.ElementType; title: string; hint: string }> = {
-  all:              { icon: FileText,      title: 'ไม่มีรายการคอนเทนต์',       hint: 'ยังไม่มีคอนเทนต์ในระบบ' },
-  pending_approval: { icon: Clock,         title: 'ไม่มีรายการรออนุมัติ',       hint: 'เนื้อหาทั้งหมดได้รับการจัดการเรียบร้อยแล้ว' },
-  approved:         { icon: CheckCircle2,  title: 'ไม่มีรายการที่อนุมัติแล้ว',  hint: 'ยังไม่มีเนื้อหาที่ได้รับการอนุมัติ' },
-  revision:         { icon: AlertTriangle, title: 'ไม่มีรายการที่ขอแก้ไข',     hint: 'ยังไม่มีเนื้อหาที่ต้องแก้ไข' },
-  rejected:         { icon: XCircle,       title: 'ไม่มีรายการที่ถูกปฏิเสธ',    hint: 'ยังไม่มีเนื้อหาที่ถูกปฏิเสธ' },
-};
-
 export default function ContentApprovalPage() {
   const { toast } = useToast();
   const qc = useQueryClient();
   const { data: items = [], isLoading } = useContentItems();
 
-  const [activeTab, setActiveTab] = useState('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'approved' | 'pending_approval' | 'revision' | 'rejected'>('all');
   const [sortOrder, setSortOrder] = useState<'requested_desc' | 'requested_asc'>('requested_desc');
   const [typeFilter, setTypeFilter] = useState('all');
   const [platformFilter, setPlatformFilter] = useState('all');
@@ -76,19 +57,10 @@ export default function ContentApprovalPage() {
   // the workflow yet and 'published' has already left it
   const approvalItems = items.filter(i => !['draft', 'published'].includes(i.status));
 
-  // Tab counts — 'all' counts every approval-relevant item, others count their own status
-  const tabCounts: Record<string, number> = {
-    all:              approvalItems.length,
-    pending_approval: statusCounts.pending_approval,
-    approved:         statusCounts.approved,
-    revision:         statusCounts.revision,
-    rejected:         statusCounts.rejected,
-  };
+  // Filter in stages: status → type → platform → search, then sort by request date
+  const statusFiltered = approvalItems.filter(item => statusFilter === 'all' || item.status === statusFilter);
 
-  // Filter in stages: tab → type → platform → search, then sort by created_at
-  const tabItems = approvalItems.filter(item => activeTab === 'all' || item.status === activeTab);
-
-  const visibleItems = tabItems
+  const visibleItems = statusFiltered
     .filter(item => typeFilter === 'all' || item.type === typeFilter)
     .filter(item => platformFilter === 'all' || item.platform === platformFilter)
     .filter(item =>
@@ -144,17 +116,16 @@ export default function ContentApprovalPage() {
   const typeOptions = Object.entries(TYPE_MAP).map(([k, v]) => ({ value: k, label: v.label }));
   const platformOptions = Object.entries(PLATFORM_MAP).map(([k, v]) => ({ value: k, label: v.label }));
   // Options come from the tab-filtered set so the current selection doesn't hide the alternatives
-  const usedTypes = [...new Set(tabItems.map(i => i.type).filter(Boolean))];
-  const usedPlatforms = [...new Set(tabItems.map(i => i.platform).filter(Boolean))];
+  const usedTypes = [...new Set(statusFiltered.map(i => i.type).filter(Boolean))];
+  const usedPlatforms = [...new Set(statusFiltered.map(i => i.platform).filter(Boolean))];
 
   const formatDate = (d?: string | null) => {
     if (!d) return '-';
     return new Date(d).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' });
   };
 
-  const emptyState = EMPTY_STATE[activeTab] ?? EMPTY_STATE.all;
-  const EmptyIcon = emptyState.icon;
-  const hasActiveFilters = !!searchQuery || typeFilter !== 'all' || platformFilter !== 'all';
+  const EmptyIcon = FileText;
+  const hasActiveFilters = !!searchQuery || statusFilter !== 'all' || typeFilter !== 'all' || platformFilter !== 'all';
 
   return (
     <PageShell
@@ -184,22 +155,8 @@ export default function ContentApprovalPage() {
         })}
       </div>
 
-      {/* Toolbar: Tabs (top row) + Type / Platform / Search / Sort (bottom row) */}
+      {/* Toolbar: Status / Type / Platform / Search / Sort filters */}
       <div className="space-y-3 mb-4">
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="h-auto p-1 flex flex-wrap gap-0.5">
-            {TABS.map(tab => {
-              const TabIcon = tab.icon;
-              return (
-                <TabsTrigger key={tab.value} value={tab.value} className="gap-1.5 text-xs sm:text-sm">
-                  <TabIcon className="h-3.5 w-3.5" />{tab.label}
-                  <span className="ml-1 text-[10px] px-1.5 py-0 rounded-full bg-muted font-semibold">{tabCounts[tab.value] ?? 0}</span>
-                </TabsTrigger>
-              );
-            })}
-          </TabsList>
-        </Tabs>
-
         <div className="flex flex-wrap items-center gap-3">
           <div className="relative flex-1 min-w-[200px] max-w-sm">
             <Input
@@ -210,6 +167,19 @@ export default function ContentApprovalPage() {
             />
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           </div>
+          <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as 'all' | 'approved' | 'pending_approval' | 'revision' | 'rejected')}>
+            <SelectTrigger className="w-[150px]">
+              <Layers className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
+              <SelectValue placeholder="ทุกสถานะ" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">ทุกสถานะ</SelectItem>
+              <SelectItem value="approved">อนุมัติแล้ว</SelectItem>
+              <SelectItem value="pending_approval">รออนุมัติ</SelectItem>
+              <SelectItem value="revision">ขอแก้ไข</SelectItem>
+              <SelectItem value="rejected">ปฏิเสธ</SelectItem>
+            </SelectContent>
+          </Select>
           <Select value={typeFilter} onValueChange={setTypeFilter}>
             <SelectTrigger className="w-[150px]">
               <Shapes className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
@@ -244,8 +214,8 @@ export default function ContentApprovalPage() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="requested_desc">ขออนุมัติล่าสุด → เก่าสุด</SelectItem>
-              <SelectItem value="requested_asc">ขออนุมัติเก่าสุด → ล่าสุด</SelectItem>
+              <SelectItem value="requested_desc">ล่าสุด-เก่าสุด</SelectItem>
+              <SelectItem value="requested_asc">เก่าสุด-ล่าสุด</SelectItem>
             </SelectContent>
           </Select>
           <Badge variant="secondary" className="ml-auto">
@@ -260,9 +230,9 @@ export default function ContentApprovalPage() {
       ) : visibleItems.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-muted-foreground gap-3">
           <EmptyIcon className="h-10 w-10 opacity-30" />
-          <p className="text-lg font-medium">{emptyState.title}</p>
+          <p className="text-lg font-medium">ไม่มีรายการ</p>
           <p className="text-sm">
-            {hasActiveFilters ? 'ลองปรับคำค้นหา ตัวกรองประเภท หรือแพลตฟอร์ม' : emptyState.hint}
+            {hasActiveFilters ? 'ลองปรับคำค้นหา ตัวกรองสถานะ ประเภท หรือแพลตฟอร์ม' : 'ยังไม่มีเนื้อหาในระบบ'}
           </p>
         </div>
       ) : (

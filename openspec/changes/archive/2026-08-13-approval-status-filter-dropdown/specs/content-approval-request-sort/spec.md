@@ -1,21 +1,4 @@
-# content-approval-request-sort Specification
-
-## Purpose
-
-กำหนดการบันทึกวันที่ขออนุมัติ (`requested_at`) และการเรียงรายการในหน้ารายการอนุมัติตามวันที่ขออนุมัติ
-
-## Requirements
-
-### Requirement: ระบบบันทึกวันที่ขออนุมัติ
-ระบบ SHALL บันทึกเวลาที่ content item ถูกส่งขออนุมัติลงในคอลัมน์ `content_items.requested_at` (DATETIME NULL) โดยอัตโนมัติเมื่อสถานะเปลี่ยนเป็น `pending_approval`
-
-#### Scenario: ขออนุมัติบันทึก requested_at
-- **WHEN** ผู้ใช้กด "ขออนุมัติ" และสถานะเปลี่ยนเป็น `pending_approval` ผ่าน `PUT /content-items.php`
-- **THEN** ระบบ set `requested_at = NOW()` ในแถวของ content item นั้น
-
-#### Scenario: requested_at มีใน API response
-- **WHEN** ระบบ query content items ผ่าน `GET /content-items.php`
-- **THEN** ผลลัพธ์แต่ละรายการรวม field `requested_at` (หรือ null)
+## MODIFIED Requirements
 
 ### Requirement: เรียงรายการอนุมัติตามวันที่ขออนุมัติ
 หน้ารายการอนุมัติ SHALL มีตัวเลือก Sort ที่เรียงรายการตาม `requested_at` (วันที่ขออนุมัติ) โดยมี 2 ตัวเลือก: "ล่าสุด-เก่าสุด" และ "เก่าสุด-ล่าสุด"

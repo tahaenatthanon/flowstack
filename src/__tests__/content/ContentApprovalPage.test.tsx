@@ -131,4 +131,12 @@ describe('ContentApprovalPage', () => {
     expect(approvedIdx).toBeLessThan(revisionIdx);
     expect(revisionIdx).toBeLessThan(rejectedIdx);
   });
+
+  it('renders a status filter dropdown instead of a tab menu', async () => {
+    await renderPage();
+    // The 5-tab menu is gone
+    expect(screen.queryByRole('tablist')).toBeNull();
+    // Four comboboxes remain: status, type, platform, sort
+    expect(screen.getAllByRole('combobox').length).toBe(4);
+  });
 });
