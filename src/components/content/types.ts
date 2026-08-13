@@ -193,9 +193,9 @@ export const TYPE_MAP: Record<string, { label: string; icon: React.ElementType; 
 export const STATUS_MAP: Record<string, { label: string; color: string }> = {
   published:        { label: 'เผยแพร่แล้ว', color: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300' },
   draft:            { label: 'ฉบับร่าง',    color: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400' },
-  revision:         { label: 'รอแก้ไข',     color: 'bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300' },
+  revision:         { label: 'รอแก้ไข',     color: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300' },
   pending_approval: { label: 'รออนุมัติ',   color: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300' },
-  approved:         { label: 'อนุมัติแล้ว', color: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300' },
+  approved:         { label: 'อนุมัติแล้ว', color: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300' },
   rejected:         { label: 'ปฏิเสธ',      color: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300' },
 };
 

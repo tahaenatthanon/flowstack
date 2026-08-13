@@ -53,7 +53,8 @@ if ($method === 'GET') {
                       cp.week_start,
                       ci.created_at,
                       ci.updated_at,
-                      ci.requested_at
+                      ci.requested_at,
+                      ci.reject_reason
                FROM content_items ci
                LEFT JOIN content_plan_items cpi ON cpi.id = ci.plan_item_id
                LEFT JOIN content_plans cp ON cp.id = COALESCE(ci.plan_id, cpi.plan_id) AND cp.tenant_id = ?

@@ -1,10 +1,4 @@
-# content-list-status-badge Specification
-
-## Purpose
-
-Show each content item's workflow status inline next to its title in the content list, so an author scanning the "ทั้งหมด" (All) tab can tell draft, revision, pending_approval, approved, published, and rejected items apart at a glance — using text color only, without adding background fills to the row.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Status badge displayed after article title
 The system SHALL display a status badge after each content item title in ContentListTab.
@@ -32,13 +26,3 @@ The system SHALL display a status badge after each content item title in Content
 - **WHEN** ContentListTab has a type or platform filter active
 - **AND** `statusFilter === 'all'`
 - **THEN** the status badge IS displayed
-
-### Requirement: Status badge format and positioning
-The status badge SHALL be displayed inline after the title with text-only coloring and no background.
-
-#### Scenario: Badge format
-- **WHEN** a status badge is rendered
-- **THEN** it is a plain `<span>` with colored text and no background fill
-- **AND** it uses `text-[11px]` font size
-- **AND** it is displayed inline after the title text
-- **AND** it uses parentheses format: ` (สถานะ)` — including a leading space before the opening parenthesis

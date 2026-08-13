@@ -350,6 +350,15 @@ export default function ContentDetailView({
         </div>
       </div>
 
+      {(item.status === 'revision' || item.status === 'rejected') && item.reject_reason && (
+        <div className="rounded-lg border px-4 py-3 text-sm bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800">
+          <p className="font-semibold text-amber-800 dark:text-amber-200">
+            {item.status === 'revision' ? 'เหตุผลที่ขอแก้ไข' : 'เหตุผลที่ปฏิเสธ'}
+          </p>
+          <p className="mt-1 text-amber-900 dark:text-amber-100 whitespace-pre-wrap break-words">{item.reject_reason}</p>
+        </div>
+      )}
+
       {isVideo ? <ContentVideoView item={item} context={context} /> : <ContentArticleView item={item} context={context} />}
 
       {/* Schedule Dialog */}

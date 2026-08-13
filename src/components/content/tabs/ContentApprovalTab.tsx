@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   Check, X, Filter, AlertTriangle, FileText, Clock, CheckCircle2, XCircle, ArrowUpDown,
-  Layers, Search, Shapes,
+  Layers, Search, Shapes, Pencil,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -37,7 +37,7 @@ export default function ContentApprovalTab() {
   const [typeFilter, setTypeFilter] = useState('all');
   const [platformFilter, setPlatformFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [rejectDialog, setRejectDialog] = useState<{ open: boolean; item: ContentItem | null }>({ open: false, item: null });
+  const [reasonDialog, setReasonDialog] = useState<{ open: boolean; item: ContentItem | null; kind: 'revision' | 'rejected' }>({ open: false, item: null, kind: 'rejected' });
   const [rejectReason, setRejectReason] = useState('');
   const [confirmApprove, setConfirmApprove] = useState<ContentItem | null>(null);
   // Row click opens a read-only detail dialog; null means closed
@@ -94,20 +94,27 @@ export default function ContentApprovalTab() {
     setConfirmApprove(null);
   };
 
-  const handleReject = async () => {
-    const item = rejectDialog.item;
+  const handleDecision = async () => {
+    const item = reasonDialog.item;
     if (!item) return;
+    const kind = reasonDialog.kind;
     try {
       await apiFetch(`/content-items.php?id=${item.id}`, {
         method: 'PUT',
-        body: JSON.stringify({ status: 'rejected' }),
+        body: JSON.stringify({
+          status: kind,
+          reject_reason: rejectReason.trim() ? rejectReason.trim() : null,
+        }),
       });
-      toast({ title: 'ปฏิเสธแล้ว', description: `"${item.title}" ถูกเปลี่ยนสถานะเป็นปฏิเสธ` });
+      toast({
+        title: kind === 'revision' ? 'ขอแก้ไขแล้ว' : 'ปฏิเสธแล้ว',
+        description: `"${item.title}" ${kind === 'revision' ? 'ถูกส่งกลับให้แก้ไข' : 'ถูกเปลี่ยนสถานะเป็นปฏิเสธ'}`,
+      });
       qc.invalidateQueries({ queryKey: contentKeys.items() });
     } catch {
-      toast({ title: 'เกิดข้อผิดพลาด', description: 'ไม่สามารถปฏิเสธได้', variant: 'destructive' });
+      toast({ title: 'เกิดข้อผิดพลาด', description: 'ไม่สามารถดำเนินการได้', variant: 'destructive' });
     }
-    setRejectDialog({ open: false, item: null });
+    setReasonDialog({ open: false, item: null, kind: 'rejected' });
     setRejectReason('');
   };
 
@@ -235,7 +242,7 @@ export default function ContentApprovalTab() {
                 <TableHead className="hidden md:table-cell">แพลตฟอร์ม</TableHead>
                 <TableHead className="hidden sm:table-cell">วันที่สร้าง</TableHead>
                 <TableHead>สถานะ</TableHead>
-                <TableHead className="text-right">จัดการ</TableHead>
+                <TableHead className="text-right w-[240px]">จัดการ</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -267,7 +274,7 @@ export default function ContentApprovalTab() {
                     </TableCell>
                     <TableCell className="text-right">
                       {isPending ? (
-                        <div className="flex items-center justify-end gap-1">
+                        <div className="flex items-center justify-end gap-1 whitespace-nowrap">
                           <Button
                             variant="ghost" size="sm"
                             onClick={(e) => { e.stopPropagation(); setConfirmApprove(item); }}
@@ -277,14 +284,21 @@ export default function ContentApprovalTab() {
                           </Button>
                           <Button
                             variant="ghost" size="sm"
-                            onClick={(e) => { e.stopPropagation(); setRejectDialog({ open: true, item }); setRejectReason(''); }}
+                            onClick={(e) => { e.stopPropagation(); setReasonDialog({ open: true, item, kind: 'revision' }); setRejectReason(''); }}
+                            className="text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+                          >
+                            <Pencil className="h-4 w-4 mr-1" />ขอแก้ไข
+                          </Button>
+                          <Button
+                            variant="ghost" size="sm"
+                            onClick={(e) => { e.stopPropagation(); setReasonDialog({ open: true, item, kind: 'rejected' }); setRejectReason(''); }}
                             className="text-red-600 hover:text-red-700 hover:bg-red-50"
                           >
                             <X className="h-4 w-4 mr-1" />ปฏิเสธ
                           </Button>
                         </div>
                       ) : (
-                        <span className="text-xs text-muted-foreground">ดำเนินการแล้ว</span>
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">ดำเนินการแล้ว</span>
                       )}
                     </TableCell>
                   </TableRow>
@@ -311,17 +325,21 @@ export default function ContentApprovalTab() {
         </DialogContent>
       </Dialog>
 
-      {/* Reject Dialog */}
-      <Dialog open={rejectDialog.open} onOpenChange={(v) => { if (!v) setRejectDialog({ open: false, item: null }); }}>
+      {/* Reason Dialog — shared by "ขอแก้ไข" and "ปฏิเสธ" */}
+      <Dialog open={reasonDialog.open} onOpenChange={(v) => { if (!v) setReasonDialog({ open: false, item: null, kind: 'rejected' }); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>ปฏิเสธเนื้อหา</DialogTitle>
+            <DialogTitle>{reasonDialog.kind === 'revision' ? 'ขอแก้ไขเนื้อหา' : 'ปฏิเสธเนื้อหา'}</DialogTitle>
             <DialogDescription>
-              เนื้อหานี้จะถูกเปลี่ยนสถานะเป็น "ปฏิเสธ" และแสดงในแท็บปฏิเสธ
+              {reasonDialog.kind === 'revision'
+                ? 'เนื้อหานี้จะถูกส่งกลับให้ผู้สร้างแก้ไข'
+                : 'เนื้อหานี้จะถูกเปลี่ยนสถานะเป็น "ปฏิเสธ"'}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
-            <p className="text-sm font-medium">เหตุผลที่ปฏิเสธ (ไม่บังคับ)</p>
+            <p className="text-sm font-medium">
+              {reasonDialog.kind === 'revision' ? 'เหตุผลที่ขอแก้ไข (ไม่บังคับ)' : 'เหตุผลที่ปฏิเสธ (ไม่บังคับ)'}
+            </p>
             <Textarea
               placeholder="ระบุเหตุผลหรือคำแนะนำในการแก้ไข..."
               value={rejectReason}
@@ -330,8 +348,10 @@ export default function ContentApprovalTab() {
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRejectDialog({ open: false, item: null })}>ยกเลิก</Button>
-            <Button variant="destructive" onClick={handleReject}>ยืนยันการปฏิเสธ</Button>
+            <Button variant="outline" onClick={() => setReasonDialog({ open: false, item: null, kind: 'rejected' })}>ยกเลิก</Button>
+            <Button variant={reasonDialog.kind === 'revision' ? 'default' : 'destructive'} onClick={handleDecision}>
+              {reasonDialog.kind === 'revision' ? 'ยืนยันขอแก้ไข' : 'ยืนยันการปฏิเสธ'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
