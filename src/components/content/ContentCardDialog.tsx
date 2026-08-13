@@ -401,6 +401,17 @@ export function ContentCardDialog({
 
         {/* Scrollable body */}
         <div className="flex-1 overflow-y-auto">
+          {(contentStatus === 'revision' || contentStatus === 'rejected') && existingItem?.reject_reason && (
+            <div className="px-6 pt-4">
+              <div className="rounded-lg border px-4 py-3 text-sm bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800">
+                <p className="font-semibold text-amber-800 dark:text-amber-200">
+                  {contentStatus === 'revision' ? 'เหตุผลที่ขอแก้ไข' : 'เหตุผลที่ปฏิเสธ'}
+                </p>
+                <p className="mt-1 text-amber-900 dark:text-amber-100 whitespace-pre-wrap break-words">{existingItem.reject_reason}</p>
+              </div>
+            </div>
+          )}
+
           {/* ===== Article Editor ===== */}
           {hasArticle || existingItem ? (
             <div className="px-6 py-5 border-b">

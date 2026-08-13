@@ -96,6 +96,7 @@ export interface PlanItem {
   article_content?: string | null;
   content_item_id?: string | null;
   content_type?: string | null;
+  reject_reason?: string | null;
 }
 
 export interface PublishChannel {

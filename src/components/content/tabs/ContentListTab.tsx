@@ -52,6 +52,7 @@ export default function ContentListTab() {
     article_content: item.article_content || '',
     content_item_id: item.id,
     content_type: item.type,
+    reject_reason: item.reject_reason || null,
   });
 
   const handleSave = async (data: {
@@ -310,6 +311,12 @@ export default function ContentListTab() {
                         </span>
                       )}
                     </p>
+                    {(item.status === 'revision' || item.status === 'rejected') && item.reject_reason && (
+                      <p className="mt-1 flex items-start gap-1 text-[11px] text-amber-700 dark:text-amber-300">
+                        <span className="font-semibold shrink-0">{item.status === 'revision' ? 'เหตุผลขอแก้ไข:' : 'เหตุผลปฏิเสธ:'}</span>
+                        <span className="line-clamp-2" title={item.reject_reason}>{item.reject_reason}</span>
+                      </p>
+                    )}
                     <div className="flex items-center gap-1.5 flex-wrap mt-1">
                       <span className={cn(
                         'text-[11px] px-2 py-0.5 rounded-full font-medium',
