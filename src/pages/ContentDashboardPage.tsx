@@ -80,12 +80,12 @@ export default function ContentDashboardPage() {
   };
 
   const statCards = [
-    { label: 'เนื้อหาทั้งหมด', value: totalItems, icon: FileText, color: 'text-blue-600 bg-blue-50 dark:bg-blue-950', border: 'border-blue-200 dark:border-blue-800' },
-    { label: 'เผยแพร่แล้ว', value: publishedCount, icon: CheckCircle2, color: 'text-green-600 bg-green-50 dark:bg-green-950', border: 'border-green-200 dark:border-green-800' },
-    { label: 'รออนุมัติ', value: pendingApprovalCount, icon: Clock, color: 'text-amber-600 bg-amber-50 dark:bg-amber-950', border: 'border-amber-200 dark:border-amber-800' },
-    { label: 'ฉบับร่าง', value: draftCount, icon: AlertTriangle, color: 'text-gray-600 bg-gray-50 dark:bg-gray-800', border: 'border-gray-200 dark:border-gray-700' },
-    { label: 'ยอดวิวรวม', value: totalViews, icon: Eye, color: 'text-cyan-600 bg-cyan-50 dark:bg-cyan-950', border: 'border-cyan-200 dark:border-cyan-800' },
-    { label: 'ยอดไลก์รวม', value: totalLikes, icon: ThumbsUp, color: 'text-pink-600 bg-pink-50 dark:bg-pink-950', border: 'border-pink-200 dark:border-pink-800' },
+    { label: 'เนื้อหาทั้งหมด', value: totalItems, icon: FileText, color: 'text-blue-600' },
+    { label: 'เผยแพร่แล้ว', value: publishedCount, icon: CheckCircle2, color: 'text-green-600' },
+    { label: 'รออนุมัติ', value: pendingApprovalCount, icon: Clock, color: 'text-amber-600' },
+    { label: 'ฉบับร่าง', value: draftCount, icon: AlertTriangle, color: 'text-gray-600' },
+    { label: 'ยอดวิวรวม', value: totalViews, icon: Eye, color: 'text-cyan-600' },
+    { label: 'ยอดไลก์รวม', value: totalLikes, icon: ThumbsUp, color: 'text-pink-600' },
   ];
 
   return (
@@ -113,19 +113,17 @@ export default function ContentDashboardPage() {
       ) : (
         <div className="space-y-6">
           {/* Stats Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             {statCards.map((card) => {
               const Icon = card.icon;
               return (
-                <Card key={card.label} className={`border ${card.border} shadow-sm`}>
-                  <CardContent className="p-4 flex items-center gap-3">
-                    <div className={`p-2.5 rounded-lg ${card.color}`}>
-                      <Icon className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <p className="text-2xl font-bold">{card.value}</p>
-                      <p className="text-xs text-muted-foreground">{card.label}</p>
-                    </div>
+                <Card key={card.label}>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">{card.label}</CardTitle>
+                    <Icon className={`h-4 w-4 ${card.color}`} />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">{card.value}</div>
                   </CardContent>
                 </Card>
               );

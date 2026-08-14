@@ -1,25 +1,6 @@
-# content-dashboard-stats Specification
+# content-dashboard-stats Specification (delta)
 
-## Purpose
-
-Display engagement totals (views and likes) as stat cards on the content dashboard, aggregated across all content items.
-
-## Requirements
-
-### Requirement: แสดง Stat Cards ยอดวิวรวมและยอดไลก์รวม
-The dashboard SHALL display two additional stat cards showing the total views and total likes aggregated across all content items.
-
-#### Scenario: ยอดวิวรวมคำนวณจาก content items
-- **WHEN** the dashboard loads and `content_items` are fetched via `GET /content-items.php`
-- **THEN** a "ยอดวิวรวม" stat card displays the sum of `views` across all items
-
-#### Scenario: ยอดไลก์รวมคำนวณจาก content items
-- **WHEN** the dashboard loads and `content_items` are fetched
-- **THEN** a "ยอดไลก์รวม" stat card displays the sum of `likes` across all items
-
-#### Scenario: แสดงศูนย์เมื่อไม่มีข้อมูล
-- **WHEN** the dashboard loads with an empty `content_items` array
-- **THEN** the "ยอดวิวรวม" and "ยอดไลก์รวม" cards display `0`
+## MODIFIED Requirements
 
 ### Requirement: Stat Cards ใหม่ใช้สไตล์เดียวกับการ์ดเดิม
 The new views/likes stat cards SHALL follow the same visual style as the other stat cards on the dashboard, using the KpiCard pattern (title + icon in one row, count below).
