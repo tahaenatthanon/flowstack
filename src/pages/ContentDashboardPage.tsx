@@ -1,4 +1,4 @@
-import { LayoutDashboard, FileText, Clock, CheckCircle2, Edit3, AlertTriangle, TrendingUp, Plus, Eye, ThumbsUp, ArrowRight } from 'lucide-react';
+import { LayoutDashboard, FileText, Clock, CheckCircle2, Edit3, AlertTriangle, TrendingUp, Eye, ThumbsUp, ArrowRight } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -101,16 +101,6 @@ export default function ContentDashboardPage() {
       ]}
       title="แดชบอร์ดคอนเทนต์"
       description="ภาพรวมเนื้อหาและสถานะการผลิต"
-      actions={
-        <>
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => navigate('/content')}>
-            <Eye className="h-3.5 w-3.5" />ดูเนื้อหาทั้งหมด
-          </Button>
-          <Button size="sm" className="gap-1.5" onClick={() => navigate('/content?create=1')}>
-            <Plus className="h-3.5 w-3.5" />สร้างคอนเทนต์
-          </Button>
-        </>
-      }
     >
       {isLoading ? (
         <div className="flex items-center justify-center py-20 text-muted-foreground">กำลังโหลด...</div>
