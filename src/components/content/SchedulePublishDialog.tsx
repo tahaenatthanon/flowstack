@@ -109,13 +109,13 @@ export function SchedulePublishDialog({ open, onOpenChange, contentId, contentTi
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-full sm:max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogContent className="w-full sm:max-w-xl">
         <DialogHeader>
           <DialogTitle className="text-base">{isSendNow ? 'ส่งเดี๋ยวนี้' : 'ตั้งเวลาโพสต์'}</DialogTitle>
           <p className="text-xs text-muted-foreground truncate">{contentTitle}</p>
         </DialogHeader>
 
-        <div className="space-y-5">
+        <div className="max-h-[60vh] overflow-y-auto pr-1 space-y-4">
           {/* Channel list */}
           <div className="space-y-1.5">
             <Label className="text-xs font-medium text-muted-foreground">เลือก Channel (เลือกได้หลายอัน)</Label>
@@ -126,7 +126,7 @@ export function SchedulePublishDialog({ open, onOpenChange, contentId, contentTi
               {activeChannels.map((ch: any) => (
                 <label
                   key={ch.id}
-                  className={`flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-muted/50 transition-colors ${selectedChannels.includes(ch.id) ? 'bg-primary/5' : ''}`}
+                  className={`flex items-center gap-2.5 px-4 py-2.5 cursor-pointer hover:bg-muted/50 transition-colors ${selectedChannels.includes(ch.id) ? 'bg-primary/5' : ''}`}
                 >
                   <Checkbox
                     checked={selectedChannels.includes(ch.id)}
