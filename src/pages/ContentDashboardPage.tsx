@@ -42,7 +42,7 @@ export default function ContentDashboardPage() {
 
   // Platform distribution
   const platformCounts = items.reduce<Record<string, number>>((acc, item) => {
-    const p = item.platform ?? 'unknown';
+    const p = (item.platform ?? 'unknown').trim().toLowerCase();
     acc[p] = (acc[p] || 0) + 1;
     return acc;
   }, {});

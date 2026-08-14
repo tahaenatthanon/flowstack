@@ -72,8 +72,9 @@ if ($method === 'POST') {
     if (empty($body['title'])) jsonError('กรุณาระบุชื่อคอนเทนต์');
     $id = generateUUID();
     $planItemId = $body['plan_item_id'] ?? null;
+    $platform = isset($body['platform']) ? strtolower(trim($body['platform'])) : null;
     $db->prepare('INSERT INTO content_items (id, tenant_id, title, type, status, created_by, plan_item_id, platform, scheduled_date, caption, image_brief, plan_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
-       ->execute([$id, $tenantId, $body['title'], $body['type'] ?? 'article', $body['status'] ?? 'draft', $userId, $planItemId, $body['platform'] ?? null, $body['scheduled_date'] ?? null, $body['caption'] ?? '', $body['image_brief'] ?? '', $body['plan_id'] ?? null]);
+       ->execute([$id, $tenantId, $body['title'], $body['type'] ?? 'article', $body['status'] ?? 'draft', $userId, $planItemId, $platform, $body['scheduled_date'] ?? null, $body['caption'] ?? '', $body['image_brief'] ?? '', $body['plan_id'] ?? null]);
     $stmt = $db->prepare('SELECT ci.*, cpi.day_label, cp.title AS plan_title, cp.id AS plan_id, cp.week_start FROM content_items ci LEFT JOIN content_plan_items cpi ON cpi.id=ci.plan_item_id LEFT JOIN content_plans cp ON cp.id=COALESCE(ci.plan_id, cpi.plan_id) WHERE ci.id=?');
     $stmt->execute([$id]);
     jsonResponse($stmt->fetch(), 201);
@@ -92,7 +93,12 @@ if ($method === 'PUT') {
     }
     $allowed = ['title', 'type', 'status', 'views', 'likes', 'caption', 'platform', 'scheduled_date', 'image_brief', 'article_content', 'reject_reason'];
     $fields  = []; $values = [];
-    foreach ($allowed as $f) { if (array_key_exists($f, $body)) { $fields[] = "`$f` = ?"; $values[] = $body[$f]; } }
+    foreach ($allowed as $f) {
+        if (array_key_exists($f, $body)) {
+            $fields[] = "`$f` = ?";
+            $values[] = ($f === 'platform') ? strtolower(trim($body[$f])) : $body[$f];
+        }
+    }
     // Record the moment a request for approval enters the queue
     if (($body['status'] ?? null) === 'pending_approval') {
         $fields[] = '`requested_at` = NOW()';

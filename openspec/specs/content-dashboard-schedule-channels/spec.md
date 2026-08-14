@@ -75,6 +75,13 @@ The dashboard SHALL display a "แพลตฟอร์ม" widget listing each 
 - **WHEN** two or more platforms have the same content count
 - **THEN** they are ordered by platform name A–Z (using the platform label)
 
+### Requirement: นับจำนวนแพลตฟอร์มแบบ case-insensitive
+The dashboard SHALL count platform content in a case-insensitive manner, so the same platform written with different casing (e.g. "Facebook" vs "facebook") is aggregated into a single entry.
+
+#### Scenario: รวมแพลตฟอร์มเดียวกัน
+- **WHEN** the dashboard loads with `content_items` where some items have `platform = "Facebook"` and others `platform = "facebook"`
+- **THEN** the widget shows a single "Facebook" entry with a combined count (not two separate entries)
+
 ### Requirement: ใช้ Card และ Badge จาก Design System
 The schedule and channel widgets SHALL use existing `Card`/`Badge` shadcn-ui primitives and `PLATFORM_MAP` colors, consistent with the existing dashboard cards.
 

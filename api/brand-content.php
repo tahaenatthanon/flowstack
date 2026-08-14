@@ -566,7 +566,7 @@ Your ENTIRE response must be ONE valid JSON object and nothing else.
 - Start your response with { and end with }
 
 Required JSON schema (all fields mandatory):
-{"day_label":"วันจันทร์","day_order":1,"platform":"Facebook","topic":"หัวข้อภาษาไทย","caption":"แคปชั่นภาษาไทย 3+ บรรทัด พร้อม #hashtag","image_brief":"Detailed English image prompt for DALL-E/Flux: scene, lighting, style, colors."}
+{"day_label":"วันจันทร์","day_order":1,"platform":"facebook","topic":"หัวข้อภาษาไทย","caption":"แคปชั่นภาษาไทย 3+ บรรทัด พร้อม #hashtag","image_brief":"Detailed English image prompt for DALL-E/Flux: scene, lighting, style, colors."}
 PROMPT;
 
     $systemPrompt = implode("\n\n", $sysParts);
@@ -2563,12 +2563,13 @@ if ($action === 'plan-items') {
         $dayLabels = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
         $dayOrders = [7, 1, 2, 3, 4, 5, 6];
         $id = generateUUID();
+        $platform = isset($body['platform']) ? strtolower(trim($body['platform'])) : 'facebook';
         $db->prepare('INSERT INTO content_plan_items (id, plan_id, day_label, day_order, scheduled_date, platform, topic, caption) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-           ->execute([$id, $planId, $dayLabels[(int)date('w', $ts)], $dayOrders[(int)date('w', $ts)], $scheduledDate, $body['platform'] ?? 'facebook', $topic, $body['caption'] ?? '']);
+           ->execute([$id, $planId, $dayLabels[(int)date('w', $ts)], $dayOrders[(int)date('w', $ts)], $scheduledDate, $platform, $topic, $body['caption'] ?? '']);
         // Also create content_items row as primary store
         $ciId = generateUUID();
         $db->prepare('INSERT INTO content_items (id, tenant_id, title, type, status, created_by, plan_item_id, plan_id, platform, scheduled_date, caption) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
-           ->execute([$ciId, $tenantId, $topic, 'article', 'draft', $userId, $id, $planId, $body['platform'] ?? 'facebook', $scheduledDate, $body['caption'] ?? '']);
+           ->execute([$ciId, $tenantId, $topic, 'article', 'draft', $userId, $id, $planId, $platform, $scheduledDate, $body['caption'] ?? '']);
         jsonResponse(['id' => $ciId, 'plan_item_id' => $id, 'created' => true], 201);
     }
     if ($method === 'DELETE') {
