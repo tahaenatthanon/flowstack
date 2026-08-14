@@ -1,10 +1,6 @@
-# content-dashboard-stat-card-style Specification
+# content-dashboard-stat-card-style Specification (delta)
 
-## Purpose
-
-กำหนดรูปแบบการแสดงผล (Visual Style) ของ Stat Cards ในหน้าแดชบอร์ดคอนเทนต์ (`ContentDashboardPage`) ให้ใช้ KpiCard pattern เดียวกับ Stat Card ในหน้ารายการอนุมัติ — หัวข้ออยู่ด้านบน (ซ้าย), ไอคอนอยู่ด้านขวา (แถวเดียวกับหัวข้อ), จำนวนอยู่ด้านล่าง
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Stat cards แสดงหัวข้อและไอคอนในแถวเดียวกัน โดยจำนวนอยู่ด้านล่าง
 ระบบ SHALL แสดง Stat Cards ในหน้าแดชบอร์ดคอนเทนต์โดยใช้ `Card` component (shadcn-ui) ที่มี `CardHeader` แสดงหัวข้อ (Title) และ Icon ในแถวเดียวกัน (`flex flex-row items-center justify-between`) และ `CardContent` แสดงจำนวนรายการ (Count) อยู่ด้านล่าง
@@ -28,14 +24,3 @@
 #### Scenario: Count display format
 - **WHEN** ผู้ใช้เข้าถึงหน้าแดชบอร์ดคอนเทนต์
 - **THEN** Count (ตัวเลข) แสดงใน `CardContent` ด้วย className `text-2xl font-bold tabular-nums` และใช้ `toLocaleString()` เพื่อคั่นหลักพัน
-
-### Requirement: Stat cards update on data change
-จำนวนใน Stat Cards SHALL ปรับปรุงอัตโนมัติตามข้อมูลล่าสุด
-
-#### Scenario: Stat cards update on data change
-- **WHEN** ข้อมูล content items เปลี่ยนแปลง (fetch ใหม่ผ่าน React Query)
-- **THEN** จำนวนใน Stat Cards ปรับปรุงอัตโนมัติตามข้อมูลล่าสุด
-
-#### Scenario: Zero count display
-- **WHEN** ไม่มีข้อมูลสำหรับ metric นั้น
-- **THEN** Stat Card ของ metric นั้นแสดงเลข 0

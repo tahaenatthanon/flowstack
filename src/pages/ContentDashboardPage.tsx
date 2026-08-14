@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useContentItems, useOverdueCount, useAllSchedules, usePublishChannels } from '@/hooks/useContent';
 import PageShell from '@/components/PageShell';
 import { STATUS_MAP, PLATFORM_MAP, TYPE_MAP } from '@/components/content/types';
@@ -113,7 +114,7 @@ export default function ContentDashboardPage() {
       ) : (
         <div className="space-y-6">
           {/* Stats Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
             {statCards.map((card) => {
               const Icon = card.icon;
               return (
@@ -123,7 +124,7 @@ export default function ContentDashboardPage() {
                     <Icon className={`h-4 w-4 ${card.color}`} />
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold">{card.value}</div>
+                    <div className="text-2xl font-bold tabular-nums">{card.value.toLocaleString()}</div>
                   </CardContent>
                 </Card>
               );
@@ -141,252 +142,253 @@ export default function ContentDashboardPage() {
             </div>
           )}
 
-          {/* Work Progress */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">ความคืบหน้าการผลิต</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {workProgressStatuses.map(statusKey => {
-                const count = statusCounts[statusKey];
-                const percent = totalItems > 0 ? Math.round((count / totalItems) * 100) : 0;
-                const info = STATUS_MAP[statusKey];
-                return (
-                  <div key={statusKey}>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                        {(() => { const StatusIcon = info.icon; return <StatusIcon className={`h-3.5 w-3.5 ${info.iconColor}`} />; })()}
-                        {info.label}
-                      </span>
-                      <span className="text-sm font-medium">{count} ชิ้น ({percent}%)</span>
-                    </div>
-                    <Progress value={percent} className="h-2" />
-                  </div>
-                );
-              })}
-              <div className="pt-3 border-t flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">เนื้อหาทั้งหมด</span>
-                <span className="text-lg font-bold">{totalItems} ชิ้น</span>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Top Content + Pending Queue */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Top Content */}
-            <Card className="lg:col-span-2">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">เนื้อหายอดนิยม</CardTitle>
-              </CardHeader>
-              <CardContent className="p-0">
-                {topContent.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-8">ไม่มีเนื้อหา</p>
-                ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="text-xs">ชื่อ</TableHead>
-                        <TableHead className="text-xs hidden sm:table-cell">ประเภท</TableHead>
-                        <TableHead className="text-xs hidden md:table-cell">แพลตฟอร์ม</TableHead>
-                        <TableHead className="text-xs text-right">ยอดวิว</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {topContent.map(item => {
-                        const type = TYPE_MAP[item.type] ?? TYPE_MAP.article;
-                        const platform = item.platform ? PLATFORM_MAP[item.platform] : null;
-                        return (
-                          <TableRow key={item.id}>
-                            <TableCell className="text-sm max-w-[150px] truncate">{item.title}</TableCell>
-                            <TableCell className="hidden sm:table-cell">
-                              <Badge variant="outline" className={type.color}>{type.label}</Badge>
-                            </TableCell>
-                            <TableCell className="hidden md:table-cell">
-                              {platform ? (
-                                <Badge variant="outline" className={platform.color}>{platform.label}</Badge>
-                              ) : '-'}
-                            </TableCell>
-                            <TableCell className="text-right text-sm font-medium">{(Number(item.views) || 0).toLocaleString()}</TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Pending Queue */}
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">คิวรออนุมัติ</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {pendingItems.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-8">ไม่มีรายการรออนุมัติ</p>
-                ) : (
-                  <div className="space-y-3">
-                    {pendingItems.map(item => (
-                      <div key={item.id} className="flex items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium truncate">{item.title}</p>
-                          <p className="text-xs text-muted-foreground">{formatDate(item.requested_at)}</p>
+          {/* Master 2-column */}
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            {/* LEFT: วิเคราะห์ + ตาราง */}
+            <div className="space-y-6 xl:col-span-2">
+              {/* Work Progress */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">ความคืบหน้าการผลิต</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {workProgressStatuses.map(statusKey => {
+                    const count = statusCounts[statusKey];
+                    const percent = totalItems > 0 ? Math.round((count / totalItems) * 100) : 0;
+                    const info = STATUS_MAP[statusKey];
+                    return (
+                      <div key={statusKey}>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                            {(() => { const StatusIcon = info.icon; return <StatusIcon className={`h-3.5 w-3.5 ${info.iconColor}`} />; })()}
+                            {info.label}
+                          </span>
+                          <span className="text-sm font-medium">{count} ชิ้น ({percent}%)</span>
                         </div>
-                        <Badge variant="outline" className={STATUS_MAP.pending_approval.color}>รออนุมัติ</Badge>
+                        <Progress value={percent} className="h-2" />
                       </div>
-                    ))}
+                    );
+                  })}
+                  <div className="pt-3 border-t flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">เนื้อหาทั้งหมด</span>
+                    <span className="text-lg font-bold">{totalItems.toLocaleString()} ชิ้น</span>
                   </div>
-                )}
-                <Button variant="outline" size="sm" className="w-full mt-4" onClick={() => navigate('/content-approval')}>
-                  ดูรายการอนุมัติทั้งหมด
-                  <ArrowRight className="h-3.5 w-3.5 ml-1" />
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
+                </CardContent>
+              </Card>
 
-          {/* Upcoming Schedule + Channels */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Upcoming Schedule */}
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">กำหนดการโพสต์ถัดไป</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {upcomingSchedules.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-8">ไม่มีโพสต์ที่กำลังจะถึง</p>
-                ) : (
-                  <div className="space-y-3">
-                    {upcomingSchedules.map(s => {
-                      const platform = s.platform ? PLATFORM_MAP[s.platform] : null;
-                      return (
-                        <div key={s.id} className="flex items-center justify-between gap-3">
+              {/* Tabs: เนื้อหายอดนิยม | เนื้อหาล่าสุด */}
+              <Card>
+                <Tabs defaultValue="top">
+                  <CardHeader className="pb-2">
+                    <TabsList>
+                      <TabsTrigger value="top">เนื้อหายอดนิยม</TabsTrigger>
+                      <TabsTrigger value="recent">เนื้อหาล่าสุด</TabsTrigger>
+                    </TabsList>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <TabsContent value="top">
+                      {topContent.length === 0 ? (
+                        <p className="text-sm text-muted-foreground text-center py-8">ไม่มีเนื้อหา</p>
+                      ) : (
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="text-xs">ชื่อ</TableHead>
+                              <TableHead className="text-xs hidden sm:table-cell">ประเภท</TableHead>
+                              <TableHead className="text-xs hidden md:table-cell">แพลตฟอร์ม</TableHead>
+                              <TableHead className="text-xs text-right">ยอดวิว</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {topContent.map(item => {
+                              const type = TYPE_MAP[item.type] ?? TYPE_MAP.article;
+                              const platform = item.platform ? PLATFORM_MAP[item.platform] : null;
+                              return (
+                                <TableRow key={item.id}>
+                                  <TableCell className="text-sm max-w-[150px] truncate">{item.title}</TableCell>
+                                  <TableCell className="hidden sm:table-cell">
+                                    <Badge variant="outline" className={type.color}>{type.label}</Badge>
+                                  </TableCell>
+                                  <TableCell className="hidden md:table-cell">
+                                    {platform ? (
+                                      <Badge variant="outline" className={platform.color}>{platform.label}</Badge>
+                                    ) : '-'}
+                                  </TableCell>
+                                  <TableCell className="text-right text-sm font-medium">{(Number(item.views) || 0).toLocaleString()}</TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      )}
+                    </TabsContent>
+                    <TabsContent value="recent">
+                      {recentItems.length === 0 ? (
+                        <p className="text-sm text-muted-foreground text-center py-8">ไม่มีเนื้อหา</p>
+                      ) : (
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="text-xs">ชื่อ</TableHead>
+                              <TableHead className="text-xs hidden sm:table-cell">ประเภท</TableHead>
+                              <TableHead className="text-xs hidden md:table-cell">แพลตฟอร์ม</TableHead>
+                              <TableHead className="text-xs">สถานะ</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {recentItems.map(item => {
+                              const type = TYPE_MAP[item.type] ?? TYPE_MAP.article;
+                              const status = STATUS_MAP[item.status] ?? { label: item.status, color: 'bg-gray-100 text-gray-600' };
+                              const platform = item.platform ? PLATFORM_MAP[item.platform] : null;
+                              return (
+                                <TableRow key={item.id}>
+                                  <TableCell className="text-sm max-w-[150px] truncate">{item.title}</TableCell>
+                                  <TableCell className="hidden sm:table-cell">
+                                    <Badge variant="outline" className={type.color}>{type.label}</Badge>
+                                  </TableCell>
+                                  <TableCell className="hidden md:table-cell">
+                                    {platform ? (
+                                      <Badge variant="outline" className={platform.color}>{platform.label}</Badge>
+                                    ) : '-'}
+                                  </TableCell>
+                                  <TableCell>
+                                    <Badge variant="outline" className={status.color}>{status.label}</Badge>
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      )}
+                    </TabsContent>
+                  </CardContent>
+                </Tabs>
+              </Card>
+            </div>
+
+            {/* RIGHT: สถานะ + งานที่ต้องทำ */}
+            <div className="space-y-6">
+              {/* Pending Queue */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">คิวรออนุมัติ</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {pendingItems.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-8">ไม่มีรายการรออนุมัติ</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {pendingItems.map(item => (
+                        <div key={item.id} className="flex items-center justify-between gap-3">
                           <div className="min-w-0">
-                            <p className="text-sm font-medium truncate">{s.topic || s.plan_title || 'ไม่มีชื่อ'}</p>
-                            <p className="text-xs text-muted-foreground">{formatDateTime(s.scheduled_at)}</p>
+                            <p className="text-sm font-medium truncate">{item.title}</p>
+                            <p className="text-xs text-muted-foreground">{formatDate(item.requested_at)}</p>
                           </div>
-                          {platform ? (
-                            <Badge variant="outline" className={platform.color}>{platform.label}</Badge>
-                          ) : s.channel_name ? (
-                            <span className="text-xs text-muted-foreground shrink-0">{s.channel_name}</span>
-                          ) : null}
+                          <Badge variant="outline" className={STATUS_MAP.pending_approval.color}>รออนุมัติ</Badge>
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                      ))}
+                    </div>
+                  )}
+                  <Button variant="outline" size="sm" className="w-full mt-4" onClick={() => navigate('/content-approval')}>
+                    ดูรายการอนุมัติทั้งหมด
+                    <ArrowRight className="h-3.5 w-3.5 ml-1" />
+                  </Button>
+                </CardContent>
+              </Card>
 
-            {/* Channels */}
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">สถานะช่องทาง</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {channels.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-8">ไม่มีช่องทางที่เชื่อมต่อ</p>
-                ) : (
-                  <div className="space-y-2">
-                    {channels.map(ch => {
-                      const platform = PLATFORM_MAP[ch.platform];
-                      const active = ch.is_active === 1;
-                      return (
-                        <div key={ch.id} className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <span className={`w-2 h-2 rounded-full ${active ? 'bg-green-500' : 'bg-gray-300'}`} />
-                            <span className="text-sm">{ch.name}</span>
-                          </div>
-                          {platform ? (
-                            <Badge variant="outline" className={platform.color}>{platform.label}</Badge>
-                          ) : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Platform Distribution */}
-            <Card className="lg:col-span-1">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">แพลตฟอร์ม</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {Object.keys(platformCounts).length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-4">ไม่มีข้อมูล</p>
-                ) : (
-                  <div className="space-y-2">
-                    {Object.entries(platformCounts)
-                      .sort(([, a], [, b]) => b - a)
-                      .map(([platform, count]) => {
-                        const info = PLATFORM_MAP[platform];
+              {/* Upcoming Schedule */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">กำหนดการโพสต์ถัดไป</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {upcomingSchedules.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-8">ไม่มีโพสต์ที่กำลังจะถึง</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {upcomingSchedules.map(s => {
+                        const platform = s.platform ? PLATFORM_MAP[s.platform] : null;
                         return (
-                          <div key={platform} className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              {info ? (
-                                <Badge variant="outline" className={info.color}>{info.label}</Badge>
-                              ) : (
-                                <span className="text-sm">{platform}</span>
-                              )}
+                          <div key={s.id} className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium truncate">{s.topic || s.plan_title || 'ไม่มีชื่อ'}</p>
+                              <p className="text-xs text-muted-foreground">{formatDateTime(s.scheduled_at)}</p>
                             </div>
-                            <span className="text-sm font-medium">{count}</span>
+                            {platform ? (
+                              <Badge variant="outline" className={platform.color}>{platform.label}</Badge>
+                            ) : s.channel_name ? (
+                              <span className="text-xs text-muted-foreground shrink-0">{s.channel_name}</span>
+                            ) : null}
                           </div>
                         );
                       })}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
 
-            {/* Recent Content */}
-            <Card className="lg:col-span-2">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">เนื้อหาล่าสุด</CardTitle>
-              </CardHeader>
-              <CardContent className="p-0">
-                {recentItems.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-8">ไม่มีเนื้อหา</p>
-                ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="text-xs">ชื่อ</TableHead>
-                        <TableHead className="text-xs hidden sm:table-cell">ประเภท</TableHead>
-                        <TableHead className="text-xs hidden md:table-cell">แพลตฟอร์ม</TableHead>
-                        <TableHead className="text-xs">สถานะ</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {recentItems.map(item => {
-                        const type = TYPE_MAP[item.type] ?? TYPE_MAP.article;
-                        const status = STATUS_MAP[item.status] ?? { label: item.status, color: 'bg-gray-100 text-gray-600' };
-                        const platform = item.platform ? PLATFORM_MAP[item.platform] : null;
+              {/* Channels */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">สถานะช่องทาง</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {channels.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-8">ไม่มีช่องทางที่เชื่อมต่อ</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {channels.map(ch => {
+                        const platform = PLATFORM_MAP[ch.platform];
+                        const active = ch.is_active === 1;
                         return (
-                          <TableRow key={item.id}>
-                            <TableCell className="text-sm max-w-[150px] truncate">{item.title}</TableCell>
-                            <TableCell className="hidden sm:table-cell">
-                              <Badge variant="outline" className={type.color}>{type.label}</Badge>
-                            </TableCell>
-                            <TableCell className="hidden md:table-cell">
-                              {platform ? (
-                                <Badge variant="outline" className={platform.color}>{platform.label}</Badge>
-                              ) : '-'}
-                            </TableCell>
-                            <TableCell>
-                              <Badge variant="outline" className={status.color}>{status.label}</Badge>
-                            </TableCell>
-                          </TableRow>
+                          <div key={ch.id} className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className={`w-2 h-2 rounded-full ${active ? 'bg-green-500' : 'bg-gray-300'}`} />
+                              <span className="text-sm">{ch.name}</span>
+                            </div>
+                            {platform ? (
+                              <Badge variant="outline" className={platform.color}>{platform.label}</Badge>
+                            ) : null}
+                          </div>
                         );
                       })}
-                    </TableBody>
-                  </Table>
-                )}
-              </CardContent>
-            </Card>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Platform Distribution */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">แพลตฟอร์ม</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {Object.keys(platformCounts).length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-4">ไม่มีข้อมูล</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {Object.entries(platformCounts)
+                        .sort(([, a], [, b]) => b - a)
+                        .map(([platform, count]) => {
+                          const info = PLATFORM_MAP[platform];
+                          return (
+                            <div key={platform} className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                {info ? (
+                                  <Badge variant="outline" className={info.color}>{info.label}</Badge>
+                                ) : (
+                                  <span className="text-sm">{platform}</span>
+                                )}
+                              </div>
+                              <span className="text-sm font-medium">{count}</span>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
           </div>
         </div>
       )}

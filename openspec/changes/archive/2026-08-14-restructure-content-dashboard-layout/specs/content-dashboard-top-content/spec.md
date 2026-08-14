@@ -1,10 +1,6 @@
-# content-dashboard-top-content Specification
+# content-dashboard-top-content Specification (delta)
 
-## Purpose
-
-Display a "เนื้อหายอดนิยม" (Top Content) widget on the content dashboard listing the top content items by views.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: แสดง Top Content เรียงตามยอดวิว
 The dashboard SHALL display a "เนื้อหายอดนิยม" (Top Content) widget listing the top 5 content items sorted by `views` in descending order, presented together with "เนื้อหาล่าสุด" (Recent Content) in a single Card using `Tabs`.
@@ -28,10 +24,3 @@ The dashboard SHALL display a "เนื้อหายอดนิยม" (Top 
 #### Scenario: นำเสนอผ่าน Tabs ร่วมกับเนื้อหาล่าสุด
 - **WHEN** the dashboard renders the content list Card
 - **THEN** a `TabsList` shows tabs "เนื้อหายอดนิยม" (default) and "เนื้อหาล่าสุด", and selecting a tab swaps the table between top content and recent content
-
-### Requirement: ใช้ Badge และ Table จาก Design System
-The Top Content widget SHALL use existing `Badge`/`Table` shadcn-ui primitives and the `TYPE_MAP`/`PLATFORM_MAP` constants, consistent with the existing recent content table.
-
-#### Scenario: ใช้ Badge/Table primitive เดิม
-- **WHEN** the Top Content widget is rendered
-- **THEN** it uses `Table` and `Badge` primitives with `TYPE_MAP`/`PLATFORM_MAP` colors, matching the existing "เนื้อหาล่าสุด" table
