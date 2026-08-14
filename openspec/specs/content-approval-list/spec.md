@@ -2,16 +2,24 @@
 
 ## Purpose
 
-กำหนดพฤติกรรมของหน้า "รายการอนุมัติ" (`/content-approval`) สำหรับดู กรอง จัดเรียง อนุมัติ และปฏิเสธ content items ที่เกี่ยวข้องกับการอนุมัติ (`pending_approval`, `approved`, `revision`, `rejected` — ไม่รวม `draft` และ `published`) รวมถึง Stat Cards สรุปจำนวนตามสถานะ และดีไซน์ของหน้ารายการอนุมัติกับหน้าแดชบอร์ดคอนเทนต์ตาม mockup
+กำหนดพฤติกรรมของหน้า "รายการอนุมัติ" ซึ่งเข้าถึงผ่าน Tab "รายการอนุมัติ" ในหน้าผลงานคอนเทนต์ (`/content`) เท่านั้น — ไม่มี route แยก `/content-approval` อีกต่อไป — สำหรับดู กรอง จัดเรียง อนุมัติ และปฏิเสธ content items ที่เกี่ยวข้องกับการอนุมัติ (`pending_approval`, `approved`, `revision`, `rejected` — ไม่รวม `draft` และ `published`) รวมถึง Stat Cards สรุปจำนวนตามสถานะ และดีไซน์ของหน้ารายการอนุมัติกับหน้าแดชบอร์ดคอนเทนต์ตาม mockup
 
 ## Requirements
 
 ### Requirement: User can view content approval list
-ระบบ SHALL แสดงรายการอนุมัติคอนเทนต์เป็น Tab "รายการอนุมัติ" ในหน้าผลงานคอนเทนต์ (`ContentPage`) โดยวางถัดจาก Tab "ผลงานทั้งหมด" ทันที และแสดง content items เฉพาะที่อยู่ใน workflow การอนุมัติ (`pending_approval`, `approved`, `revision`, `rejected`) — ไม่รวม `draft` และ `published` มี Filter Status Dropdown สำหรับกรองตามสถานะ ประกอบด้วย: ทุกสถานะ (ไม่รวม draft/published), อนุมัติแล้ว (`approved`), รออนุมัติ (`pending_approval`), ขอแก้ไข (`revision`), ปฏิเสธ (`rejected`)
+ระบบ SHALL แสดงรายการอนุมัติคอนเทนต์เป็น Tab "รายการอนุมัติ" ในหน้าผลงานคอนเทนต์ (`ContentPage`, route `/content`) เท่านั้น — ไม่มี route แยก `/content-approval` — โดยวางถัดจาก Tab "ผลงานทั้งหมด" ทันที และแสดง content items เฉพาะที่อยู่ใน workflow การอนุมัติ (`pending_approval`, `approved`, `revision`, `rejected`) — ไม่รวม `draft` และ `published` มี Filter Status Dropdown สำหรับกรองตามสถานะ ประกอบด้วย: ทุกสถานะ (ไม่รวม draft/published), อนุมัติแล้ว (`approved`), รออนุมัติ (`pending_approval`), ขอแก้ไข (`revision`), ปฏิเสธ (`rejected`)
 
 #### Scenario: Approval list shown as a tab in content page
 - **WHEN** ผู้ใช้ที่มีสิทธิ์เข้าถึง `/content`
 - **THEN** เห็น Tab "รายการอนุมัติ" อยู่ใน Tab Menu ถัดจาก Tab "ผลงานทั้งหมด"
+
+#### Scenario: เปิด Tab รายการอนุมัติผ่าน URL
+- **WHEN** ผู้ใช้เข้าถึง `/content?tab=approval`
+- **THEN** หน้า `/content` เปิด Tab "รายการอนุมัติ" โดยตรง (ไม่ใช่ Tab "ผลงานทั้งหมด")
+
+#### Scenario: Route /content-approval ถูกยกเลิก
+- **WHEN** ผู้ใช้เข้าถึง `/#/content-approval`
+- **THEN** ไม่มี route นี้ (แสดง NotFound) — ฟังก์ชันรายการอนุมัติเข้าถึงได้ผ่าน Tab ใน `/content` เท่านั้น
 
 #### Scenario: Approval list filters to approval-relevant items only
 - **WHEN** ผู้ใช้เปิด Tab "รายการอนุมัติ"

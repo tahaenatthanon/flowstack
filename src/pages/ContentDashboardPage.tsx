@@ -286,7 +286,7 @@ export default function ContentDashboardPage() {
                       ))}
                     </div>
                   )}
-                  <Button variant="outline" size="sm" className="w-full mt-4" onClick={() => navigate('/content-approval')}>
+                  <Button variant="outline" size="sm" className="w-full mt-4" onClick={() => navigate('/content?tab=approval')}>
                     ดูรายการอนุมัติทั้งหมด
                     <ArrowRight className="h-3.5 w-3.5 ml-1" />
                   </Button>

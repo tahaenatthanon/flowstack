@@ -40,7 +40,6 @@ const KnowledgeBasePage = lazy(() => import('./pages/KnowledgeBasePage'));
 const CampaignAnalyticsPage = lazy(() => import('./pages/CampaignAnalyticsPage'));
 const ContentPage = lazy(() => import('./pages/ContentPage'));
 const ContentPlannerPage = lazy(() => import('./pages/ContentPlannerPage'));
-const ContentApprovalPage = lazy(() => import('./pages/ContentApprovalPage'));
 const ContentDashboardPage = lazy(() => import('./pages/ContentDashboardPage'));
 const MediaStudioPage = lazy(() => import('./pages/MediaStudioPage'));
 const RecurringTasksPage = lazy(() => import('./pages/RecurringTasksPage'));
@@ -162,7 +161,6 @@ export default function App() {
                 <Route path="/campaign-analytics" element={<PermissionRoute menuKey="marketing"> <CampaignAnalyticsPage /> </PermissionRoute>} />
                 <Route path="/content"         element={<PermissionRoute menuKey="marketing"> <ContentPage />         </PermissionRoute>} />
                 <Route path="/content-dashboard" element={<PermissionRoute menuKey="marketing"> <ContentDashboardPage />         </PermissionRoute>} />
-                <Route path="/content-approval" element={<PermissionRoute menuKey="content_approval"> <ContentApprovalPage /> </PermissionRoute>} />
                 <Route path="/content-planner" element={<PermissionRoute menuKey="marketing"> <ContentPlannerPage /> </PermissionRoute>} />
                 <Route path="/media-studio" element={<PermissionRoute menuKey="media_studio"><MediaStudioPage /></PermissionRoute>} />
                 <Route path="/recurring-tasks" element={<Navigate to="/task-hours" replace />} />

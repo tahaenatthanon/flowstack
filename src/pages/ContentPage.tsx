@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import ContentListTab from '@/components/content/tabs/ContentListTab';
 import ContentApprovalTab from '@/components/content/tabs/ContentApprovalTab';
 import SkillsTriggerTab from '@/components/content/tabs/SkillsTriggerTab';
@@ -18,6 +19,10 @@ import PageShell from '@/components/PageShell';
 export default function ContentPage() {
   const [batchOpen, setBatchOpen] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
+  const [searchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState(
+    searchParams.get('tab') === 'approval' ? 'approval' : 'content'
+  );
   const { data: overdue } = useOverdueCount();
   const overdueCount = overdue?.count ?? 0;
 
@@ -52,7 +57,7 @@ export default function ContentPage() {
         </div>
       )}
 
-      <Tabs defaultValue="content" className="space-y-5">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-5">
         <TabsList className="flex overflow-x-auto w-full text-xs sm:text-sm sm:grid sm:grid-cols-5">
           <TabsTrigger value="content"  className="gap-1 sm:gap-2 px-2 sm:px-3 shrink-0">
             <PenTool className="h-3.5 w-3.5 shrink-0" />
