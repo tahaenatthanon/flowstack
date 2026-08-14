@@ -81,12 +81,12 @@ export default function ContentDashboardPage() {
   };
 
   const statCards = [
-    { label: 'เนื้อหาทั้งหมด', value: totalItems, icon: FileText, color: 'text-blue-600' },
-    { label: 'เผยแพร่แล้ว', value: publishedCount, icon: CheckCircle2, color: 'text-green-600' },
-    { label: 'รออนุมัติ', value: pendingApprovalCount, icon: Clock, color: 'text-amber-600' },
-    { label: 'ฉบับร่าง', value: draftCount, icon: Edit3, color: 'text-gray-600' },
-    { label: 'ยอดวิวรวม', value: totalViews, icon: Eye, color: 'text-cyan-600' },
-    { label: 'ยอดไลก์รวม', value: totalLikes, icon: ThumbsUp, color: 'text-pink-600' },
+    { label: 'เนื้อหาทั้งหมด', value: totalItems, icon: FileText, color: 'text-blue-600', border: 'border-blue-600' },
+    { label: 'เผยแพร่แล้ว', value: publishedCount, icon: CheckCircle2, color: 'text-green-600', border: 'border-green-600' },
+    { label: 'รออนุมัติ', value: pendingApprovalCount, icon: Clock, color: 'text-amber-600', border: 'border-amber-600' },
+    { label: 'ฉบับร่าง', value: draftCount, icon: Edit3, color: 'text-gray-600', border: 'border-gray-600' },
+    { label: 'ยอดวิวรวม', value: totalViews, icon: Eye, color: 'text-cyan-600', border: 'border-cyan-600' },
+    { label: 'ยอดไลก์รวม', value: totalLikes, icon: ThumbsUp, color: 'text-pink-600', border: 'border-pink-600' },
   ];
 
   return (
@@ -118,15 +118,13 @@ export default function ContentDashboardPage() {
             {statCards.map((card) => {
               const Icon = card.icon;
               return (
-                <Card key={card.label}>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">{card.label}</CardTitle>
-                    <Icon className={`h-4 w-4 ${card.color}`} />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold tabular-nums">{card.value.toLocaleString()}</div>
-                  </CardContent>
-                </Card>
+                <div key={card.label} className={`stat-card card-hover p-3 sm:p-5 ${card.border}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium">{card.label}</span>
+                    <Icon className={`w-4 h-4 ${card.color}`} />
+                  </div>
+                  <p className="text-xl sm:text-2xl font-bold font-heading tabular-nums">{card.value.toLocaleString()}</p>
+                </div>
               );
             })}
           </div>
@@ -163,9 +161,9 @@ export default function ContentDashboardPage() {
                             {(() => { const StatusIcon = info.icon; return <StatusIcon className={`h-3.5 w-3.5 ${info.iconColor}`} />; })()}
                             {info.label}
                           </span>
-                          <span className="text-sm font-medium">{count} ชิ้น ({percent}%)</span>
+                          <span className={`text-sm font-medium ${info.iconColor}`}>{count} ชิ้น ({percent}%)</span>
                         </div>
-                        <Progress value={percent} className="h-2" />
+                        <Progress value={percent} className={`h-1.5 ${info.progressColor}`} />
                       </div>
                     );
                   })}
