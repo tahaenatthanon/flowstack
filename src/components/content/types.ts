@@ -1,6 +1,6 @@
 // ─── Content Types — single source of truth ────────────────────────
 
-import { FileText, Image, Video, BookOpen, ListChecks } from 'lucide-react';
+import { FileText, Image, Video, BookOpen, ListChecks, CheckCircle2, Clock, BadgeCheck, RotateCcw, Edit3, XCircle } from 'lucide-react';
 
 export interface ContentItem {
   id: string; title: string; type: string; status: string;
@@ -191,13 +191,13 @@ export const TYPE_MAP: Record<string, { label: string; icon: React.ElementType; 
   video:   { label: 'วีดีโอ',  icon: Video,    color: 'text-red-500 bg-red-50 dark:bg-red-950' },
 };
 
-export const STATUS_MAP: Record<string, { label: string; color: string }> = {
-  published:        { label: 'เผยแพร่แล้ว', color: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300' },
-  draft:            { label: 'ฉบับร่าง',    color: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400' },
-  revision:         { label: 'รอแก้ไข',     color: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300' },
-  pending_approval: { label: 'รออนุมัติ',   color: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300' },
-  approved:         { label: 'อนุมัติแล้ว', color: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300' },
-  rejected:         { label: 'ปฏิเสธ',      color: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300' },
+export const STATUS_MAP: Record<string, { label: string; color: string; icon: React.ElementType; iconColor: string }> = {
+  published:        { label: 'เผยแพร่แล้ว', color: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300',   icon: CheckCircle2, iconColor: 'text-green-600' },
+  draft:            { label: 'ฉบับร่าง',    color: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',       icon: Edit3,        iconColor: 'text-gray-600' },
+  revision:         { label: 'รอแก้ไข',     color: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300',       icon: RotateCcw,    iconColor: 'text-blue-600' },
+  pending_approval: { label: 'รออนุมัติ',   color: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',   icon: Clock,        iconColor: 'text-amber-600' },
+  approved:         { label: 'อนุมัติแล้ว', color: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300',   icon: BadgeCheck,   iconColor: 'text-green-600' },
+  rejected:         { label: 'ปฏิเสธ',      color: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300',           icon: XCircle,      iconColor: 'text-red-600' },
 };
 
 export const PLAN_STATUS: Record<string, { label: string; color: string }> = {

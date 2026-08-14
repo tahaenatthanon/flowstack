@@ -1,4 +1,4 @@
-import { Play, FileText, Image, Search, Trash2, Loader2, ImageIcon, Send, Calendar, Layers, Edit3, RotateCcw, Clock, CheckCircle2 } from 'lucide-react';
+import { Play, FileText, Image, Search, Trash2, Loader2, ImageIcon, Send, Calendar, Layers, Edit3, RotateCcw, BadgeCheck, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -169,7 +169,7 @@ export default function ContentListTab() {
               <RotateCcw className="h-3.5 w-3.5" />รอแก้ไข<span className="ml-1 text-[10px] px-1.5 py-0 rounded-full bg-muted font-semibold">{statusCounts.revision}</span>
             </TabsTrigger>
             <TabsTrigger value="approved" className="gap-1.5 text-xs sm:text-sm">
-              <Clock className="h-3.5 w-3.5" />รอเผยแพร่<span className="ml-1 text-[10px] px-1.5 py-0 rounded-full bg-muted font-semibold">{statusCounts.approved}</span>
+              <BadgeCheck className="h-3.5 w-3.5" />รอเผยแพร่<span className="ml-1 text-[10px] px-1.5 py-0 rounded-full bg-muted font-semibold">{statusCounts.approved}</span>
             </TabsTrigger>
             <TabsTrigger value="published" className="gap-1.5 text-xs sm:text-sm">
               <CheckCircle2 className="h-3.5 w-3.5" />เผยแพร่แล้ว<span className="ml-1 text-[10px] px-1.5 py-0 rounded-full bg-muted font-semibold">{statusCounts.published}</span>

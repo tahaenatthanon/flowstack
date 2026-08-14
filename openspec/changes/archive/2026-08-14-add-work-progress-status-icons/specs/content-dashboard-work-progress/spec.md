@@ -1,10 +1,6 @@
-# content-dashboard-work-progress Specification
+# content-dashboard-work-progress Specification (delta)
 
-## Purpose
-
-Display a "ความคืบหน้าการผลิต" (Work Progress) widget on the content dashboard with a progress bar for each content status.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: แสดง Work Progress ตามสถานะ
 The dashboard SHALL display a "ความคืบหน้าการผลิต" widget showing a progress bar for each content status, with each status label accompanied by a semantic icon.

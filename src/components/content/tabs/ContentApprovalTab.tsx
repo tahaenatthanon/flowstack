@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  Check, X, Filter, AlertTriangle, FileText, Clock, CheckCircle2, XCircle, ArrowUpDown,
+  Check, X, Filter, BadgeCheck, RotateCcw, FileText, Clock, XCircle, ArrowUpDown,
   Layers, Search, Shapes, Pencil,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -84,10 +84,10 @@ export default function ContentApprovalTab() {
 
   // Stat cards use semantic tokens, matching the KpiCard pattern on the Home page
   const statCards = [
-    { key: 'approved',         label: 'อนุมัติแล้ว', value: statusCounts.approved,         icon: CheckCircle2,  color: 'text-success' },
-    { key: 'pending_approval', label: 'รออนุมัติ',   value: statusCounts.pending_approval, icon: Clock,         color: 'text-warning' },
-    { key: 'revision',         label: 'ขอแก้ไข',     value: statusCounts.revision,         icon: AlertTriangle, color: 'text-info' },
-    { key: 'rejected',         label: 'ปฏิเสธ',      value: statusCounts.rejected,         icon: XCircle,       color: 'text-destructive' },
+    { key: 'approved',         label: 'อนุมัติแล้ว', value: statusCounts.approved,         icon: BadgeCheck,  color: 'text-success' },
+    { key: 'pending_approval', label: 'รออนุมัติ',   value: statusCounts.pending_approval, icon: Clock,       color: 'text-warning' },
+    { key: 'revision',         label: 'ขอแก้ไข',     value: statusCounts.revision,         icon: RotateCcw,  color: 'text-info' },
+    { key: 'rejected',         label: 'ปฏิเสธ',      value: statusCounts.rejected,         icon: XCircle,     color: 'text-destructive' },
   ];
 
   const handleApprove = async (item: ContentItem) => {

@@ -1,4 +1,4 @@
-import { LayoutDashboard, FileText, Clock, CheckCircle2, AlertTriangle, TrendingUp, Plus, Eye, ThumbsUp, ArrowRight } from 'lucide-react';
+import { LayoutDashboard, FileText, Clock, CheckCircle2, Edit3, AlertTriangle, TrendingUp, Plus, Eye, ThumbsUp, ArrowRight } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -83,7 +83,7 @@ export default function ContentDashboardPage() {
     { label: 'เนื้อหาทั้งหมด', value: totalItems, icon: FileText, color: 'text-blue-600' },
     { label: 'เผยแพร่แล้ว', value: publishedCount, icon: CheckCircle2, color: 'text-green-600' },
     { label: 'รออนุมัติ', value: pendingApprovalCount, icon: Clock, color: 'text-amber-600' },
-    { label: 'ฉบับร่าง', value: draftCount, icon: AlertTriangle, color: 'text-gray-600' },
+    { label: 'ฉบับร่าง', value: draftCount, icon: Edit3, color: 'text-gray-600' },
     { label: 'ยอดวิวรวม', value: totalViews, icon: Eye, color: 'text-cyan-600' },
     { label: 'ยอดไลก์รวม', value: totalLikes, icon: ThumbsUp, color: 'text-pink-600' },
   ];
@@ -154,7 +154,10 @@ export default function ContentDashboardPage() {
                 return (
                   <div key={statusKey}>
                     <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-sm text-muted-foreground">{info.label}</span>
+                      <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                        {(() => { const StatusIcon = info.icon; return <StatusIcon className={`h-3.5 w-3.5 ${info.iconColor}`} />; })()}
+                        {info.label}
+                      </span>
                       <span className="text-sm font-medium">{count} ชิ้น ({percent}%)</span>
                     </div>
                     <Progress value={percent} className="h-2" />
