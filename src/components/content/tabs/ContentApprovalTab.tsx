@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   Check, X, Filter, AlertTriangle, FileText, Clock, CheckCircle2, XCircle, ArrowUpDown,
@@ -42,6 +42,16 @@ export default function ContentApprovalTab() {
   const [confirmApprove, setConfirmApprove] = useState<ContentItem | null>(null);
   // Row click opens a read-only detail dialog; null means closed
   const [detailItem, setDetailItem] = useState<ContentItem | null>(null);
+
+  // Auto-resize the reason textarea to fit its content
+  const reasonRef = useRef<HTMLTextAreaElement>(null);
+  const autoResizeReason = (el: HTMLTextAreaElement) => {
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  };
+  useEffect(() => {
+    if (reasonDialog.open && reasonRef.current) autoResizeReason(reasonRef.current);
+  }, [reasonDialog.open]);
 
   // Stat counts — computed from all items, independent of the active tab/filters
   const statusCounts = {
@@ -311,7 +321,7 @@ export default function ContentApprovalTab() {
 
       {/* Approve Confirm Dialog */}
       <Dialog open={!!confirmApprove} onOpenChange={(v) => { if (!v) setConfirmApprove(null); }}>
-        <DialogContent>
+        <DialogContent className="w-full sm:max-w-md">
           <DialogHeader>
             <DialogTitle>ยืนยันการอนุมัติ</DialogTitle>
             <DialogDescription>
@@ -327,7 +337,7 @@ export default function ContentApprovalTab() {
 
       {/* Reason Dialog — shared by "ขอแก้ไข" and "ปฏิเสธ" */}
       <Dialog open={reasonDialog.open} onOpenChange={(v) => { if (!v) setReasonDialog({ open: false, item: null, kind: 'rejected' }); }}>
-        <DialogContent>
+        <DialogContent className="w-full sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{reasonDialog.kind === 'revision' ? 'ขอแก้ไขเนื้อหา' : 'ปฏิเสธเนื้อหา'}</DialogTitle>
             <DialogDescription>
@@ -343,8 +353,9 @@ export default function ContentApprovalTab() {
             <Textarea
               placeholder="ระบุเหตุผลหรือคำแนะนำในการแก้ไข..."
               value={rejectReason}
-              onChange={e => setRejectReason(e.target.value)}
-              rows={3}
+              onChange={e => { setRejectReason(e.target.value); autoResizeReason(e.target); }}
+              ref={reasonRef}
+              className="resize-none"
             />
           </div>
           <DialogFooter>

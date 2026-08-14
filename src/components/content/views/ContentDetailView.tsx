@@ -5,7 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
 import { apiFetch } from '@/lib/api';
@@ -50,6 +50,16 @@ export default function ContentDetailView({
   const [reasonDialog, setReasonDialog] = useState<'revision' | 'rejected' | null>(null);
   const [reason, setReason] = useState('');
   const [savingDecision, setSavingDecision] = useState(false);
+
+  // Auto-resize the reason textarea to fit its content
+  const reasonRef = useRef<HTMLTextAreaElement>(null);
+  const autoResizeReason = (el: HTMLTextAreaElement) => {
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  };
+  useEffect(() => {
+    if (reasonDialog && reasonRef.current) autoResizeReason(reasonRef.current);
+  }, [reasonDialog]);
 
   // Request approval — author-side action, draft/revision → pending_approval
   const [requestApprovalConfirm, setRequestApprovalConfirm] = useState(false);
@@ -467,8 +477,9 @@ export default function ContentDetailView({
             <Textarea
               placeholder="ระบุเหตุผลหรือคำแนะนำในการแก้ไข..."
               value={reason}
-              onChange={e => setReason(e.target.value)}
-              rows={3}
+              onChange={e => { setReason(e.target.value); autoResizeReason(e.target); }}
+              ref={reasonRef}
+              className="resize-none"
             />
           </div>
           <div className="flex justify-end gap-2">
