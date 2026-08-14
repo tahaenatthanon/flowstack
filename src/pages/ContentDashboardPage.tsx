@@ -81,12 +81,12 @@ export default function ContentDashboardPage() {
   };
 
   const statCards = [
-    { label: 'เนื้อหาทั้งหมด', value: totalItems, icon: FileText, color: 'text-blue-600', border: 'border-blue-600' },
-    { label: 'เผยแพร่แล้ว', value: publishedCount, icon: CheckCircle2, color: 'text-green-600', border: 'border-green-600' },
-    { label: 'รออนุมัติ', value: pendingApprovalCount, icon: Clock, color: 'text-amber-600', border: 'border-amber-600' },
-    { label: 'ฉบับร่าง', value: draftCount, icon: Edit3, color: 'text-gray-600', border: 'border-gray-600' },
-    { label: 'ยอดวิวรวม', value: totalViews, icon: Eye, color: 'text-cyan-600', border: 'border-cyan-600' },
-    { label: 'ยอดไลก์รวม', value: totalLikes, icon: ThumbsUp, color: 'text-pink-600', border: 'border-pink-600' },
+    { label: 'เนื้อหาทั้งหมด', value: totalItems, icon: FileText, color: 'text-blue-600', bgColor: 'bg-blue-500/10', border: 'border-blue-600', countColor: 'text-blue-700' },
+    { label: 'เผยแพร่แล้ว', value: publishedCount, icon: CheckCircle2, color: 'text-green-600', bgColor: 'bg-green-500/10', border: 'border-green-600', countColor: 'text-green-700' },
+    { label: 'รออนุมัติ', value: pendingApprovalCount, icon: Clock, color: 'text-amber-600', bgColor: 'bg-amber-500/10', border: 'border-amber-600', countColor: 'text-amber-700' },
+    { label: 'ฉบับร่าง', value: draftCount, icon: Edit3, color: 'text-gray-600', bgColor: 'bg-gray-500/10', border: 'border-gray-600', countColor: 'text-gray-700' },
+    { label: 'ยอดวิวรวม', value: totalViews, icon: Eye, color: 'text-cyan-600', bgColor: 'bg-cyan-500/10', border: 'border-cyan-600', countColor: 'text-cyan-700' },
+    { label: 'ยอดไลก์รวม', value: totalLikes, icon: ThumbsUp, color: 'text-pink-600', bgColor: 'bg-pink-500/10', border: 'border-pink-600', countColor: 'text-pink-700' },
   ];
 
   return (
@@ -118,12 +118,12 @@ export default function ContentDashboardPage() {
             {statCards.map((card) => {
               const Icon = card.icon;
               return (
-                <div key={card.label} className={`stat-card card-hover p-3 sm:p-5 ${card.border}`}>
+                <div key={card.label} className={`stat-card p-3 sm:p-5 ${card.border} ${card.bgColor}`}>
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-sm font-medium">{card.label}</span>
                     <Icon className={`w-4 h-4 ${card.color}`} />
                   </div>
-                  <p className="text-xl sm:text-2xl font-bold font-heading tabular-nums">{card.value.toLocaleString()}</p>
+                  <p className={`text-xl sm:text-2xl font-bold font-heading tabular-nums ${card.countColor}`}>{card.value.toLocaleString()}</p>
                 </div>
               );
             })}
