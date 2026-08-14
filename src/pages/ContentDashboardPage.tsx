@@ -8,6 +8,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useContentItems, useOverdueCount, useAllSchedules, usePublishChannels, useChannelConnectionStatus } from '@/hooks/useContent';
 import PageShell from '@/components/PageShell';
 import { STATUS_MAP, PLATFORM_MAP, TYPE_MAP } from '@/components/content/types';
+import { PlatformIcon } from '@/components/content/PlatformIcon';
+import { getPlatformColors } from '@/lib/platformConfig';
 import { useNavigate } from 'react-router-dom';
 
 export default function ContentDashboardPage() {
@@ -336,16 +338,20 @@ export default function ContentDashboardPage() {
                   ) : (
                     <div className="space-y-2">
                       {channels.map(ch => {
-                        const platform = PLATFORM_MAP[ch.platform];
                         const status = channelStatus.find(s => s.id === ch.id);
                         const connected = status?.ok === true;
+                        const pc = getPlatformColors(ch.platform);
                         return (
                           <div key={ch.id} className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2 min-w-0">
+                              <span
+                                className="inline-flex items-center justify-center w-8 h-8 rounded-lg shrink-0"
+                                style={{ backgroundColor: pc.bg, color: pc.text }}
+                                title={PLATFORM_MAP[ch.platform]?.label ?? ch.platform}
+                              >
+                                <PlatformIcon platform={ch.platform} size={18} />
+                              </span>
                               <span className="text-sm truncate">{ch.name}</span>
-                              {platform ? (
-                                <Badge variant="outline" className={platform.color}>{platform.label}</Badge>
-                              ) : null}
                             </div>
                             <span className={`shrink-0 inline-flex items-center gap-1.5 text-xs font-medium ${connected ? 'text-green-600' : 'text-red-600'}`}>
                               <span className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`} />

@@ -22,7 +22,19 @@ The dashboard SHALL display a "กำหนดการโพสต์ถัด�
 - **THEN** the widget shows an empty-state message
 
 ### Requirement: แสดงสถานะช่องทางเชื่อมต่อ
-The dashboard SHALL display a "สถานะช่องทาง" widget listing publish channels and their connection status, verified against the actual connection to each channel (not merely the `is_active` value), showing the status as a colored dot + text label (no background / no status badge) placed after each channel's data.
+The dashboard SHALL display a "สถานะช่องทาง" widget listing publish channels and their connection status, verified against the actual connection to each channel (not merely the `is_active` value), showing each channel's name exactly once (with a platform logo icon before it) and a status (colored dot + text label) placed after its data.
+
+#### Scenario: แสดงชื่อช่องทางเพียงครั้งเดียว
+- **WHEN** the dashboard loads with channels
+- **THEN** the widget lists each channel showing its name (`ch.name`) exactly once — no duplicate platform badge (WordPress, Facebook, Line OA, TikTok, Lotus Notes / Domino, etc.)
+
+#### Scenario: แสดง Logo Icon ด้านหน้าชื่อ
+- **WHEN** the widget renders each channel row
+- **THEN** a platform logo icon (`PlatformIcon` for `ch.platform`) is shown before the channel name, in a colored container matching the platform
+
+#### Scenario: ไม่มี Badge แพลตฟอร์มซ้ำ
+- **WHEN** the widget renders each channel row
+- **THEN** the platform badge (`PLATFORM_MAP[platform].label`) is removed — only the channel name (with logo) and status are shown
 
 #### Scenario: แสดงสถานะการเชื่อมต่อจริง
 - **WHEN** the dashboard loads with channels
