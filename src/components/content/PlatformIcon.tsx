@@ -92,6 +92,13 @@ export function PlatformIcon({ platform, className, size = 12 }: Props) {
           <ellipse cx="12" cy="12" rx="10" ry="6" transform="rotate(120 12 12)"/>
         </svg>
       );
+    case 'youtube':
+      return (
+        <svg className={cls} width={s} height={s} viewBox="0 0 24 24" {...stroke}>
+          <rect x="2" y="5" width="20" height="14" rx="4" ry="4"/>
+          <path d="M10 9.5v5l4.5-2.5z" fill="currentColor" stroke="none"/>
+        </svg>
+      );
     default:
       return (
         <svg className={cls} width={s} height={s} viewBox="0 0 24 24" {...stroke}>

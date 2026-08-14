@@ -8,6 +8,7 @@ export const PLATFORM_COLORS: Record<string, { bg: string; text: string; border:
   wordpress: { bg: '#eff6ff', text: '#1d4ed8', border: '#bfdbfe', filterBg: '#eff6ff', filterText: '#1d4ed8' },
   wix:       { bg: '#fdf4ff', text: '#9333ea', border: '#f5d0fe', filterBg: '#fdf4ff', filterText: '#9333ea' },
   lotusdomino: { bg: '#fffbeb', text: '#92400e', border: '#fde68a', filterBg: '#fffbeb', filterText: '#92400e' },
+  youtube:     { bg: '#fef2f2', text: '#dc2626', border: '#fecaca', filterBg: '#fef2f2', filterText: '#dc2626' },
   default:     { bg: '#f3f4f6', text: '#374151', border: '#e5e7eb', filterBg: '#f3f4f6', filterText: '#374151' },
 };
 
@@ -24,4 +25,5 @@ export const PLATFORM_LABELS: Record<string, string> = {
   twitter:   'X (Twitter)',
   wordpress: 'WordPress',
   wix:       'Wix',
+  youtube:   'YouTube',
 };

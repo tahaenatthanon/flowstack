@@ -223,4 +223,5 @@ export const PLATFORM_MAP: Record<string, { label: string; color: string }> = {
   linkedin:  { label: 'LinkedIn',    color: 'bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300' },
   twitter:      { label: 'Twitter / X',             color: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300' },
   lotusdomino:  { label: 'Lotus Notes / Domino',    color: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300' },
+  youtube:      { label: 'YouTube',                 color: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300' },
 };

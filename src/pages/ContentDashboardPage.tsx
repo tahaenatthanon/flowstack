@@ -327,44 +327,6 @@ export default function ContentDashboardPage() {
                 </CardContent>
               </Card>
 
-              {/* Channels */}
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium">สถานะช่องทาง</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {channels.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-8">ไม่มีช่องทางที่เชื่อมต่อ</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {channels.map(ch => {
-                        const status = channelStatus.find(s => s.id === ch.id);
-                        const connected = status?.ok === true;
-                        const pc = getPlatformColors(ch.platform);
-                        return (
-                          <div key={ch.id} className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span
-                                className="inline-flex items-center justify-center w-8 h-8 rounded-lg shrink-0"
-                                style={{ backgroundColor: pc.bg, color: pc.text }}
-                                title={PLATFORM_MAP[ch.platform]?.label ?? ch.platform}
-                              >
-                                <PlatformIcon platform={ch.platform} size={18} />
-                              </span>
-                              <span className="text-sm truncate">{ch.name}</span>
-                            </div>
-                            <span className={`shrink-0 inline-flex items-center gap-1.5 text-xs font-medium ${connected ? 'text-green-600' : 'text-red-600'}`}>
-                              <span className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`} />
-                              {connected ? 'เชื่อมต่อแล้ว' : 'ไม่เชื่อมต่อ'}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
               {/* Platform Distribution */}
               <Card>
                 <CardHeader className="pb-2">
@@ -403,6 +365,44 @@ export default function ContentDashboardPage() {
                             </div>
                           );
                         })}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Channels */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">สถานะช่องทาง</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {channels.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-8">ไม่มีช่องทางที่เชื่อมต่อ</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {channels.map(ch => {
+                        const status = channelStatus.find(s => s.id === ch.id);
+                        const connected = status?.ok === true;
+                        const pc = getPlatformColors(ch.platform);
+                        return (
+                          <div key={ch.id} className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span
+                                className="inline-flex items-center justify-center w-8 h-8 rounded-lg shrink-0"
+                                style={{ backgroundColor: pc.bg, color: pc.text }}
+                                title={PLATFORM_MAP[ch.platform]?.label ?? ch.platform}
+                              >
+                                <PlatformIcon platform={ch.platform} size={18} />
+                              </span>
+                              <span className="text-sm truncate">{ch.name}</span>
+                            </div>
+                            <span className={`shrink-0 inline-flex items-center gap-1.5 text-xs font-medium ${connected ? 'text-green-600' : 'text-red-600'}`}>
+                              <span className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`} />
+                              {connected ? 'เชื่อมต่อแล้ว' : 'ไม่เชื่อมต่อ'}
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </CardContent>
