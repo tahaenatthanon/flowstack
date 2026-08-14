@@ -272,7 +272,7 @@ export default function ContentDashboardPage() {
               {/* Pending Queue */}
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium">คิวรออนุมัติ</CardTitle>
+                  <CardTitle className="text-sm font-medium">รออนุมัติ</CardTitle>
                 </CardHeader>
                 <CardContent>
                   {pendingItems.length === 0 ? (
@@ -376,17 +376,28 @@ export default function ContentDashboardPage() {
                   ) : (
                     <div className="space-y-2">
                       {Object.entries(platformCounts)
-                        .sort(([, a], [, b]) => b - a)
+                        .sort(([pa, a], [pb, b]) => {
+                          const diff = b - a;
+                          if (diff !== 0) return diff;
+                          const nameA = PLATFORM_MAP[pa]?.label ?? pa;
+                          const nameB = PLATFORM_MAP[pb]?.label ?? pb;
+                          return nameA.localeCompare(nameB);
+                        })
                         .map(([platform, count]) => {
                           const info = PLATFORM_MAP[platform];
+                          const name = info?.label ?? platform;
+                          const pc = getPlatformColors(platform);
                           return (
                             <div key={platform} className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                {info ? (
-                                  <Badge variant="outline" className={info.color}>{info.label}</Badge>
-                                ) : (
-                                  <span className="text-sm">{platform}</span>
-                                )}
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span
+                                  className="inline-flex items-center justify-center w-8 h-8 rounded-lg shrink-0"
+                                  style={{ backgroundColor: pc.bg, color: pc.text }}
+                                  title={name}
+                                >
+                                  <PlatformIcon platform={platform} size={18} />
+                                </span>
+                                <span className="text-sm truncate">{name}</span>
                               </div>
                               <span className="text-sm font-medium">{count}</span>
                             </div>
