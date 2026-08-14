@@ -1,10 +1,6 @@
-# content-dashboard-pending-queue Specification
+# content-dashboard-pending-queue Specification (delta)
 
-## Purpose
-
-Display a "คิวรออนุมัติ" (Pending Approval Queue) widget on the content dashboard listing content items awaiting approval.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: แสดงคิวรออนุมัติ
 The dashboard SHALL display a "คิวรออนุมัติ" widget listing content items with status `pending_approval` sorted by `requested_at` ascending (oldest request first), showing each item's title and creation date (`created_at`), without a status badge.

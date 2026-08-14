@@ -7,11 +7,11 @@ Display a "ความคืบหน้าการผลิต" (Work Progres
 ## Requirements
 
 ### Requirement: แสดง Work Progress ตามสถานะ
-The dashboard SHALL display a "ความคืบหน้าการผลิต" widget showing a progress bar for each content status, with each status label accompanied by a semantic icon.
+The dashboard SHALL display a "ความคืบหน้าการผลิต" widget showing a progress bar for each content status, with each status label accompanied by a semantic icon, in the order: เผยแพร่แล้ว, อนุมัติแล้ว, รออนุมัติ, รอแก้ไข, ฉบับร่าง.
 
 #### Scenario: แสดงแถบความคืบหน้าแต่ละสถานะ
 - **WHEN** the dashboard loads with `content_items`
-- **THEN** the widget shows a progress bar for each of: เผยแพร่แล้ว (`published`), รออนุมัติ (`pending_approval`), อนุมัติแล้ว (`approved`), รอแก้ไข (`revision`), ฉบับร่าง (`draft`)
+- **THEN** the widget shows a progress bar for each of, in this order: เผยแพร่แล้ว (`published`), อนุมัติแล้ว (`approved`), รออนุมัติ (`pending_approval`), รอแก้ไข (`revision`), ฉบับร่าง (`draft`)
 
 #### Scenario: แสดงจำนวนชิ้นและเปอร์เซ็นต์ต่อสถานะ
 - **WHEN** a progress bar for a status is rendered

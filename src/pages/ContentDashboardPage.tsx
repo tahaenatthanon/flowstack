@@ -35,7 +35,7 @@ export default function ContentDashboardPage() {
     revision: items.filter(i => i.status === 'revision').length,
     draft: draftCount,
   };
-  const workProgressStatuses = ['published', 'pending_approval', 'approved', 'revision', 'draft'] as const;
+  const workProgressStatuses = ['published', 'approved', 'pending_approval', 'revision', 'draft'] as const;
 
   // Platform distribution
   const platformCounts = items.reduce<Record<string, number>>((acc, item) => {
@@ -280,9 +280,8 @@ export default function ContentDashboardPage() {
                         <div key={item.id} className="flex items-center justify-between gap-3">
                           <div className="min-w-0">
                             <p className="text-sm font-medium truncate">{item.title}</p>
-                            <p className="text-xs text-muted-foreground">{formatDate(item.requested_at)}</p>
+                            <p className="text-xs text-muted-foreground">{formatDate(item.created_at)}</p>
                           </div>
-                          <Badge variant="outline" className={STATUS_MAP.pending_approval.color}>รออนุมัติ</Badge>
                         </div>
                       ))}
                     </div>
