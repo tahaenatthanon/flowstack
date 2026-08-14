@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useContentItems, useOverdueCount, useAllSchedules, usePublishChannels } from '@/hooks/useContent';
+import { useContentItems, useOverdueCount, useAllSchedules, usePublishChannels, useChannelConnectionStatus } from '@/hooks/useContent';
 import PageShell from '@/components/PageShell';
 import { STATUS_MAP, PLATFORM_MAP, TYPE_MAP } from '@/components/content/types';
 import { useNavigate } from 'react-router-dom';
@@ -15,6 +15,7 @@ export default function ContentDashboardPage() {
   const { data: overdue } = useOverdueCount();
   const { data: schedules = [] } = useAllSchedules();
   const { data: channels = [] } = usePublishChannels();
+  const { data: channelStatus = [] } = useChannelConnectionStatus();
   const overdueCount = overdue?.count ?? 0;
   const navigate = useNavigate();
 
@@ -336,16 +337,20 @@ export default function ContentDashboardPage() {
                     <div className="space-y-2">
                       {channels.map(ch => {
                         const platform = PLATFORM_MAP[ch.platform];
-                        const active = ch.is_active === 1;
+                        const status = channelStatus.find(s => s.id === ch.id);
+                        const connected = status?.ok === true;
                         return (
-                          <div key={ch.id} className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <span className={`w-2 h-2 rounded-full ${active ? 'bg-green-500' : 'bg-gray-300'}`} />
-                              <span className="text-sm">{ch.name}</span>
+                          <div key={ch.id} className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-sm truncate">{ch.name}</span>
+                              {platform ? (
+                                <Badge variant="outline" className={platform.color}>{platform.label}</Badge>
+                              ) : null}
                             </div>
-                            {platform ? (
-                              <Badge variant="outline" className={platform.color}>{platform.label}</Badge>
-                            ) : null}
+                            <span className={`shrink-0 inline-flex items-center gap-1.5 text-xs font-medium ${connected ? 'text-green-600' : 'text-red-600'}`}>
+                              <span className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`} />
+                              {connected ? 'เชื่อมต่อแล้ว' : 'ไม่เชื่อมต่อ'}
+                            </span>
                           </div>
                         );
                       })}

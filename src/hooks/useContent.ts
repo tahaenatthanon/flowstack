@@ -14,6 +14,7 @@ export const contentKeys = {
   triggers: () => [...contentKeys.all, 'triggers'] as const,
   contexts: () => [...contentKeys.all, 'contexts'] as const,
   channels: () => [...contentKeys.all, 'channels'] as const,
+  channelConnectionStatus: () => [...contentKeys.all, 'channelConnectionStatus'] as const,
   schedules: () => [...contentKeys.all, 'schedules'] as const,
   itemSchedules: (itemId: string) => [...contentKeys.schedules(), itemId] as const,
   publishQueue: (contentId: string) => [...contentKeys.all, 'publishQueue', contentId] as const,
@@ -81,6 +82,19 @@ export function usePublishChannels(enabled = true) {
     queryKey: contentKeys.channels(),
     queryFn: () => apiFetch('/brand-content.php?action=channels'),
     staleTime: 60_000,
+    enabled,
+  });
+}
+
+export interface ChannelConnectionStatus {
+  id: string; name: string; platform: string; ok: boolean; message: string;
+}
+
+export function useChannelConnectionStatus(enabled = true) {
+  return useQuery<ChannelConnectionStatus[]>({
+    queryKey: contentKeys.channelConnectionStatus(),
+    queryFn: () => apiFetch('/brand-content.php?action=channels-connection-status'),
+    staleTime: 30_000,
     enabled,
   });
 }

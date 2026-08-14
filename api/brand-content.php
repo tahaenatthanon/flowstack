@@ -2932,18 +2932,8 @@ EOD;
     jsonResponse(['metadata' => $metadata]);
 }
 // ── test-channel: verify platform credentials ────────────────────────────────
-if ($action === 'test-channel' && $method === 'POST') {
-    $body      = getRequestBody();
-    $channelId = $body['channel_id'] ?? '';
-    if (!$channelId) jsonError('channel_id required', 400);
-
-    require_once __DIR__ . '/lib/publish-dispatch.php';
-
-    $chStmt = $db->prepare("SELECT * FROM publish_channels WHERE id=? AND tenant_id=?");
-    $chStmt->execute([$channelId, $tenantId]);
-    $ch = $chStmt->fetch(PDO::FETCH_ASSOC);
-    if (!$ch) jsonError('Channel not found', 404);
-
+// Helper: test a single channel's real connection. Returns ['ok' => bool, 'message' => string].
+function testChannelConnection(array $ch): array {
     $creds = [];
     if (!empty($ch['credentials_encrypted'])) {
         $plain = decryptApiKey($ch['credentials_encrypted']);
@@ -2951,6 +2941,11 @@ if ($action === 'test-channel' && $method === 'POST') {
             $decoded = json_decode($plain, true);
             $creds = is_array($decoded) ? $decoded : ['token' => $plain];
         }
+    }
+
+    // Disabled channel is always "not connected".
+    if ((int)($ch['is_active'] ?? 0) !== 1) {
+        return ['ok' => false, 'message' => 'ช่องทางถูกปิดใช้งาน (is_active = 0)'];
     }
 
     $platform = $ch['platform'];
@@ -2961,7 +2956,7 @@ if ($action === 'test-channel' && $method === 'POST') {
         $url  = rtrim($ch['endpoint_url'] ?: '', '/') . '/wp-json/wp/v2/users/me';
         $user = $creds['username'] ?? '';
         $pass = $creds['app_password'] ?? '';
-        if (!$url || !$user || !$pass) { jsonResponse(['ok' => false, 'message' => 'ข้อมูลไม่ครบ (endpoint_url, username, app_password)']); }
+        if (!$url || !$user || !$pass) { return ['ok' => false, 'message' => 'ข้อมูลไม่ครบ (endpoint_url, username, app_password)']; }
         $hCh = curl_init($url);
         curl_setopt_array($hCh, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 15,
             CURLOPT_USERPWD => "$user:$pass", CURLOPT_SSL_VERIFYPEER => false]);
@@ -2976,7 +2971,7 @@ if ($action === 'test-channel' && $method === 'POST') {
     } elseif ($platform === 'facebook') {
         $pageId = $creds['page_id'] ?? '';
         $token  = $creds['access_token'] ?? '';
-        if (!$pageId || !$token) { jsonResponse(['ok' => false, 'message' => 'ข้อมูลไม่ครบ (page_id, access_token)']); }
+        if (!$pageId || !$token) { return ['ok' => false, 'message' => 'ข้อมูลไม่ครบ (page_id, access_token)']; }
         $hCh = curl_init("https://graph.facebook.com/v19.0/$pageId?fields=name&access_token=$token");
         curl_setopt_array($hCh, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 15]);
         $res  = curl_exec($hCh);
@@ -2988,7 +2983,7 @@ if ($action === 'test-channel' && $method === 'POST') {
 
     } elseif ($platform === 'lineoa') {
         $token = $creds['channel_access_token'] ?? '';
-        if (!$token) { jsonResponse(['ok' => false, 'message' => 'ข้อมูลไม่ครบ (channel_access_token)']); }
+        if (!$token) { return ['ok' => false, 'message' => 'ข้อมูลไม่ครบ (channel_access_token)']; }
         $hCh = curl_init('https://api.line.me/v2/bot/info');
         curl_setopt_array($hCh, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 15,
             CURLOPT_HTTPHEADER => ["Authorization: Bearer $token"]]);
@@ -3001,7 +2996,7 @@ if ($action === 'test-channel' && $method === 'POST') {
 
     } elseif ($platform === 'linkedin') {
         $token = $creds['access_token'] ?? '';
-        if (!$token) { jsonResponse(['ok' => false, 'message' => 'ข้อมูลไม่ครบ (access_token)']); }
+        if (!$token) { return ['ok' => false, 'message' => 'ข้อมูลไม่ครบ (access_token)']; }
         $hCh = curl_init('https://api.linkedin.com/v2/userinfo');
         curl_setopt_array($hCh, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 15,
             CURLOPT_HTTPHEADER => ["Authorization: Bearer $token"]]);
@@ -3014,7 +3009,7 @@ if ($action === 'test-channel' && $method === 'POST') {
 
     } elseif (in_array($platform, ['custom', 'wix', 'website', 'lotusdomino'])) {
         $url = $ch['endpoint_url'] ?? '';
-        if (!$url) { jsonResponse(['ok' => false, 'message' => 'ยังไม่ได้ตั้ง Endpoint URL']); }
+        if (!$url) { return ['ok' => false, 'message' => 'ยังไม่ได้ตั้ง Endpoint URL']; }
         $hCh = curl_init($url);
         curl_setopt_array($hCh, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10,
             CURLOPT_NOBODY => true, CURLOPT_SSL_VERIFYPEER => false]);
@@ -3032,7 +3027,44 @@ if ($action === 'test-channel' && $method === 'POST') {
         $msg = "ไม่รองรับการทดสอบ {$platform} โดยตรง — กรุณาส่ง test content เพื่อตรวจสอบ";
     }
 
-    jsonResponse(['ok' => $ok, 'message' => $msg]);
+    return ['ok' => $ok, 'message' => $msg];
+}
+
+if ($action === 'test-channel' && $method === 'POST') {
+    $body      = getRequestBody();
+    $channelId = $body['channel_id'] ?? '';
+    if (!$channelId) jsonError('channel_id required', 400);
+
+    require_once __DIR__ . '/lib/publish-dispatch.php';
+
+    $chStmt = $db->prepare("SELECT * FROM publish_channels WHERE id=? AND tenant_id=?");
+    $chStmt->execute([$channelId, $tenantId]);
+    $ch = $chStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$ch) jsonError('Channel not found', 404);
+
+    jsonResponse(testChannelConnection($ch));
+}
+
+// ── channels-connection-status: real connection status for all tenant channels ─
+if ($action === 'channels-connection-status' && $method === 'GET') {
+    require_once __DIR__ . '/lib/publish-dispatch.php';
+
+    $stmt = $db->prepare("SELECT * FROM publish_channels WHERE tenant_id=? ORDER BY created_at ASC");
+    $stmt->execute([$tenantId]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $out = [];
+    foreach ($rows as $ch) {
+        $result = testChannelConnection($ch);
+        $out[] = [
+            'id'      => $ch['id'],
+            'name'    => $ch['name'],
+            'platform'=> $ch['platform'],
+            'ok'      => (bool)$result['ok'],
+            'message' => $result['message'],
+        ];
+    }
+    jsonResponse($out);
 }
 
 if ($action === 'list-items' && $method === 'GET') {
