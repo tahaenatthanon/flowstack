@@ -2323,22 +2323,35 @@ if ($action === 'publish') {
         jsonError('Unknown platform: ' . $platform, 400);
     }
 
+    // สกัด post id / url จากผล inline curl แต่ละ platform (best-effort — platform ที่ response ไม่มี id คืน null)
+    $postId       = null;
+    $publishedUrl = null;
+    if ($platform === 'wordpress') {
+        $postId       = !empty($result['id'])   ? (string) $result['id']   : null;
+        $publishedUrl = !empty($result['link']) ? (string) $result['link'] : null;
+    } elseif ($platform === 'facebook') {
+        $postId = !empty($result['id']) ? (string) $result['id'] : null;
+    } elseif ($platform === 'wix') {
+        $postId = !empty($result['post']['id']) ? (string) $result['post']['id'] : null;
+    }
+
     // Record in content_schedules for history tracking
     if ($scheduleId) {
         $st = isset($ok) && $ok ? 'sent' : 'failed';
-        $db->prepare("UPDATE content_schedules SET status=?, publish_result=?, updated_at=NOW() WHERE id=?")->execute([$st, json_encode($result), $scheduleId]);
+        $db->prepare("UPDATE content_schedules SET status=?, publish_result=?, platform_post_id=?, published_url=?, updated_at=NOW() WHERE id=?")->execute([$st, json_encode($result), $postId, $publishedUrl, $scheduleId]);
     } else {
         // Immediate publish without a schedule โ€” insert a history record
         $newId = generateUUID();
         $st    = isset($ok) && $ok ? 'sent' : 'failed';
-        $db->prepare("INSERT INTO content_schedules (id,plan_item_id,channel_id,scheduled_at,status,publish_result,created_by) VALUES (?,?,?,NOW(),?,?,?)")
-           ->execute([$newId, $itemId, $channelId, $st, json_encode($result), $userId]);
+        $db->prepare("INSERT INTO content_schedules (id,plan_item_id,channel_id,scheduled_at,status,publish_result,platform_post_id,published_url,created_by) VALUES (?,?,?,NOW(),?,?,?,?,?)")
+           ->execute([$newId, $itemId, $channelId, $st, json_encode($result), $postId, $publishedUrl, $userId]);
     }
 
     // Sync linked content_item status to 'published' on success
+    // แก้บั๊กคีย์: ใช้ WHERE id=? (คีย์เดียวกับที่โหลด $itemId มา) แทน plan_item_id ที่อาจไม่ตรง/เป็น NULL
     if (isset($ok) && $ok) {
-        $db->prepare("UPDATE content_items SET status='published', updated_at=NOW() WHERE plan_item_id=? AND tenant_id=?")
-           ->execute([$itemId, $tenantId]);
+        $db->prepare("UPDATE content_items SET status='published', published_at=NOW(), published_url=?, external_post_id=?, updated_at=NOW() WHERE id=? AND tenant_id=?")
+           ->execute([$publishedUrl, $postId, $itemId, $tenantId]);
     }
 
     jsonResponse(['ok' => isset($ok) ? $ok : true, 'result' => $result]);
@@ -2525,9 +2538,30 @@ if ($action === 'cron-publish') {
             $result = ['error' => $e->getMessage()];
         }
 
+        // สกัด post id / url จากผล inline curl แต่ละ platform (best-effort — platform ที่ response ไม่มี id คืน null)
+        $postId       = null;
+        $publishedUrl = null;
+        if ($sc['platform'] === 'wordpress') {
+            $postId       = !empty($result['id'])   ? (string) $result['id']   : null;
+            $publishedUrl = !empty($result['link']) ? (string) $result['link'] : null;
+        } elseif ($sc['platform'] === 'facebook') {
+            $postId = !empty($result['id']) ? (string) $result['id'] : null;
+        } elseif ($sc['platform'] === 'wix') {
+            $postId = !empty($result['post']['id']) ? (string) $result['post']['id'] : null;
+        }
+
         $status = $ok ? 'sent' : 'failed';
-        $db->prepare("UPDATE content_schedules SET status=?, publish_result=?, updated_at=NOW() WHERE id=?")
-           ->execute([$status, json_encode($result), $sc['id']]);
+        $db->prepare("UPDATE content_schedules SET status=?, publish_result=?, platform_post_id=?, published_url=?, updated_at=NOW() WHERE id=?")
+           ->execute([$status, json_encode($result), $postId, $publishedUrl, $sc['id']]);
+
+        // บันทึกผลเผยแพร่กลับ content_items เมื่อสำเร็จ — resolve id จาก plan_item_id
+        // (derived table ครอบ subquery เพื่อเลี่ยง MariaDB error 1093 จากการอ้าง target table ใน subquery)
+        if ($ok) {
+            $db->prepare(
+                "UPDATE content_items SET status='published', published_at=NOW(), updated_at=NOW()
+                 WHERE id=(SELECT id FROM (SELECT id FROM content_items WHERE plan_item_id=? AND tenant_id=? LIMIT 1) AS ci_match)"
+            )->execute([$sc['plan_item_id'], $tenantId]);
+        }
 
         $processed[] = ['id' => $sc['id'], 'status' => $status, 'topic' => $sc['topic']];
     }

@@ -45,6 +45,29 @@ function dispatch_content(string $platform, array $channel, array $content): arr
     };
 }
 
+/**
+ * สกัดข้อมูลอ้างอิงโพสต์ (platform_post_id / published_url) จากผลลัพธ์ dispatch_content()
+ * ใช้ร่วมกันโดย send_now (content-publish.php) และ cron scheduler (publish-scheduler.php)
+ * เป็น additive — ไม่เปลี่ยนพฤติกรรม dispatch_* เดิม
+ *
+ * platform_post_id : แต่ละ dispatch_* ตั้ง $result['platform_post_id'] ไว้แล้วเมื่อสำเร็จ
+ * published_url    : WordPress คืน URL โพสต์กลับใน data.link — platform อื่นยังไม่มี URL ที่เชื่อถือได้ → null
+ *
+ * @return array{platform_post_id: ?string, published_url: ?string}
+ */
+function extract_publish_meta(array $result, string $platform, array $channel): array {
+    $postId = (isset($result['platform_post_id']) && $result['platform_post_id'] !== '')
+        ? (string) $result['platform_post_id']
+        : null;
+
+    $url = null;
+    if ($platform === 'wordpress' && !empty($result['data']['link'])) {
+        $url = (string) $result['data']['link'];
+    }
+
+    return ['platform_post_id' => $postId, 'published_url' => $url];
+}
+
 // ─── cURL helper ────────────────────────────────────────────────────────────────
 
 function _dispatch_post(string $url, array $options = []): array {

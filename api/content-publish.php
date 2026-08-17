@@ -129,9 +129,14 @@ if ($method === 'POST') {
             $result = dispatch_content($channel['platform'], $channel, $contentForChannel);
 
             if ($result['success']) {
+                $meta = extract_publish_meta($result, $channel['platform'], $channel);
                 $db->prepare(
-                    "UPDATE content_publish_queue SET status='sent', sent_at=NOW() WHERE id=?"
-                )->execute([$id]);
+                    "UPDATE content_publish_queue SET status='sent', sent_at=NOW(), platform_post_id=?, published_url=? WHERE id=?"
+                )->execute([$meta['platform_post_id'], $meta['published_url'], $id]);
+                // บันทึกผลเผยแพร่กลับ content_items (content_id คือ content_items.id ที่โหลดมา)
+                $db->prepare(
+                    "UPDATE content_items SET status='published', published_at=NOW(), published_url=?, external_post_id=? WHERE id=? AND tenant_id=?"
+                )->execute([$meta['published_url'], $meta['platform_post_id'], $contentId, $tenantId]);
                 $results[] = ['channel_id' => $channel['id'], 'success' => true];
             } else {
                 $db->prepare(

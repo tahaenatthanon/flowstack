@@ -103,6 +103,10 @@ if ($method === 'PUT') {
     if (($body['status'] ?? null) === 'pending_approval') {
         $fields[] = '`requested_at` = NOW()';
     }
+    // Record the moment the content is approved (for lead-time metrics)
+    if (($body['status'] ?? null) === 'approved') {
+        $fields[] = '`approved_at` = NOW()';
+    }
     if (empty($fields)) jsonError('ไม่มีข้อมูลที่จะอัปเดต');
     $values[] = $id; $values[] = $tenantId;
     $db->prepare('UPDATE content_items SET ' . implode(', ', $fields) . ', updated_at=NOW() WHERE id = ? AND tenant_id = ?')->execute($values);

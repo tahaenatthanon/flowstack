@@ -86,9 +86,14 @@ foreach ($entries as $entry) {
     }
 
     if ($result['success']) {
+        $meta = extract_publish_meta($result, $entry['platform'], $channel);
         $db->prepare(
-            "UPDATE content_publish_queue SET status='sent', sent_at=NOW() WHERE id=?"
-        )->execute([$queueId]);
+            "UPDATE content_publish_queue SET status='sent', sent_at=NOW(), platform_post_id=?, published_url=? WHERE id=?"
+        )->execute([$meta['platform_post_id'], $meta['published_url'], $queueId]);
+        // บันทึกผลเผยแพร่กลับ content_items (content_id คือ content_items.id)
+        $db->prepare(
+            "UPDATE content_items SET status='published', published_at=NOW(), published_url=?, external_post_id=? WHERE id=? AND tenant_id=?"
+        )->execute([$meta['published_url'], $meta['platform_post_id'], $entry['content_id'], $entry['tenant_id']]);
         echo "  [{$queueId}] sent via {$entry['platform']}\n";
     } else {
         $retryCount = (int)$entry['retry_count'] + 1;
