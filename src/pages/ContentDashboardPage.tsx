@@ -1,4 +1,4 @@
-import { FileText, Clock, CheckCircle2, Edit3, AlertTriangle, Eye, ThumbsUp, ArrowRight, BarChart3, CalendarClock, Share2, Radio, TrendingUp } from 'lucide-react';
+import { FileText, Clock, CheckCircle2, Edit3, AlertTriangle, Eye, ThumbsUp, ArrowRight, BarChart3, CalendarClock, Share2, Radio, TrendingUp, LayoutDashboard } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -126,9 +126,15 @@ export default function ContentDashboardPage() {
         <div className="flex items-center justify-center py-20 text-muted-foreground">กำลังโหลด...</div>
       ) : (
         <Tabs value={tab} onValueChange={handleTabChange} className="space-y-6">
-          <TabsList>
-            <TabsTrigger value="overview">ภาพรวม</TabsTrigger>
-            <TabsTrigger value="analytics">วิเคราะห์</TabsTrigger>
+          <TabsList className="flex overflow-x-auto w-full text-xs sm:text-sm sm:grid sm:grid-cols-2">
+            <TabsTrigger value="overview" className="gap-1 sm:gap-2 px-2 sm:px-3 shrink-0">
+              <LayoutDashboard className="h-3.5 w-3.5 shrink-0" />
+              <span className="hidden sm:inline">ภาพรวม</span>
+            </TabsTrigger>
+            <TabsTrigger value="analytics" className="gap-1 sm:gap-2 px-2 sm:px-3 shrink-0">
+              <BarChart3 className="h-3.5 w-3.5 shrink-0" />
+              <span className="hidden sm:inline">วิเคราะห์</span>
+            </TabsTrigger>
           </TabsList>
 
           {/* ── ภาพรวม ─────────────────────────────────────────── */}
@@ -332,7 +338,7 @@ export default function ContentDashboardPage() {
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
                       <Radio className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <span className="truncate">สถานะช่องทาง</span>
+                      <span className="truncate">สถานะแพลตฟอร์ม</span>
                     </CardTitle>
                     <Button variant="ghost" size="sm" className="shrink-0" onClick={() => navigate('/content?tab=settings')}>
                       จัดการ
