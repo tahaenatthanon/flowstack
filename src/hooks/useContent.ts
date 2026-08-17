@@ -132,11 +132,12 @@ export function useAIGatewaySettings() {
   });
 }
 
-export function usePostingAnalytics() {
+export function usePostingAnalytics(enabled = true) {
   return useQuery<PostingAnalyticsResponse>({
     queryKey: contentKeys.analytics(),
     queryFn: () => apiFetch('/brand-content.php?action=analytics-posting-times'),
     staleTime: 300_000,
+    enabled,
   });
 }
 

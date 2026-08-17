@@ -57,10 +57,10 @@ The dashboard SHALL display a "สถานะช่องทาง" widget list
 - **THEN** the widget shows an empty-state message
 
 ### Requirement: แสดงแพลตฟอร์มพร้อม Logo Icon และจำนวนคอนเทนต์
-The dashboard SHALL display a "แพลตฟอร์ม" widget listing each platform's logo icon and name (in the same style as "สถานะช่องทาง"), showing each platform name exactly once, along with its content count derived from the real system data.
+The analytics tab of the content dashboard SHALL display a "แพลตฟอร์ม" widget listing each platform's logo icon and name (in the same style as "สถานะช่องทาง"), showing each platform name exactly once, along with its content count derived from the real system data.
 
 #### Scenario: แสดง Logo Icon + ชื่อแพลตฟอร์ม
-- **WHEN** the dashboard loads with `content_items`
+- **WHEN** the analytics tab loads with `content_items`
 - **THEN** the widget lists each platform with a logo icon (`PlatformIcon`) in a colored container and the platform name shown exactly once (no duplicate name badge)
 
 #### Scenario: แสดงจำนวนคอนเทนต์ตามข้อมูลจริง
@@ -76,10 +76,10 @@ The dashboard SHALL display a "แพลตฟอร์ม" widget listing each 
 - **THEN** they are ordered by platform name A–Z (using the platform label)
 
 ### Requirement: นับจำนวนแพลตฟอร์มแบบ case-insensitive
-The dashboard SHALL count platform content in a case-insensitive manner, so the same platform written with different casing (e.g. "Facebook" vs "facebook") is aggregated into a single entry.
+The analytics tab SHALL count platform content in a case-insensitive manner, so the same platform written with different casing (e.g. "Facebook" vs "facebook") is aggregated into a single entry.
 
 #### Scenario: รวมแพลตฟอร์มเดียวกัน
-- **WHEN** the dashboard loads with `content_items` where some items have `platform = "Facebook"` and others `platform = "facebook"`
+- **WHEN** the analytics tab loads with `content_items` where some items have `platform = "Facebook"` and others `platform = "facebook"`
 - **THEN** the widget shows a single "Facebook" entry with a combined count (not two separate entries)
 
 ### Requirement: ใช้ Card และ Badge จาก Design System
@@ -88,17 +88,6 @@ The schedule and channel widgets SHALL use existing `Card`/`Badge` shadcn-ui pri
 #### Scenario: ใช้ Card/Badge primitive เดิม
 - **WHEN** the schedule and channel widgets are rendered
 - **THEN** they use `Card`, `CardHeader`, `CardTitle`, `CardContent` and `Badge` with `PLATFORM_MAP` colors, matching existing dashboard cards
-
-### Requirement: เรียงลำดับ widget แพลตฟอร์มก่อนสถานะช่องทาง
-The content dashboard SHALL display the "แพลตฟอร์ม" widget before the "สถานะช่องทาง" widget, placing "แพลตฟอร์ม" in the position previously occupied by "สถานะช่องทาง" and "สถานะช่องทาง" in the position previously occupied by "แพลตฟอร์ม".
-
-#### Scenario: แพลตฟอร์มอยู่ก่อนสถานะช่องทาง
-- **WHEN** the content dashboard renders its widget column
-- **THEN** the "แพลตฟอร์ม" widget appears before the "สถานะช่องทาง" widget
-
-#### Scenario: กำหนดการโพสต์ถัดไปยังอยู่ที่แรก
-- **WHEN** the content dashboard renders its widget column
-- **THEN** the "กำหนดการโพสต์ถัดไป" widget remains the first widget, and the final order is: กำหนดการโพสต์ถัดไป → แพลตฟอร์ม → สถานะช่องทาง
 
 ### Requirement: เพิ่มไอคอนสำหรับแพลตฟอร์ม YouTube
 The platform icon system SHALL include a dedicated icon for the "YouTube" platform (`youtube`), so content items or channels with `platform = "youtube"` display a YouTube logo icon (not the fallback icon) along with the correct platform name and color.

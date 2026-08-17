@@ -1,0 +1,48 @@
+# content-dashboard-analytics Specification
+
+## Purpose
+
+แสดงข้อมูลเชิง insight ในแท็บ "วิเคราะห์" ของแดชบอร์ดคอนเทนต์ — widget "เนื้อหายอดนิยม" (Top Content) และ "เวลาที่ดีที่สุดในการโพสต์" (Best Time Analytics)
+
+## Requirements
+
+### Requirement: แสดงเนื้อหายอดนิยม (Top Content)
+The "วิเคราะห์" (Analytics) tab SHALL display a "เนื้อหายอดนิยม" widget listing the top content items ordered by an engagement score (`views + likes * 2`) descending, limited to the top 5 items.
+
+#### Scenario: แสดง top 5 เรียงตาม engagement score
+- **WHEN** the analytics tab loads with `content_items`
+- **THEN** the widget lists up to 5 items sorted by `Number(views) + Number(likes) * 2` descending
+
+#### Scenario: แสดงชื่อ ยอดวิว และยอดไลก์
+- **WHEN** a top content item is rendered
+- **THEN** it shows the item title, its `views`, and its `likes`
+
+#### Scenario: แสดงข้อความว่างเมื่อไม่มีข้อมูล
+- **WHEN** the analytics tab loads with no content items
+- **THEN** the widget shows an empty-state message
+
+### Requirement: แสดงเวลาที่ดีที่สุดในการโพสต์
+The "วิเคราะห์" tab SHALL display the "เวลาที่ดีที่สุดในการโพสต์" widget using the existing `BestTimeAnalyticsPanel` component (`src/components/content/BestTimeAnalyticsPanel.tsx`) fed by `usePostingAnalytics()`.
+
+#### Scenario: แสดง panel เวลาโพสต์ดีที่สุด
+- **WHEN** the analytics tab loads
+- **THEN** it renders `BestTimeAnalyticsPanel` with the posting analytics data
+
+#### Scenario: แสดง empty-state เมื่อข้อมูลไม่พอ
+- **WHEN** `usePostingAnalytics()` returns `has_data: false`
+- **THEN** the panel shows its empty-state message ("ยังไม่มีข้อมูลเพียงพอ รออย่างน้อย 10 โพสต์เพื่อเริ่มวิเคราะห์")
+
+#### Scenario: ปุ่มคำนวณใหม่
+- **WHEN** the user clicks the "คำนวณตอนนี้" button in the panel
+- **THEN** the panel triggers the `analytics-recalculate` action (via `useRecalculateAnalytics()`) and refetches the analytics data
+
+### Requirement: โหลดข้อมูลวิเคราะห์เฉพาะเมื่อเปิดแท็บวิเคราะห์
+The `usePostingAnalytics` query SHALL be enabled only while the "วิเคราะห์" tab is active, so the `analytics-posting-times` request is not fired when the dashboard is on the "ภาพรวม" tab.
+
+#### Scenario: ไม่โหลดเมื่ออยู่แท็บภาพรวม
+- **WHEN** the dashboard is on the "ภาพรวม" tab
+- **THEN** `usePostingAnalytics` is disabled and no `analytics-posting-times` request is made
+
+#### Scenario: โหลดเมื่อเปิดแท็บวิเคราะห์
+- **WHEN** the user switches to the "วิเคราะห์" tab
+- **THEN** `usePostingAnalytics` is enabled and fetches `analytics-posting-times`

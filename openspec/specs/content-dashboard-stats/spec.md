@@ -7,18 +7,18 @@ Display engagement totals (views and likes) as stat cards on the content dashboa
 ## Requirements
 
 ### Requirement: แสดง Stat Cards ยอดวิวรวมและยอดไลก์รวม
-The dashboard SHALL display two additional stat cards showing the total views and total likes aggregated across all content items.
+The analytics tab of the content dashboard SHALL display two stat cards showing the total views and total likes aggregated across all content items.
 
 #### Scenario: ยอดวิวรวมคำนวณจาก content items
-- **WHEN** the dashboard loads and `content_items` are fetched via `GET /content-items.php`
+- **WHEN** the analytics tab loads and `content_items` are fetched via `GET /content-items.php`
 - **THEN** a "ยอดวิวรวม" stat card displays the sum of `views` across all items
 
 #### Scenario: ยอดไลก์รวมคำนวณจาก content items
-- **WHEN** the dashboard loads and `content_items` are fetched
+- **WHEN** the analytics tab loads and `content_items` are fetched
 - **THEN** a "ยอดไลก์รวม" stat card displays the sum of `likes` across all items
 
 #### Scenario: แสดงศูนย์เมื่อไม่มีข้อมูล
-- **WHEN** the dashboard loads with an empty `content_items` array
+- **WHEN** the analytics tab loads with an empty `content_items` array
 - **THEN** the "ยอดวิวรวม" and "ยอดไลก์รวม" cards display `0`
 
 ### Requirement: Stat Cards ใหม่ใช้สไตล์เดียวกับการ์ดเดิม
