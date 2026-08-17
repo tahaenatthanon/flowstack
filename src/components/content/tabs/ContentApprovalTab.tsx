@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   Check, X, Filter, Stamp, RotateCcw, FileText, Clock, XCircle, ArrowUpDown,
-  Layers, Search, Shapes, Pencil,
+  Layers, Search, Shapes, Pencil, AlertTriangle, Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -23,7 +23,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useContentItems, contentKeys } from '@/hooks/useContent';
 import { apiFetch } from '@/lib/api';
 import {
-  STATUS_MAP, PLATFORM_MAP, TYPE_MAP, type ContentItem,
+  STATUS_MAP, PLATFORM_MAP, TYPE_MAP, type ContentItem, type SeoChecklistResult,
 } from '@/components/content/types';
 import ContentDetailView from '@/components/content/views/ContentDetailView';
 
@@ -40,6 +40,9 @@ export default function ContentApprovalTab() {
   const [reasonDialog, setReasonDialog] = useState<{ open: boolean; item: ContentItem | null; kind: 'revision' | 'rejected' }>({ open: false, item: null, kind: 'rejected' });
   const [rejectReason, setRejectReason] = useState('');
   const [confirmApprove, setConfirmApprove] = useState<ContentItem | null>(null);
+  // ผลตรวจเกต SEO ของรายการที่กำลังจะอนุมัติ (ดึงเมื่อเปิด dialog)
+  const [approveGate, setApproveGate] = useState<SeoChecklistResult | null>(null);
+  const [approveGateLoading, setApproveGateLoading] = useState(false);
   // Row click opens a read-only detail dialog; null means closed
   const [detailItem, setDetailItem] = useState<ContentItem | null>(null);
 
@@ -52,6 +55,22 @@ export default function ContentApprovalTab() {
   useEffect(() => {
     if (reasonDialog.open && reasonRef.current) autoResizeReason(reasonRef.current);
   }, [reasonDialog.open]);
+
+  // ดึงผลตรวจเกต SEO เมื่อเปิด dialog อนุมัติ — ถ้าเกตเปิดและมีกฎไม่ผ่าน
+  // เนื้อหานี้จะเผยแพร่ไม่ได้ จึงบล็อกการอนุมัติไว้ก่อนพร้อมแจ้งกฎที่ติด
+  useEffect(() => {
+    if (!confirmApprove) { setApproveGate(null); setApproveGateLoading(false); return; }
+    let cancelled = false;
+    setApproveGate(null);
+    setApproveGateLoading(true);
+    apiFetch<SeoChecklistResult>(
+      '/brand-content.php?action=seo-checklist&item_id=' + encodeURIComponent(confirmApprove.id),
+    )
+      .then(res => { if (!cancelled) setApproveGate(res); })
+      .catch(() => { if (!cancelled) setApproveGate(null); })
+      .finally(() => { if (!cancelled) setApproveGateLoading(false); });
+    return () => { cancelled = true; };
+  }, [confirmApprove]);
 
   // Stat counts — computed from all items, independent of the active tab/filters
   const statusCounts = {
@@ -141,6 +160,12 @@ export default function ContentApprovalTab() {
 
   const EmptyIcon = FileText;
   const hasActiveFilters = !!searchQuery || statusFilter !== 'all' || typeFilter !== 'all' || platformFilter !== 'all';
+
+  // เกต SEO ของรายการที่กำลังจะอนุมัติ — mirror ตรรกะ seo_gate_check() ฝั่ง backend
+  const approveFails = approveGate?.rules.filter(r => r.level === 'fail') ?? [];
+  const approveGateOn = approveGate?.seo_gate_enabled === 1;
+  const approveLowScore = !!approveGate && approveGate.score < approveGate.seo_gate_min_score;
+  const approveBlocked = approveGateOn && (approveFails.length > 0 || approveLowScore);
 
   return (
     <>
@@ -325,12 +350,56 @@ export default function ContentApprovalTab() {
           <DialogHeader>
             <DialogTitle>ยืนยันการอนุมัติ</DialogTitle>
             <DialogDescription>
-              ต้องการอนุมัติ "{confirmApprove?.title}" ใช่หรือไม่? เนื้อหาจะถูกเปลี่ยนสถานะเป็นอนุมัติแล้ว
+              {approveBlocked
+                ? `"${confirmApprove?.title}" ยังไม่ผ่านเกณฑ์ SEO ที่บังคับ จึงยังอนุมัติไม่ได้`
+                : `ต้องการอนุมัติ "${confirmApprove?.title}" ใช่หรือไม่? เนื้อหาจะถูกเปลี่ยนสถานะเป็นอนุมัติแล้ว`}
             </DialogDescription>
           </DialogHeader>
+
+          {approveGateLoading && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> กำลังตรวจเกณฑ์ SEO...
+            </div>
+          )}
+
+          {!approveGateLoading && approveBlocked && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 space-y-2">
+              <div className="flex items-center gap-1.5 text-sm font-medium text-destructive">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                เกต SEO เปิดอยู่ — ต้องแก้ก่อนอนุมัติ
+              </div>
+              {approveFails.length > 0 && (
+                <>
+                  <p className="text-xs text-destructive/90">รายการที่ยังไม่ผ่าน ({approveFails.length}):</p>
+                  <ul className="space-y-1">
+                    {approveFails.map(r => (
+                      <li key={r.key} className="flex items-start gap-1.5 text-xs text-destructive">
+                        <XCircle className="h-3.5 w-3.5 mt-px shrink-0" />
+                        <span>{r.message}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              {approveLowScore && (
+                <p className="text-xs text-destructive">
+                  คะแนน SEO {approveGate?.score} ต่ำกว่าเกณฑ์ขั้นต่ำ {approveGate?.seo_gate_min_score}
+                </p>
+              )}
+              <p className="text-[11px] text-muted-foreground">
+                แก้ไขที่ SEO / AEO Metadata ของเนื้อหา แล้วบันทึกก่อนอนุมัติอีกครั้ง
+              </p>
+            </div>
+          )}
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmApprove(null)}>ยกเลิก</Button>
-            <Button onClick={() => confirmApprove && handleApprove(confirmApprove)}>ยืนยันการอนุมัติ</Button>
+            <Button
+              onClick={() => confirmApprove && handleApprove(confirmApprove)}
+              disabled={approveGateLoading || approveBlocked}
+            >
+              ยืนยันการอนุมัติ
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

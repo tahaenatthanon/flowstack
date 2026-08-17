@@ -184,6 +184,23 @@ export const emptySeoFields = (): SeoFields => ({
   meta_keywords: '', og_image: '', structured_data: '',
 });
 
+// ─── SEO checklist (Phase 4 publish gate) ───────────────────────────
+// ตรงกับผลลัพธ์จาก api/lib/seo-checklist.php ผ่าน ?action=seo-checklist
+export type SeoRuleLevel = 'pass' | 'warn' | 'fail' | 'skip';
+
+export interface SeoRule {
+  key: string;
+  level: SeoRuleLevel;
+  message: string;
+}
+
+export interface SeoChecklistResult {
+  score: number;
+  rules: SeoRule[];
+  seo_gate_enabled: 0 | 1;
+  seo_gate_min_score: number;
+}
+
 // ─── Constants ──────────────────────────────────────────────────────
 export const TYPE_MAP: Record<string, { label: string; icon: React.ElementType; color: string }> = {
   article: { label: 'บทความ', icon: FileText, color: 'text-blue-500 bg-blue-50 dark:bg-blue-950' },

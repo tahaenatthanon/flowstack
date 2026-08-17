@@ -4,6 +4,7 @@
 set_time_limit(0); // AI calls can take several minutes
 require_once 'config.php';
 require_once __DIR__ . '/auth.php';
+require_once __DIR__ . '/lib/seo-checklist.php';
 
 /**
  * Whitelist-based sanitizer: keep ONLY printable ASCII + Thai script.
@@ -340,6 +341,32 @@ if ($action === 'global-settings') {
         }
         jsonResponse(['saved' => true]);
     }
+}
+
+// ─── SEO CHECKLIST (live evaluation for UI) ─────────────────────────────────
+if ($action === 'seo-checklist') {
+    if ($method !== 'GET') jsonError('Method not allowed', 405);
+    $itemId = $_GET['item_id'] ?? '';
+    if (!$itemId) jsonError('item_id required', 400);
+
+    $stmt = $db->prepare('SELECT * FROM content_items WHERE id=? AND tenant_id=?');
+    $stmt->execute([$itemId, $tenantId]);
+    $item = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$item) jsonError('Content not found', 404);
+
+    $eval = seo_evaluate($item);
+
+    // สถานะเกตของ tenant (ให้ UI รู้ว่ากฎ fail จะบล็อกจริงหรือไม่)
+    $cfgStmt = $db->prepare('SELECT seo_gate_enabled, seo_gate_min_score FROM content_global_settings WHERE tenant_id=?');
+    $cfgStmt->execute([$tenantId]);
+    $cfg = $cfgStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+    jsonResponse([
+        'score'              => $eval['score'],
+        'rules'              => $eval['rules'],
+        'seo_gate_enabled'   => (int)($cfg['seo_gate_enabled'] ?? 0),
+        'seo_gate_min_score' => (int)($cfg['seo_gate_min_score'] ?? 0),
+    ]);
 }
 
 // โ”€โ”€โ”€ SKILLS โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
@@ -2137,6 +2164,12 @@ if ($action === 'publish') {
     $item = $item->fetch();
     if (!$item) jsonError('Item not found', 404);
 
+    // เกต SEO — บล็อกก่อน dispatch ถ้าเปิดเกตและมีกฎ fail/คะแนนต่ำ (ข้อความไทย)
+    $gate = seo_gate_check($db, $tenantId, $item);
+    if ($gate['blocked']) {
+        jsonError('เผยแพร่ไม่ได้ — ไม่ผ่านเกณฑ์ SEO' . "\n" . $gate['reason'], 422);
+    }
+
     // Load channel
     $ch = $db->prepare("SELECT * FROM publish_channels WHERE id=? AND tenant_id=?");
     $ch->execute([$channelId, $tenantId]);
@@ -2432,8 +2465,34 @@ if ($action === 'cron-publish') {
         $excerpt = $artData['excerpt'] ?? '';
         $imgUrl  = $sc['generated_image_url'] ?? '';
 
+        // เกต SEO — โหลด content_items (canonical SEO) ผ่าน plan_item_id; fallback จาก article_content JSON
+        $gStmt = $db->prepare("SELECT * FROM content_items WHERE plan_item_id=? AND tenant_id=? LIMIT 1");
+        $gStmt->execute([$sc['plan_item_id'], $tenantId]);
+        $gateItem = $gStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$gateItem) {
+            $gateItem = [
+                'seo_title'        => $artData['seo_title']        ?? '',
+                'slug'             => $artData['slug']             ?? '',
+                'meta_description' => $artData['meta_description'] ?? '',
+                'meta_keywords'    => $artData['meta_keywords']    ?? '',
+                'structured_data'  => $artData['structured_data']  ?? '',
+                'og_image'         => $imgUrl,
+                'article_content'  => $sc['article_content'],
+                'title'            => $title,
+            ];
+        }
+        $gate = seo_gate_check($db, $tenantId, $gateItem);
+        if ($gate['blocked']) {
+            // ไม่ dispatch — ตั้ง schedule เป็น failed พร้อมเหตุผล (ไม่ silent)
+            $db->prepare("UPDATE content_schedules SET status='failed', publish_result=?, updated_at=NOW() WHERE id=?")
+               ->execute([json_encode(['seo_gate_blocked' => true, 'reason' => $gate['reason']], JSON_UNESCAPED_UNICODE), $sc['id']]);
+            $processed[] = ['id' => $sc['id'], 'status' => 'failed', 'topic' => $sc['topic'], 'reason' => 'SEO gate: ' . $gate['reason']];
+            continue;
+        }
+
         $ok     = false;
         $result = [];
+
 
         try {
             if ($sc['platform'] === 'wordpress') {

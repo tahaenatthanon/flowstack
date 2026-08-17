@@ -2,6 +2,7 @@
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/lib/publish-dispatch.php';
+require_once __DIR__ . '/lib/seo-checklist.php';
 
 $db       = getDB();
 $method   = getMethod();
@@ -97,6 +98,12 @@ if ($method === 'POST') {
         $cs->execute([$contentId, $tenantId]);
         $content = $cs->fetch(PDO::FETCH_ASSOC);
         if (!$content) jsonError('Content not found', 422);
+
+        // เกต SEO — ตรวจครั้งเดียวก่อน dispatch ทุก channel; บล็อกถ้าเปิดเกตและมีกฎ fail/คะแนนต่ำ
+        $gate = seo_gate_check($db, $tenantId, $content);
+        if ($gate['blocked']) {
+            jsonError('เผยแพร่ไม่ได้ — ไม่ผ่านเกณฑ์ SEO' . "\n" . $gate['reason'], 422);
+        }
 
         $placeholders = implode(',', array_fill(0, count($channelIds), '?'));
         $chs = $db->prepare(

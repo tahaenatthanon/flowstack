@@ -49,7 +49,7 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { apiFetch } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import type { SeoFields } from '@/components/content/types';
+import type { SeoFields, SeoChecklistResult, SeoRuleLevel } from '@/components/content/types';
 import {
   Bold, Italic, Underline as UnderlineIcon, Strikethrough,
   Heading1, Heading2, Heading3, Heading4,
@@ -57,6 +57,7 @@ import {
   Table as TableIcon, Link as LinkIcon, Image as ImageIcon,
   Undo2, Redo2, Code, ChevronDown, Sparkles, Loader2,
   Search, AlignLeft, Plus, Eye, EyeOff, MousePointer,
+  CheckCircle2, AlertTriangle, XCircle, MinusCircle, RefreshCw,
 } from 'lucide-react';
 
 export interface ArticleEditorProps {
@@ -90,7 +91,7 @@ const AI_REWRITE_ACTIONS = [
 ];
 
 export default function ArticleEditor({
-  html, onChange, seoFields, onSeoChange, contentItemId: _contentItemId, platform, topic,
+  html, onChange, seoFields, onSeoChange, contentItemId, platform, topic,
   trackOpens, trackClicks, onTrackOpensChange, onTrackClicksChange,
 }: ArticleEditorProps) {
   const [sourceMode, setSourceMode] = useState(false);
@@ -100,6 +101,9 @@ export default function ArticleEditor({
   const [generatePrompt, setGeneratePrompt] = useState('');
   const [aiError, setAiError] = useState<string | null>(null);
   const [seoOpen, setSeoOpen] = useState(false);
+  const [seoCheck, setSeoCheck] = useState<SeoChecklistResult | null>(null);
+  const [seoCheckLoading, setSeoCheckLoading] = useState(false);
+  const [seoCheckError, setSeoCheckError] = useState<string | null>(null);
   const [linkUrl, setLinkUrl] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [linkOpen, setLinkOpen] = useState(false);
@@ -141,6 +145,33 @@ export default function ArticleEditor({
     }
     prevHtmlRef.current = html;
   }, [editor, html]);
+
+  // ── SEO checklist (Phase 4 publish gate) ────────────────────────
+  // ผลตรวจอ้างอิงเนื้อหาที่ "บันทึกล่าสุด" ใน content_items (ไม่ใช่สถานะที่ยัง
+  // ไม่ได้บันทึกในตัวแก้ไข) จึงต้องบันทึกก่อนแล้วกด "ตรวจใหม่" เพื่ออัปเดต
+  const runSeoCheck = useCallback(async () => {
+    if (!contentItemId) return;
+    setSeoCheckLoading(true);
+    setSeoCheckError(null);
+    try {
+      const res = await apiFetch<SeoChecklistResult>(
+        '/brand-content.php?action=seo-checklist&item_id=' + encodeURIComponent(contentItemId),
+      );
+      setSeoCheck(res);
+    } catch {
+      setSeoCheckError('ตรวจ SEO ไม่สำเร็จ — ลองใหม่อีกครั้ง');
+      setSeoCheck(null);
+    } finally {
+      setSeoCheckLoading(false);
+    }
+  }, [contentItemId]);
+
+  // ดึงผลตรวจอัตโนมัติเมื่อเปิดแผง SEO ครั้งแรก (มี id เท่านั้น)
+  useEffect(() => {
+    if (seoOpen && contentItemId && !seoCheck && !seoCheckLoading && !seoCheckError) {
+      runSeoCheck();
+    }
+  }, [seoOpen, contentItemId, seoCheck, seoCheckLoading, seoCheckError, runSeoCheck]);
 
   // ── Source mode toggle ──────────────────────────────────────────
   const enterSourceMode = useCallback(() => {
@@ -572,6 +603,14 @@ export default function ArticleEditor({
         </button>
         {seoOpen && (
           <div className="px-4 pb-4 pt-2 border-t space-y-3 bg-muted/10">
+            {contentItemId && (
+              <SeoChecklistPanel
+                result={seoCheck}
+                loading={seoCheckLoading}
+                error={seoCheckError}
+                onRecheck={runSeoCheck}
+              />
+            )}
             <SeoInput label="SEO Title" value={seoFields.seo_title}
               onChange={v => onSeoChange({ ...seoFields, seo_title: v })}
               placeholder="หัวข้อ SEO (แนะนำ ≤60 ตัวอักษร)"
@@ -662,6 +701,101 @@ function SeoTextarea({ label, value, onChange, placeholder, maxWarn }: {
       </div>
       <Textarea value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
         className="text-xs min-h-[72px] resize-y" />
+    </div>
+  );
+}
+
+// ── SEO checklist panel ───────────────────────────────────────────
+const SEO_LEVEL_META: Record<SeoRuleLevel, { icon: React.ElementType; className: string }> = {
+  pass: { icon: CheckCircle2,  className: 'text-green-600' },
+  warn: { icon: AlertTriangle, className: 'text-amber-500' },
+  fail: { icon: XCircle,       className: 'text-destructive' },
+  skip: { icon: MinusCircle,   className: 'text-muted-foreground/50' },
+};
+
+function seoScoreColor(score: number): string {
+  if (score >= 80) return 'text-green-600';
+  if (score >= 50) return 'text-amber-500';
+  return 'text-destructive';
+}
+
+function SeoChecklistPanel({ result, loading, error, onRecheck }: {
+  result: SeoChecklistResult | null;
+  loading: boolean;
+  error: string | null;
+  onRecheck: () => void;
+}) {
+  const fails = result?.rules.filter(r => r.level === 'fail') ?? [];
+  const gateOn = result?.seo_gate_enabled === 1;
+  return (
+    <div className="rounded-md border bg-background/60 p-3 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+            ตรวจ SEO
+          </span>
+          {result && (
+            <span className={cn('text-sm font-bold leading-none', seoScoreColor(result.score))}>
+              {result.score}
+              <span className="text-[10px] font-normal text-muted-foreground">/100</span>
+            </span>
+          )}
+        </div>
+        <Button type="button" variant="ghost" size="sm" className="h-7 gap-1 text-xs"
+          onClick={onRecheck} disabled={loading}>
+          {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+          ตรวจใหม่
+        </Button>
+      </div>
+
+      {result && gateOn && (
+        <div className={cn(
+          'flex items-start gap-1.5 rounded px-2 py-1.5 text-[11px] leading-relaxed',
+          fails.length > 0
+            ? 'bg-destructive/10 text-destructive'
+            : 'bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300',
+        )}>
+          {fails.length > 0 ? (
+            <>
+              <XCircle className="h-3.5 w-3.5 mt-px shrink-0" />
+              <span>เกต SEO เปิดอยู่ — มีกฎไม่ผ่าน {fails.length} ข้อ จะเผยแพร่/อนุมัติไม่ได้จนกว่าจะแก้ครบ{result.seo_gate_min_score > 0 ? ` (คะแนนขั้นต่ำ ${result.seo_gate_min_score})` : ''}</span>
+            </>
+          ) : (
+            <>
+              <CheckCircle2 className="h-3.5 w-3.5 mt-px shrink-0" />
+              <span>เกต SEO เปิดอยู่ — ผ่านเกณฑ์ที่บังคับทั้งหมด</span>
+            </>
+          )}
+        </div>
+      )}
+
+      {loading && !result && (
+        <div className="flex items-center gap-2 py-1 text-xs text-muted-foreground">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" /> กำลังตรวจ...
+        </div>
+      )}
+      {error && <div className="py-1 text-xs text-destructive">{error}</div>}
+
+      {result && (
+        <ul className="space-y-1">
+          {result.rules.map(rule => {
+            const meta = SEO_LEVEL_META[rule.level];
+            const Icon = meta.icon;
+            return (
+              <li key={rule.key} className="flex items-start gap-1.5 text-[11px] leading-relaxed">
+                <Icon className={cn('h-3.5 w-3.5 mt-px shrink-0', meta.className)} />
+                <span className={cn(rule.level === 'skip' && 'text-muted-foreground/70')}>{rule.message}</span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {result && (
+        <p className="text-[10px] text-muted-foreground/80 leading-relaxed">
+          * ผลตรวจอ้างอิงเนื้อหาที่บันทึกล่าสุด — บันทึกก่อนแล้วกด “ตรวจใหม่” เพื่ออัปเดต
+        </p>
+      )}
     </div>
   );
 }

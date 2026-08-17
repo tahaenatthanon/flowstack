@@ -6,6 +6,7 @@
 if (!defined('CRON_MODE')) define('CRON_MODE', true);
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../lib/publish-dispatch.php';
+require_once __DIR__ . '/../lib/seo-checklist.php';
 
 $db = getDB();
 
@@ -77,6 +78,24 @@ foreach ($entries as $entry) {
         $ov = $entry['content_override'];
         $content['caption']         = $ov;
         $content['article_content'] = json_encode(['html' => $ov, 'title' => $content['title'], 'excerpt' => '']);
+    }
+
+    // เกต SEO — โหลด content_items เต็ม (มีฟิลด์ SEO) แล้วตรวจก่อน dispatch
+    // (SELECT หลักไม่ได้ดึงฟิลด์ SEO จึงโหลดแยกด้วย content_id = content_items.id)
+    $giStmt = $db->prepare("SELECT * FROM content_items WHERE id=? AND tenant_id=?");
+    $giStmt->execute([$entry['content_id'], $entry['tenant_id']]);
+    $gateItem = $giStmt->fetch(PDO::FETCH_ASSOC);
+    if ($gateItem) {
+        // ประเมินด้วยเนื้อหาที่จะเผยแพร่จริง (รวม content_override ถ้ามี)
+        $gateItem['caption']         = $content['caption'];
+        $gateItem['article_content'] = $content['article_content'];
+        $gate = seo_gate_check($db, $entry['tenant_id'], $gateItem);
+        if ($gate['blocked']) {
+            $db->prepare("UPDATE content_publish_queue SET status='failed', error_msg=? WHERE id=?")
+               ->execute([mb_substr('SEO gate: ' . $gate['reason'], 0, 500), $queueId]);
+            echo "  [{$queueId}] blocked by SEO gate\n";
+            continue;
+        }
     }
 
     try {
