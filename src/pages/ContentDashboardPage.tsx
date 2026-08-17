@@ -1,10 +1,9 @@
-import { LayoutDashboard, FileText, Clock, CheckCircle2, Edit3, AlertTriangle, TrendingUp, Eye, ThumbsUp, ArrowRight } from 'lucide-react';
+import { FileText, Clock, CheckCircle2, Edit3, AlertTriangle, Eye, ThumbsUp, ArrowRight, BarChart3, CalendarClock, Share2, Radio } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useContentItems, useOverdueCount, useAllSchedules, usePublishChannels, useChannelConnectionStatus } from '@/hooks/useContent';
 import PageShell from '@/components/PageShell';
 import { STATUS_MAP, PLATFORM_MAP, TYPE_MAP } from '@/components/content/types';
@@ -50,11 +49,6 @@ export default function ContentDashboardPage() {
   // Recent items (last 5)
   const recentItems = [...items]
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-    .slice(0, 5);
-
-  // Top content by views
-  const topContent = [...items]
-    .sort((a, b) => (Number(b.views) || 0) - (Number(a.views) || 0))
     .slice(0, 5);
 
   // Pending approval queue (oldest request first, null last)
@@ -136,11 +130,14 @@ export default function ContentDashboardPage() {
           {/* Master 2-column */}
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
             {/* LEFT: วิเคราะห์ + ตาราง */}
-            <div className="space-y-6 xl:col-span-2">
+            <div className="flex flex-col space-y-6 xl:col-span-2">
               {/* Work Progress */}
               <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium">ความคืบหน้าการผลิต</CardTitle>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
+                    <BarChart3 className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate">ภาพรวมสถานะคอนเทนต์</span>
+                  </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {workProgressStatuses.map(statusKey => {
@@ -167,102 +164,90 @@ export default function ContentDashboardPage() {
                 </CardContent>
               </Card>
 
-              {/* Tabs: เนื้อหายอดนิยม | เนื้อหาล่าสุด */}
-              <Card>
-                <Tabs defaultValue="top">
-                  <CardHeader className="pb-2">
-                    <TabsList>
-                      <TabsTrigger value="top">เนื้อหายอดนิยม</TabsTrigger>
-                      <TabsTrigger value="recent">เนื้อหาล่าสุด</TabsTrigger>
-                    </TabsList>
-                  </CardHeader>
-                  <CardContent className="p-0">
-                    <TabsContent value="top">
-                      {topContent.length === 0 ? (
-                        <p className="text-sm text-muted-foreground text-center py-8">ไม่มีเนื้อหา</p>
-                      ) : (
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead className="text-xs">ชื่อ</TableHead>
-                              <TableHead className="text-xs hidden sm:table-cell">ประเภท</TableHead>
-                              <TableHead className="text-xs hidden md:table-cell">แพลตฟอร์ม</TableHead>
-                              <TableHead className="text-xs text-right">ยอดวิว</TableHead>
+              {/* เนื้อหาล่าสุด */}
+              <Card className="flex flex-1 flex-col">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
+                    <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate">เนื้อหาล่าสุด</span>
+                  </CardTitle>
+                  <Button variant="ghost" size="sm" className="shrink-0" onClick={() => navigate('/content')}>
+                    ดูทั้งหมด
+                    <ArrowRight className="h-3.5 w-3.5 ml-1" />
+                  </Button>
+                </CardHeader>
+                <CardContent className="p-0">
+                  {recentItems.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-8">ไม่มีเนื้อหา</p>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="text-xs w-[52px]"></TableHead>
+                          <TableHead className="text-xs">ชื่อ</TableHead>
+                          <TableHead className="text-xs hidden sm:table-cell">ประเภท</TableHead>
+                          <TableHead className="text-xs hidden md:table-cell">แพลตฟอร์ม</TableHead>
+                          <TableHead className="text-xs">สถานะ</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {recentItems.map(item => {
+                          const type = TYPE_MAP[item.type] ?? TYPE_MAP.article;
+                          const status = STATUS_MAP[item.status] ?? { label: item.status, color: 'bg-gray-100 text-gray-600' };
+                          const platform = item.platform ? PLATFORM_MAP[item.platform] : null;
+                          const TypeIcon = type.icon;
+                          return (
+                            <TableRow key={item.id}>
+                              <TableCell className="pr-0">
+                                {item.generated_image_url ? (
+                                  <img
+                                    src={item.generated_image_url}
+                                    alt={item.title}
+                                    loading="lazy"
+                                    decoding="async"
+                                    className="w-8 h-8 rounded border bg-muted object-cover shrink-0"
+                                  />
+                                ) : (
+                                  <span className={`inline-flex items-center justify-center w-8 h-8 rounded border bg-muted shrink-0 ${type.color}`}>
+                                    <TypeIcon className="h-4 w-4" />
+                                  </span>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-sm max-w-[280px] truncate">{item.title}</TableCell>
+                              <TableCell className="hidden sm:table-cell">
+                                <Badge variant="outline" className={type.color}>{type.label}</Badge>
+                              </TableCell>
+                              <TableCell className="hidden md:table-cell">
+                                {platform ? (
+                                  <Badge variant="outline" className={platform.color}>{platform.label}</Badge>
+                                ) : '-'}
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className={status.color}>{status.label}</Badge>
+                              </TableCell>
                             </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {topContent.map(item => {
-                              const type = TYPE_MAP[item.type] ?? TYPE_MAP.article;
-                              const platform = item.platform ? PLATFORM_MAP[item.platform] : null;
-                              return (
-                                <TableRow key={item.id}>
-                                  <TableCell className="text-sm max-w-[150px] truncate">{item.title}</TableCell>
-                                  <TableCell className="hidden sm:table-cell">
-                                    <Badge variant="outline" className={type.color}>{type.label}</Badge>
-                                  </TableCell>
-                                  <TableCell className="hidden md:table-cell">
-                                    {platform ? (
-                                      <Badge variant="outline" className={platform.color}>{platform.label}</Badge>
-                                    ) : '-'}
-                                  </TableCell>
-                                  <TableCell className="text-right text-sm font-medium">{(Number(item.views) || 0).toLocaleString()}</TableCell>
-                                </TableRow>
-                              );
-                            })}
-                          </TableBody>
-                        </Table>
-                      )}
-                    </TabsContent>
-                    <TabsContent value="recent">
-                      {recentItems.length === 0 ? (
-                        <p className="text-sm text-muted-foreground text-center py-8">ไม่มีเนื้อหา</p>
-                      ) : (
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead className="text-xs">ชื่อ</TableHead>
-                              <TableHead className="text-xs hidden sm:table-cell">ประเภท</TableHead>
-                              <TableHead className="text-xs hidden md:table-cell">แพลตฟอร์ม</TableHead>
-                              <TableHead className="text-xs">สถานะ</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {recentItems.map(item => {
-                              const type = TYPE_MAP[item.type] ?? TYPE_MAP.article;
-                              const status = STATUS_MAP[item.status] ?? { label: item.status, color: 'bg-gray-100 text-gray-600' };
-                              const platform = item.platform ? PLATFORM_MAP[item.platform] : null;
-                              return (
-                                <TableRow key={item.id}>
-                                  <TableCell className="text-sm max-w-[150px] truncate">{item.title}</TableCell>
-                                  <TableCell className="hidden sm:table-cell">
-                                    <Badge variant="outline" className={type.color}>{type.label}</Badge>
-                                  </TableCell>
-                                  <TableCell className="hidden md:table-cell">
-                                    {platform ? (
-                                      <Badge variant="outline" className={platform.color}>{platform.label}</Badge>
-                                    ) : '-'}
-                                  </TableCell>
-                                  <TableCell>
-                                    <Badge variant="outline" className={status.color}>{status.label}</Badge>
-                                  </TableCell>
-                                </TableRow>
-                              );
-                            })}
-                          </TableBody>
-                        </Table>
-                      )}
-                    </TabsContent>
-                  </CardContent>
-                </Tabs>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  )}
+                </CardContent>
               </Card>
             </div>
 
             {/* RIGHT: สถานะ + งานที่ต้องทำ */}
-            <div className="space-y-6">
+            <div className="flex flex-col space-y-6">
               {/* Pending Queue */}
               <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium">รออนุมัติ</CardTitle>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
+                    <Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate">รออนุมัติ</span>
+                  </CardTitle>
+                  <Button variant="ghost" size="sm" className="shrink-0" onClick={() => navigate('/content?tab=approval')}>
+                    ดูทั้งหมด
+                    <ArrowRight className="h-3.5 w-3.5 ml-1" />
+                  </Button>
                 </CardHeader>
                 <CardContent>
                   {pendingItems.length === 0 ? (
@@ -288,8 +273,11 @@ export default function ContentDashboardPage() {
 
               {/* Upcoming Schedule */}
               <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium">กำหนดการโพสต์ถัดไป</CardTitle>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
+                    <CalendarClock className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate">กำหนดการโพสต์ถัดไป</span>
+                  </CardTitle>
                 </CardHeader>
                 <CardContent>
                   {upcomingSchedules.length === 0 ? (
@@ -319,8 +307,11 @@ export default function ContentDashboardPage() {
 
               {/* Platform Distribution */}
               <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium">แพลตฟอร์ม</CardTitle>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
+                    <Share2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate">แพลตฟอร์ม</span>
+                  </CardTitle>
                 </CardHeader>
                 <CardContent>
                   {Object.keys(platformCounts).length === 0 ? (
@@ -362,8 +353,15 @@ export default function ContentDashboardPage() {
 
               {/* Channels */}
               <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium">สถานะช่องทาง</CardTitle>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
+                    <Radio className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate">สถานะช่องทาง</span>
+                  </CardTitle>
+                  <Button variant="ghost" size="sm" className="shrink-0" onClick={() => navigate('/content?tab=settings')}>
+                    จัดการ
+                    <ArrowRight className="h-3.5 w-3.5 ml-1" />
+                  </Button>
                 </CardHeader>
                 <CardContent>
                   {channels.length === 0 ? (

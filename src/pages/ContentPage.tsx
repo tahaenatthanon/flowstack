@@ -20,8 +20,10 @@ export default function ContentPage() {
   const [batchOpen, setBatchOpen] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
   const [searchParams] = useSearchParams();
+  const validTabs = ['content', 'approval', 'schedule', 'skills', 'settings'];
+  const initialTab = searchParams.get('tab');
   const [activeTab, setActiveTab] = useState(
-    searchParams.get('tab') === 'approval' ? 'approval' : 'content'
+    initialTab && validTabs.includes(initialTab) ? initialTab : 'content'
   );
   const { data: overdue } = useOverdueCount();
   const overdueCount = overdue?.count ?? 0;

@@ -1,10 +1,4 @@
-# content-dashboard-layout Specification
-
-## Purpose
-
-กำหนด master layout แบบ 2 คอลัมน์ responsive และลำดับ section ของหน้าแดชบอร์ดคอนเทนต์ (`ContentDashboardPage`)
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Master layout 2 คอลัมน์บนจอใหญ่
 ระบบ SHALL จัดวางเนื้อหาหลักของแดชบอร์ดคอนเทนต์เป็น 2 คอลัมน์บนจอ `xl` ขึ้นไป โดยคอลัมน์ซ้ายกว้าง 2/3 แสดงข้อมูลวิเคราะห์และตาราง ส่วนคอลัมน์ขวา 1/3 แสดง widget สถานะและงานที่ต้องทำ
@@ -21,23 +15,7 @@
 - **WHEN** คอลัมน์ขวาถูก render
 - **THEN** "คิวรออนุมัติ" เป็น widget แรกสุดของคอลัมน์ขวา
 
-### Requirement: Responsive ต่ำกว่า xl เป็น stacked column
-ระบบ SHALL แสดงทุก section เรียงเป็น column เดียวเมื่อจอต่ำกว่า `xl`
-
-#### Scenario: จอแคบไม่ overflow
-- **WHEN** ผู้ใช้เข้าถึงแดชบอร์ดคอนเทนต์บนจอต่ำกว่า `xl`
-- **THEN** ทุก section กลับเป็น stacked column เดียว (1 คอลัมน์) ไม่มี overflow
-
-### Requirement: ส่วนหัวแดชบอร์ดไม่มีปุ่ม action
-The content dashboard header SHALL NOT render the "ดูเนื้อหาทั้งหมด" and "สร้างคอนเทนต์" action buttons.
-
-#### Scenario: ไม่มีปุ่ม ดูเนื้อหาทั้งหมด
-- **WHEN** the content dashboard page renders its header (`PageShell`)
-- **THEN** there is no "ดูเนื้อหาทั้งหมด" button
-
-#### Scenario: ไม่มีปุ่ม สร้างคอนเทนต์
-- **WHEN** the content dashboard page renders its header (`PageShell`)
-- **THEN** there is no "สร้างคอนเทนต์" button
+## ADDED Requirements
 
 ### Requirement: เนื้อหาล่าสุดเป็นตารางหลัก
 The dashboard SHALL render a single Card titled "เนื้อหาล่าสุด" (Recent Content) in the left column, listing the most recent content items as a table, without any Tabs.
@@ -48,22 +26,14 @@ The dashboard SHALL render a single Card titled "เนื้อหาล่า�
 
 #### Scenario: แสดงคอลัมน์ของตาราง
 - **WHEN** a recent content item is rendered
-- **THEN** it shows a thumbnail, title (truncated, expanding column), type badge (`TYPE_MAP`), platform badge (`PLATFORM_MAP` when present, hidden below `md`), and status badge (`STATUS_MAP`)
-
-#### Scenario: แสดง Thumbnail ด้านหน้าชื่อ
-- **WHEN** a recent content item has a `generated_image_url`
-- **THEN** the table shows a small thumbnail image (`w-8 h-8 rounded border bg-muted object-cover`) before the title
-
-#### Scenario: Fallback เมื่อไม่มี Thumbnail
-- **WHEN** a recent content item has no `generated_image_url`
-- **THEN** the table shows the type icon (from `TYPE_MAP[item.type]`) in place of the thumbnail
+- **THEN** it shows title (truncated, expanding column), type badge (`TYPE_MAP`), platform badge (`PLATFORM_MAP` when present, hidden below `md`), and status badge (`STATUS_MAP`)
 
 #### Scenario: แสดงข้อความว่างเมื่อไม่มีข้อมูล
 - **WHEN** the dashboard loads with no content items
 - **THEN** the Card shows an empty-state message "ไม่มีเนื้อหา"
 
 ### Requirement: สมดุล Section ซ้าย–ขวา
-The content dashboard SHALL keep the left and right columns visually balanced with equal overall height and equal vertical spacing (`space-y-6`) and consistent card header/content padding across both columns.
+The content dashboard SHALL keep the left and right columns visually balanced with equal vertical spacing (`space-y-6`) and consistent card header/content padding across both columns.
 
 #### Scenario: ระยะห่างแนวตั้งสม่ำเสมอ
 - **WHEN** the master 2-column layout renders
@@ -72,10 +42,6 @@ The content dashboard SHALL keep the left and right columns visually balanced wi
 #### Scenario: หัว Card สูงเท่ากัน
 - **WHEN** each Card in both columns renders
 - **THEN** every Card uses `CardHeader` with `pb-2` and `CardTitle` with `text-sm font-medium` for consistent header height
-
-#### Scenario: ความสูงรวมของคอลัมน์เท่ากัน
-- **WHEN** the dashboard renders on a wide (`xl`) screen
-- **THEN** the left column and right column have equal overall height, with sections proportioned so both columns align at the same bottom edge
 
 #### Scenario: ขอบบน–ล่างของ Card align กัน
 - **WHEN** the dashboard renders on a wide (`xl`) screen
