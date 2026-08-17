@@ -3,7 +3,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useContentItems, useOverdueCount, useAllSchedules, usePublishChannels, useChannelConnectionStatus } from '@/hooks/useContent';
 import PageShell from '@/components/PageShell';
 import { STATUS_MAP, PLATFORM_MAP, TYPE_MAP } from '@/components/content/types';
@@ -176,60 +175,55 @@ export default function ContentDashboardPage() {
                     <ArrowRight className="h-3.5 w-3.5 ml-1" />
                   </Button>
                 </CardHeader>
-                <CardContent className="p-0">
+                <CardContent>
                   {recentItems.length === 0 ? (
                     <p className="text-sm text-muted-foreground text-center py-8">ไม่มีเนื้อหา</p>
                   ) : (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="text-xs w-[52px]"></TableHead>
-                          <TableHead className="text-xs">ชื่อ</TableHead>
-                          <TableHead className="text-xs hidden sm:table-cell">ประเภท</TableHead>
-                          <TableHead className="text-xs hidden md:table-cell">แพลตฟอร์ม</TableHead>
-                          <TableHead className="text-xs">สถานะ</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {recentItems.map(item => {
-                          const type = TYPE_MAP[item.type] ?? TYPE_MAP.article;
-                          const status = STATUS_MAP[item.status] ?? { label: item.status, color: 'bg-gray-100 text-gray-600' };
-                          const platform = item.platform ? PLATFORM_MAP[item.platform] : null;
-                          const TypeIcon = type.icon;
-                          return (
-                            <TableRow key={item.id}>
-                              <TableCell className="pr-0">
-                                {item.generated_image_url ? (
-                                  <img
-                                    src={item.generated_image_url}
-                                    alt={item.title}
-                                    loading="lazy"
-                                    decoding="async"
-                                    className="w-8 h-8 rounded border bg-muted object-cover shrink-0"
-                                  />
-                                ) : (
-                                  <span className={`inline-flex items-center justify-center w-8 h-8 rounded border bg-muted shrink-0 ${type.color}`}>
-                                    <TypeIcon className="h-4 w-4" />
-                                  </span>
-                                )}
-                              </TableCell>
-                              <TableCell className="text-sm max-w-[280px] truncate">{item.title}</TableCell>
-                              <TableCell className="hidden sm:table-cell">
+                    <div className="space-y-3">
+                      {recentItems.map(item => {
+                        const type = TYPE_MAP[item.type] ?? TYPE_MAP.article;
+                        const status = STATUS_MAP[item.status] ?? { label: item.status, color: 'bg-gray-100 text-gray-600' };
+                        const platform = item.platform ? PLATFORM_MAP[item.platform] : null;
+                        const TypeIcon = type.icon;
+                        return (
+                          <div key={item.id} className="flex gap-3">
+                            {/* Thumbnail (left, stretched to data height) */}
+                            {item.generated_image_url ? (
+                              <img
+                                src={item.generated_image_url}
+                                alt={item.title}
+                                loading="lazy"
+                                decoding="async"
+                                className="w-14 self-stretch min-h-[56px] rounded border bg-muted object-cover shrink-0"
+                              />
+                            ) : (
+                              <span className={`flex items-center justify-center w-14 self-stretch min-h-[56px] rounded border bg-muted shrink-0 ${type.color}`}>
+                                <TypeIcon className="h-5 w-5" />
+                              </span>
+                            )}
+                            {/* Data (right) */}
+                            <div className="flex-1 min-w-0 space-y-1">
+                              {/* Line 1: title */}
+                              <p className="text-sm font-medium truncate">{item.title}</p>
+                              {/* Line 2: type | platform */}
+                              <div className="flex items-center gap-2">
                                 <Badge variant="outline" className={type.color}>{type.label}</Badge>
-                              </TableCell>
-                              <TableCell className="hidden md:table-cell">
                                 {platform ? (
                                   <Badge variant="outline" className={platform.color}>{platform.label}</Badge>
-                                ) : '-'}
-                              </TableCell>
-                              <TableCell>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">-</span>
+                                )}
+                              </div>
+                              {/* Line 3: status | created date */}
+                              <div className="flex items-center gap-2">
                                 <Badge variant="outline" className={status.color}>{status.label}</Badge>
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
+                                <span className="text-xs text-muted-foreground">{formatDate(item.created_at)}</span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   )}
                 </CardContent>
               </Card>
@@ -256,18 +250,12 @@ export default function ContentDashboardPage() {
                     <div className="space-y-3">
                       {pendingItems.map(item => (
                         <div key={item.id} className="flex items-center justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium truncate">{item.title}</p>
-                            <p className="text-xs text-muted-foreground">{formatDate(item.created_at)}</p>
-                          </div>
+                          <p className="text-sm font-medium truncate min-w-0">{item.title}</p>
+                          <span className="text-xs text-muted-foreground shrink-0">{formatDate(item.created_at)}</span>
                         </div>
                       ))}
                     </div>
                   )}
-                  <Button variant="outline" size="sm" className="w-full mt-4" onClick={() => navigate('/content?tab=approval')}>
-                    ดูรายการอนุมัติทั้งหมด
-                    <ArrowRight className="h-3.5 w-3.5 ml-1" />
-                  </Button>
                 </CardContent>
               </Card>
 
