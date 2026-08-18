@@ -1,15 +1,17 @@
-import { FileText, Clock, CheckCircle2, Edit3, AlertTriangle, Eye, ThumbsUp, ArrowRight, BarChart3, CalendarClock, Share2, Radio, TrendingUp, LayoutDashboard, Timer, Gauge } from 'lucide-react';
+import { FileText, Clock, CheckCircle2, Edit3, AlertTriangle, Eye, ThumbsUp, ArrowRight, BarChart3, CalendarClock, Share2, Radio, TrendingUp, LayoutDashboard, Timer, Gauge, Filter, Hourglass, Sparkles, Send, RefreshCw, XCircle, Loader2, SearchCheck, GitBranch } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { useContentItems, useOverdueCount, useAllSchedules, usePublishChannels, useChannelConnectionStatus, usePostingAnalytics, useRecalculateAnalytics, useResultMetrics } from '@/hooks/useContent';
+import { useContentItems, useOverdueCount, useAllSchedules, usePublishChannels, useChannelConnectionStatus, usePostingAnalytics, useRecalculateAnalytics, useResultMetrics, useContentOverview, useContentAnalytics, useSendNow } from '@/hooks/useContent';
 import PageShell from '@/components/PageShell';
 import { STATUS_MAP, PLATFORM_MAP, TYPE_MAP } from '@/components/content/types';
 import { PlatformIcon } from '@/components/content/PlatformIcon';
 import { BestTimeAnalyticsPanel } from '@/components/content/BestTimeAnalyticsPanel';
+import { ContentThroughputChart } from '@/components/content/ContentThroughputChart';
 import { getPlatformColors } from '@/lib/platformConfig';
+import { useToast } from '@/hooks/use-toast';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 export default function ContentDashboardPage() {
@@ -20,6 +22,7 @@ export default function ContentDashboardPage() {
   const { data: channelStatus = [] } = useChannelConnectionStatus();
   const overdueCount = overdue?.count ?? 0;
   const navigate = useNavigate();
+  const { toast } = useToast();
 
   // Active tab driven by the `tab` URL query param (default: overview)
   const [searchParams, setSearchParams] = useSearchParams();
@@ -34,6 +37,28 @@ export default function ContentDashboardPage() {
   const recalcAnalytics = useRecalculateAnalytics();
   const handleRecalculate = () => {
     recalcAnalytics.mutate(undefined, { onSuccess: () => { refetchAnalytics(); } });
+  };
+
+  // BI aggregations — one request per tab, fetched lazily
+  const { data: bi, isLoading: biLoading, refetch: refetchBi } = useContentOverview(tab === 'overview');
+  const { data: biAnalytics, isLoading: biAnalyticsLoading } = useContentAnalytics(tab === 'analytics');
+
+  // Retry a failed publish through the existing send_now action. The original
+  // failed row stays in the queue — send_now dispatches a new attempt.
+  const sendNow = useSendNow();
+  const handleRetry = (contentId: string, channelId: string) => {
+    sendNow.mutate(
+      { content_id: contentId, channel_ids: [channelId] },
+      {
+        onSuccess: () => {
+          toast({ title: 'ส่งคำสั่งเผยแพร่ใหม่แล้ว', description: 'ระบบกำลังลองส่งอีกครั้ง — รายการที่ล้มเหลวเดิมยังคงอยู่ในประวัติ' });
+          refetchBi();
+        },
+        onError: (err: unknown) => {
+          toast({ title: 'ลองส่งใหม่ไม่สำเร็จ', description: err instanceof Error ? err.message : 'เกิดข้อผิดพลาด', variant: 'destructive' });
+        },
+      },
+    );
   };
 
   const totalItems = items.length;
@@ -136,16 +161,57 @@ export default function ContentDashboardPage() {
     },
   ];
 
-  // Engagement stat cards (analytics tab) — ซ่อนเมื่อยังไม่มีข้อมูล engagement จริง (ไม่โชว์ 0 เป็นผลลัพธ์)
-  const hasEngagementData = totalViews > 0 || totalLikes > 0;
+  // Engagement stat cards (analytics tab) — แสดงตลอดแม้ค่าเป็น 0 เพื่อสื่อว่า
+  // "ยังไม่มี engagement" อย่างตรงไปตรงมา (0 คือค่าจริงที่รอ ingestion)
   const engagementStatCards = [
     { label: 'ยอดวิวรวม', value: totalViews.toLocaleString(), hint: null, icon: Eye, color: 'text-cyan-600', bgColor: 'bg-cyan-500/10', border: 'border-cyan-600', countColor: 'text-cyan-700' },
     { label: 'ยอดไลก์รวม', value: totalLikes.toLocaleString(), hint: null, icon: ThumbsUp, color: 'text-pink-600', bgColor: 'bg-pink-500/10', border: 'border-pink-600', countColor: 'text-pink-700' },
   ];
 
-  const analyticsStatCards = hasEngagementData
-    ? [...resultStatCards, ...engagementStatCards]
-    : resultStatCards;
+  const analyticsStatCards = [...resultStatCards, ...engagementStatCards];
+
+  // ── BI derived values ────────────────────────────────────────────
+  const queue = bi?.queue;
+  const funnel = bi?.funnel;
+  const aging = bi?.aging;
+  const assets = bi?.assets;
+
+  const queueStatuses = [
+    { key: 'pending' as const,    label: 'รอส่ง',     icon: Clock,        color: 'text-amber-600' },
+    { key: 'processing' as const, label: 'กำลังส่ง',  icon: Loader2,      color: 'text-blue-600' },
+    { key: 'sent' as const,       label: 'ส่งแล้ว',   icon: CheckCircle2, color: 'text-green-600' },
+    { key: 'failed' as const,     label: 'ล้มเหลว',   icon: XCircle,      color: 'text-red-600' },
+  ];
+
+  // Funnel stages, widest first. Drop-off is measured against the previous stage.
+  const funnelStages = funnel ? [
+    { key: 'created',   label: 'สร้าง',     count: funnel.created,   color: 'bg-blue-500' },
+    { key: 'requested', label: 'ขออนุมัติ', count: funnel.requested, color: 'bg-amber-500' },
+    { key: 'approved',  label: 'อนุมัติ',   count: funnel.approved,  color: 'bg-violet-500' },
+    { key: 'published', label: 'เผยแพร่',   count: funnel.published, color: 'bg-green-500' },
+  ] : [];
+
+  const agingBuckets = aging ? [
+    { key: 'd0_7',     label: '0-7 วัน',    count: aging.d0_7,     color: 'text-green-600',  bg: 'bg-green-500' },
+    { key: 'd8_30',    label: '8-30 วัน',   count: aging.d8_30,    color: 'text-amber-600',  bg: 'bg-amber-500' },
+    { key: 'd31_90',   label: '31-90 วัน',  count: aging.d31_90,   color: 'text-orange-600', bg: 'bg-orange-500' },
+    { key: 'd90_plus', label: 'เกิน 90 วัน', count: aging.d90_plus, color: 'text-red-600',    bg: 'bg-red-500' },
+  ] : [];
+
+  const assetKinds = assets ? [
+    { key: 'image', label: 'รูปภาพ', data: assets.image },
+    { key: 'video', label: 'วิดีโอ', data: assets.video },
+  ] : [];
+  const assetStatuses = [
+    { key: 'done' as const,       label: 'สำเร็จ',      color: 'text-green-600' },
+    { key: 'generating' as const, label: 'กำลังสร้าง',  color: 'text-blue-600' },
+    { key: 'failed' as const,     label: 'ล้มเหลว',     color: 'text-red-600' },
+    { key: 'none' as const,       label: 'ยังไม่สร้าง', color: 'text-muted-foreground' },
+  ];
+  const hasAssetActivity = assetKinds.some(k => k.data.done + k.data.generating + k.data.failed > 0);
+
+  const formatHours = (h: number | null) => h === null ? '—' : h < 1 ? `${Math.round(h * 60)} นาที` : `${h.toFixed(1)} ชม.`;
+  const platformLabel = (p: string) => p === '__unknown__' ? 'ไม่ระบุแพลตฟอร์ม' : (PLATFORM_MAP[p]?.label ?? p);
 
   return (
     <PageShell
@@ -238,6 +304,162 @@ export default function ContentDashboardPage() {
                   </CardContent>
                 </Card>
 
+                {/* Funnel การผลิต */}
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
+                      <Filter className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="truncate">Funnel การผลิต</span>
+                    </CardTitle>
+                    <span className="shrink-0 text-xs text-muted-foreground">นับจากที่เคยผ่านแต่ละขั้น</span>
+                  </CardHeader>
+                  <CardContent>
+                    {biLoading ? (
+                      <p className="py-8 text-center text-sm text-muted-foreground">กำลังโหลด...</p>
+                    ) : !funnel || funnel.created === 0 ? (
+                      <p className="py-8 text-center text-sm text-muted-foreground">ยังไม่มีคอนเทนต์ในระบบ</p>
+                    ) : (
+                      <div className="space-y-1">
+                        {funnelStages.map((stage, idx) => {
+                          const prev = idx > 0 ? funnelStages[idx - 1] : null;
+                          const widthPct = funnel.created > 0 ? (stage.count / funnel.created) * 100 : 0;
+                          const dropPct = prev && prev.count > 0
+                            ? Math.round((1 - stage.count / prev.count) * 100)
+                            : null;
+                          return (
+                            <div key={stage.key}>
+                              {dropPct !== null && (
+                                <p className="py-1 pl-1 text-xs text-muted-foreground">
+                                  ↓ ตกหล่น <span className={dropPct >= 50 ? 'font-medium text-red-600' : 'font-medium text-amber-600'}>{dropPct}%</span>
+                                  {' '}({(prev!.count - stage.count).toLocaleString()} ชิ้น)
+                                </p>
+                              )}
+                              <div className="flex items-center gap-3">
+                                <span className="w-20 shrink-0 text-sm text-muted-foreground">{stage.label}</span>
+                                <div className="h-6 flex-1 rounded bg-muted">
+                                  <div
+                                    className={`flex h-6 items-center justify-end rounded px-2 ${stage.color}`}
+                                    style={{ width: `${Math.max(widthPct, stage.count > 0 ? 8 : 0)}%` }}
+                                  >
+                                    {stage.count > 0 && (
+                                      <span className="text-xs font-medium tabular-nums text-white">{stage.count.toLocaleString()}</span>
+                                    )}
+                                  </div>
+                                </div>
+                                <span className="w-10 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+                                  {Math.round(widthPct)}%
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* คอนเทนต์ค้างท่อ */}
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
+                      <Hourglass className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="truncate">คอนเทนต์ค้างท่อ</span>
+                    </CardTitle>
+                    {aging && aging.oldest_days !== null && (
+                      <span className="shrink-0 text-xs text-muted-foreground">เก่าสุด {aging.oldest_days.toLocaleString()} วัน</span>
+                    )}
+                  </CardHeader>
+                  <CardContent>
+                    {biLoading ? (
+                      <p className="py-8 text-center text-sm text-muted-foreground">กำลังโหลด...</p>
+                    ) : !aging || aging.total === 0 ? (
+                      <p className="py-8 text-center text-sm text-muted-foreground">ไม่มีคอนเทนต์ค้างท่อ — เผยแพร่ครบทุกชิ้น</p>
+                    ) : (
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                          {agingBuckets.map(b => (
+                            <div key={b.key} className="rounded-lg border p-3">
+                              <p className="text-xs text-muted-foreground">{b.label}</p>
+                              <p className={`text-xl font-bold font-heading tabular-nums ${b.color}`}>{b.count.toLocaleString()}</p>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="flex h-2 overflow-hidden rounded bg-muted">
+                          {agingBuckets.map(b => (
+                            b.count > 0 ? (
+                              <div
+                                key={b.key}
+                                className={b.bg}
+                                style={{ width: `${(b.count / aging.total) * 100}%` }}
+                                title={`${b.label}: ${b.count} ชิ้น`}
+                              />
+                            ) : null
+                          ))}
+                        </div>
+                        <div className="space-y-2 border-t pt-3">
+                          <p className="text-xs font-medium text-muted-foreground">ค้างนานที่สุด</p>
+                          {aging.items.map(item => {
+                            const status = STATUS_MAP[item.status] ?? { label: item.status, color: 'bg-gray-100 text-gray-600' };
+                            const platform = item.platform ? PLATFORM_MAP[item.platform] : null;
+                            return (
+                              <div key={item.id} className="flex items-center justify-between gap-3">
+                                <div className="flex min-w-0 items-center gap-2">
+                                  <p className="truncate text-sm">{item.title}</p>
+                                  <Badge variant="outline" className={`shrink-0 ${status.color}`}>{status.label}</Badge>
+                                  {platform && <Badge variant="outline" className={`shrink-0 ${platform.color}`}>{platform.label}</Badge>}
+                                </div>
+                                <span className={`shrink-0 text-xs font-medium tabular-nums ${item.age_days > 90 ? 'text-red-600' : 'text-muted-foreground'}`}>
+                                  {item.age_days.toLocaleString()} วัน
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* สถานะสร้างสื่อ AI */}
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
+                      <Sparkles className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="truncate">สถานะสร้างสื่อ AI</span>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {biLoading ? (
+                      <p className="py-8 text-center text-sm text-muted-foreground">กำลังโหลด...</p>
+                    ) : !assets || !hasAssetActivity ? (
+                      <p className="py-8 text-center text-sm text-muted-foreground">ยังไม่มีการสร้างสื่อด้วย AI</p>
+                    ) : (
+                      <div className="space-y-4">
+                        {assetKinds.map(kind => {
+                          const total = kind.data.none + kind.data.generating + kind.data.done + kind.data.failed;
+                          const donePct = total > 0 ? Math.round((kind.data.done / total) * 100) : 0;
+                          return (
+                            <div key={kind.key}>
+                              <div className="mb-1.5 flex items-center justify-between">
+                                <span className="text-sm text-muted-foreground">{kind.label}</span>
+                                <span className="text-sm font-medium">สำเร็จ {donePct}% ({kind.data.done.toLocaleString()}/{total.toLocaleString()})</span>
+                              </div>
+                              <Progress value={donePct} className="h-1.5" />
+                              <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
+                                {assetStatuses.map(s => (
+                                  <span key={s.key} className={`text-xs ${s.color}`}>
+                                    {s.label} <span className="font-medium tabular-nums">{kind.data[s.key].toLocaleString()}</span>
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
                 {/* เนื้อหาล่าสุด */}
                 <Card className="flex flex-1 flex-col">
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -306,6 +528,81 @@ export default function ContentDashboardPage() {
 
               {/* RIGHT: สถานะ + งานที่ต้องทำ */}
               <div className="flex flex-col space-y-6">
+                {/* สุขภาพคิวเผยแพร่ */}
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
+                      <Send className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="truncate">สุขภาพคิวเผยแพร่</span>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {biLoading ? (
+                      <p className="py-8 text-center text-sm text-muted-foreground">กำลังโหลด...</p>
+                    ) : !queue || queue.total === 0 ? (
+                      <p className="py-8 text-center text-sm text-muted-foreground">ยังไม่มีรายการในคิวเผยแพร่</p>
+                    ) : (
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-2">
+                          {queueStatuses.map(s => {
+                            const StatusIcon = s.icon;
+                            return (
+                              <div key={s.key} className="flex items-center gap-2 rounded-lg border p-2">
+                                <StatusIcon className={`h-4 w-4 shrink-0 ${s.color}`} />
+                                <div className="min-w-0">
+                                  <p className="truncate text-xs text-muted-foreground">{s.label}</p>
+                                  <p className={`text-base font-bold tabular-nums ${s.color}`}>{queue[s.key].toLocaleString()}</p>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {queue.overdue_pending > 0 && (
+                          <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+                            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+                            <span>มี <strong>{queue.overdue_pending.toLocaleString()}</strong> รายการรอส่งที่เลยเวลาที่ตั้งไว้แล้ว</span>
+                          </div>
+                        )}
+
+                        {queue.failures.length > 0 && (
+                          <div className="space-y-3 border-t pt-3">
+                            <p className="text-xs font-medium text-muted-foreground">รายการที่ล้มเหลว</p>
+                            {queue.failures.map(f => (
+                              <div key={f.id} className="space-y-1.5 rounded-lg border border-red-200 bg-red-50/50 p-2 dark:border-red-900 dark:bg-red-950/20">
+                                <div className="flex items-start justify-between gap-2">
+                                  <p className="min-w-0 flex-1 truncate text-sm font-medium">{f.title}</p>
+                                  <Badge variant="outline" className="shrink-0 text-xs">ลอง {f.retry_count.toLocaleString()} ครั้ง</Badge>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                  {f.platform && PLATFORM_MAP[f.platform] ? (
+                                    <Badge variant="outline" className={PLATFORM_MAP[f.platform].color}>{PLATFORM_MAP[f.platform].label}</Badge>
+                                  ) : null}
+                                  {f.channel_name && <span className="truncate">{f.channel_name}</span>}
+                                  <span>{formatDateTime(f.scheduled_at)}</span>
+                                </div>
+                                {f.error_msg && (
+                                  <p className="break-words text-xs text-red-700 dark:text-red-300">{f.error_msg}</p>
+                                )}
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 w-full gap-1.5 text-xs"
+                                  disabled={sendNow.isPending}
+                                  onClick={() => handleRetry(f.content_id, f.channel_id)}
+                                >
+                                  <RefreshCw className="h-3 w-3" />
+                                  ลองส่งใหม่
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
                 {/* Pending Queue */}
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -419,7 +716,7 @@ export default function ContentDashboardPage() {
           {/* ── วิเคราะห์ ───────────────────────────────────────── */}
           <TabsContent value="analytics" className="space-y-6">
             {/* Result Metrics + Engagement Stat Cards */}
-            <div className={`grid grid-cols-2 gap-3 ${hasEngagementData ? 'sm:grid-cols-4' : 'sm:grid-cols-2'}`}>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {analyticsStatCards.map((card) => {
                 const Icon = card.icon;
                 return (
@@ -529,6 +826,208 @@ export default function ContentDashboardPage() {
                 isRecalculating={recalcAnalytics.isPending}
               />
             </Card>
+
+            {/* แนวโน้ม Throughput รายเดือน */}
+            <ContentThroughputChart data={biAnalytics?.throughput ?? []} isLoading={biAnalyticsLoading} />
+
+            {/* Lead time + ความสมบูรณ์ SEO */}
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+              {/* Lead time แยกตามขั้น */}
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
+                    <Timer className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate">Lead time แยกตามขั้น</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {biAnalyticsLoading ? (
+                    <p className="py-8 text-center text-sm text-muted-foreground">กำลังโหลด...</p>
+                  ) : !biAnalytics || biAnalytics.lead_time.every(s => s.sample_size === 0) ? (
+                    <p className="py-8 text-center text-sm text-muted-foreground">ยังไม่มีคอนเทนต์ที่เดินผ่านขั้นตอนครบพอจะวัดเวลาได้</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b text-xs text-muted-foreground">
+                            <th className="pb-2 text-left font-medium">ขั้นตอน</th>
+                            <th className="pb-2 text-right font-medium">เฉลี่ย</th>
+                            <th className="pb-2 text-right font-medium">p50</th>
+                            <th className="pb-2 text-right font-medium">p90</th>
+                            <th className="pb-2 text-right font-medium">จำนวน</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {biAnalytics.lead_time.map(stage => (
+                            <tr key={stage.key} className="border-b last:border-0">
+                              <td className="py-2 pr-2">{stage.label}</td>
+                              {stage.sample_size === 0 ? (
+                                <td colSpan={3} className="py-2 text-right text-xs text-muted-foreground">ยังไม่มีข้อมูล</td>
+                              ) : (
+                                <>
+                                  <td className="py-2 text-right font-medium tabular-nums">{formatHours(stage.avg_hours)}</td>
+                                  <td className="py-2 text-right tabular-nums text-muted-foreground">{formatHours(stage.p50_hours)}</td>
+                                  <td className="py-2 text-right tabular-nums text-muted-foreground">{formatHours(stage.p90_hours)}</td>
+                                </>
+                              )}
+                              <td className="py-2 text-right tabular-nums text-muted-foreground">{stage.sample_size.toLocaleString()}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      <p className="mt-3 text-xs text-muted-foreground">
+                        p50/p90 อาจแกว่งมากเมื่อจำนวนตัวอย่างน้อย — ดูคอลัมน์ "จำนวน" ประกอบเสมอ
+                      </p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* ความสมบูรณ์ SEO */}
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
+                    <SearchCheck className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate">ความสมบูรณ์ SEO</span>
+                  </CardTitle>
+                  {biAnalytics && (
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {biAnalytics.seo.gate_enabled
+                        ? `เกณฑ์บังคับ ≥ ${biAnalytics.seo.gate_min_score} คะแนน`
+                        : 'ยังไม่เปิดเกณฑ์บังคับ'}
+                    </span>
+                  )}
+                </CardHeader>
+                <CardContent>
+                  {biAnalyticsLoading ? (
+                    <p className="py-8 text-center text-sm text-muted-foreground">กำลังโหลด...</p>
+                  ) : !biAnalytics || biAnalytics.seo.total_articles === 0 ? (
+                    <p className="py-8 text-center text-sm text-muted-foreground">ยังไม่มีคอนเทนต์ประเภทบทความ</p>
+                  ) : (
+                    <div className="space-y-3">
+                      <p className="text-xs text-muted-foreground">
+                        จากบทความทั้งหมด {biAnalytics.seo.total_articles.toLocaleString()} ชิ้น
+                      </p>
+                      {biAnalytics.seo.fields.map(f => (
+                        <div key={f.key}>
+                          <div className="mb-1 flex items-center justify-between">
+                            <span className="text-sm text-muted-foreground">{f.label}</span>
+                            <span className={`text-sm font-medium tabular-nums ${f.pct === 0 ? 'text-red-600' : f.pct < 50 ? 'text-amber-600' : 'text-green-600'}`}>
+                              {f.filled.toLocaleString()}/{f.total.toLocaleString()} ({f.pct}%)
+                            </span>
+                          </div>
+                          <Progress value={f.pct} className="h-1.5" />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Plan conversion + อัตราสำเร็จการเผยแพร่ */}
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+              {/* Plan → Content conversion */}
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
+                    <GitBranch className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate">Plan → Content conversion</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {biAnalyticsLoading ? (
+                    <p className="py-8 text-center text-sm text-muted-foreground">กำลังโหลด...</p>
+                  ) : !biAnalytics || biAnalytics.plan_conversion.by_type.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-muted-foreground">ยังไม่มีแผนคอนเทนต์</p>
+                  ) : (
+                    <div className="space-y-4">
+                      {biAnalytics.plan_conversion.by_type.map(row => (
+                        <div key={row.plan_type}>
+                          <div className="mb-1 flex items-center justify-between gap-2">
+                            <span className="flex min-w-0 items-center gap-2">
+                              <span className="truncate text-sm">{row.label}</span>
+                              <Badge variant="outline" className="shrink-0 text-xs">{row.plans.toLocaleString()} แผน</Badge>
+                            </span>
+                            <span className="shrink-0 text-sm font-medium tabular-nums">
+                              {row.converted.toLocaleString()}/{row.plan_items.toLocaleString()} ({row.convert_pct}%)
+                            </span>
+                          </div>
+                          <Progress value={row.convert_pct} className="h-1.5" />
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {row.plan_items === 0
+                              ? 'แผนนี้ยังไม่มีรายการย่อย'
+                              : `แปลงเป็นคอนเทนต์แล้ว ${row.converted.toLocaleString()} ชิ้น · เผยแพร่แล้ว ${row.published.toLocaleString()} ชิ้น`}
+                          </p>
+                        </div>
+                      ))}
+                      <div className="flex items-center justify-between border-t pt-3">
+                        <span className="text-sm text-muted-foreground">คอนเทนต์ที่สร้างนอกแผน</span>
+                        <span className="text-sm font-medium tabular-nums">{biAnalytics.plan_conversion.adhoc_items.toLocaleString()} ชิ้น</span>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* อัตราสำเร็จการเผยแพร่แยกแพลตฟอร์ม */}
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
+                    <Send className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate">อัตราสำเร็จการเผยแพร่แยกแพลตฟอร์ม</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {biAnalyticsLoading ? (
+                    <p className="py-8 text-center text-sm text-muted-foreground">กำลังโหลด...</p>
+                  ) : !biAnalytics || biAnalytics.publish_success.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-muted-foreground">ยังไม่มีรายการเผยแพร่</p>
+                  ) : (
+                    <div className="space-y-4">
+                      {biAnalytics.publish_success.map(row => (
+                        <div key={row.platform}>
+                          <div className="mb-1 flex items-center justify-between gap-2">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <span
+                                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
+                                style={{
+                                  backgroundColor: getPlatformColors(row.platform).bg,
+                                  color: getPlatformColors(row.platform).text,
+                                }}
+                                title={platformLabel(row.platform)}
+                              >
+                                <PlatformIcon platform={row.platform} size={16} />
+                              </span>
+                              <span className="truncate text-sm">{platformLabel(row.platform)}</span>
+                            </div>
+                            {row.success_pct === null ? (
+                              <span className="shrink-0 text-xs text-muted-foreground">ยังไม่มีรายการที่จบ</span>
+                            ) : (
+                              <span className={`shrink-0 text-sm font-medium tabular-nums ${row.success_pct >= 80 ? 'text-green-600' : row.success_pct >= 50 ? 'text-amber-600' : 'text-red-600'}`}>
+                                สำเร็จ {row.success_pct}%
+                              </span>
+                            )}
+                          </div>
+                          {row.success_pct !== null && <Progress value={row.success_pct} className="h-1.5" />}
+                          <div className="mt-1 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
+                            <span className="text-green-600">ส่งแล้ว <span className="font-medium tabular-nums">{row.sent.toLocaleString()}</span></span>
+                            <span className="text-red-600">ล้มเหลว <span className="font-medium tabular-nums">{row.failed.toLocaleString()}</span></span>
+                            <span>รอส่ง <span className="font-medium tabular-nums">{row.pending.toLocaleString()}</span></span>
+                            {row.processing > 0 && <span>กำลังส่ง <span className="font-medium tabular-nums">{row.processing.toLocaleString()}</span></span>}
+                          </div>
+                          {row.top_error && (
+                            <p className="mt-1 break-words text-xs text-red-700 dark:text-red-300">
+                              ข้อผิดพลาดที่พบบ่อย: {row.top_error}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
           </TabsContent>
         </Tabs>
       )}

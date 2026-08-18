@@ -1,7 +1,7 @@
 // src/hooks/useContent.ts
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api';
-import type { ContentItem, BrandContext, ContentSkill, ContentTrigger, ContentPlan, PlanItem, PublishChannel, ContentSchedule, PublishQueueItem, GlobalSettings, AIGatewaySettings, PostingAnalyticsResponse, ResultMetricsResponse } from '@/components/content/types';
+import type { ContentItem, BrandContext, ContentSkill, ContentTrigger, ContentPlan, PlanItem, PublishChannel, ContentSchedule, PublishQueueItem, GlobalSettings, AIGatewaySettings, PostingAnalyticsResponse, ResultMetricsResponse, ContentOverview, ContentAnalytics } from '@/components/content/types';
 
 // ── Query keys ─────────────────────────────────────────────────
 
@@ -23,6 +23,8 @@ export const contentKeys = {
   aiGatewaySettings: () => [...contentKeys.all, 'aiGateway'] as const,
   analytics: () => [...contentKeys.all, 'analytics'] as const,
   resultMetrics: () => [...contentKeys.all, 'resultMetrics'] as const,
+  biOverview: () => [...contentKeys.all, 'biOverview'] as const,
+  biAnalytics: () => [...contentKeys.all, 'biAnalytics'] as const,
 };
 
 // ── Queries ────────────────────────────────────────────────────
@@ -146,6 +148,26 @@ export function useResultMetrics(enabled = true) {
   return useQuery<ResultMetricsResponse>({
     queryKey: contentKeys.resultMetrics(),
     queryFn: () => apiFetch('/brand-content.php?action=result-metrics'),
+    staleTime: 300_000,
+    enabled,
+  });
+}
+
+/** BI แท็บภาพรวม — fetch เฉพาะเมื่อแท็บนั้น active */
+export function useContentOverview(enabled = true) {
+  return useQuery<ContentOverview>({
+    queryKey: contentKeys.biOverview(),
+    queryFn: () => apiFetch('/content-analytics.php?action=overview'),
+    staleTime: 60_000,
+    enabled,
+  });
+}
+
+/** BI แท็บวิเคราะห์ — fetch เฉพาะเมื่อแท็บนั้น active */
+export function useContentAnalytics(enabled = true) {
+  return useQuery<ContentAnalytics>({
+    queryKey: contentKeys.biAnalytics(),
+    queryFn: () => apiFetch('/content-analytics.php?action=analytics'),
     staleTime: 300_000,
     enabled,
   });

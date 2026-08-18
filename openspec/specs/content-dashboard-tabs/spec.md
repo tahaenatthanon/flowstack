@@ -40,7 +40,7 @@ The active tab SHALL be driven by the `tab` URL query parameter, where `tab=over
 - **THEN** the "ภาพรวม" tab is active
 
 ### Requirement: แท็บภาพรวมแสดงข้อมูลเชิงปฏิบัติการ
-The "ภาพรวม" tab SHALL contain the operational/action sections: the production stat cards (เนื้อหาทั้งหมด, เผยแพร่แล้ว, รออนุมัติ, ฉบับร่าง), the overdue alert, "ภาพรวมสถานะคอนเทนต์" (Work Progress), "เนื้อหาล่าสุด", "รออนุมัติ", "กำหนดการโพสต์ถัดไป", and "สถานะช่องทาง".
+The "ภาพรวม" tab SHALL contain the operational/action sections: the production stat cards (เนื้อหาทั้งหมด, เผยแพร่แล้ว, รออนุมัติ, ฉบับร่าง), the overdue alert, "ภาพรวมสถานะคอนเทนต์" (Work Progress), "สุขภาพคิวเผยแพร่", "Funnel การผลิต", "คอนเทนต์ค้างท่อ", "สถานะสร้างสื่อ AI", "เนื้อหาล่าสุด", "รออนุมัติ", "กำหนดการโพสต์ถัดไป", and "สถานะช่องทาง".
 
 #### Scenario: แท็บภาพรวมไม่มี widget วิเคราะห์
 - **WHEN** the "ภาพรวม" tab is active
@@ -48,18 +48,18 @@ The "ภาพรวม" tab SHALL contain the operational/action sections: the 
 
 #### Scenario: แท็บภาพรวมมี section ครบ
 - **WHEN** the "ภาพรวม" tab is active
-- **THEN** it shows the production stat cards, overdue alert (when applicable), Work Progress, "เนื้อหาล่าสุด", "รออนุมัติ", "กำหนดการโพสต์ถัดไป", and "สถานะช่องทาง"
+- **THEN** it shows the production stat cards, overdue alert (when applicable), Work Progress, "สุขภาพคิวเผยแพร่", "Funnel การผลิต", "คอนเทนต์ค้างท่อ", "สถานะสร้างสื่อ AI", "เนื้อหาล่าสุด", "รออนุมัติ", "กำหนดการโพสต์ถัดไป", and "สถานะช่องทาง"
 
 ### Requirement: แท็บวิเคราะห์แสดงข้อมูลเชิง insight
-The "วิเคราะห์" tab SHALL contain the insight/engagement sections: the engagement stat cards (ยอดวิวรวม/ยอดไลก์รวม), "แพลตฟอร์ม", "เนื้อหายอดนิยม", and "เวลาที่ดีที่สุดในการโพสต์".
+The "วิเคราะห์" tab SHALL contain the insight/engagement sections: the engagement stat cards (ยอดวิวรวม/ยอดไลก์รวม), "แพลตฟอร์ม", "เนื้อหายอดนิยม", "เวลาที่ดีที่สุดในการโพสต์", "แนวโน้ม Throughput รายเดือน", "Lead time แยกตามขั้น", "ความสมบูรณ์ SEO", "Plan → Content conversion", and "อัตราสำเร็จการเผยแพร่แยกแพลตฟอร์ม".
 
 #### Scenario: แท็บวิเคราะห์มี section ครบ
 - **WHEN** the "วิเคราะห์" tab is active
-- **THEN** it shows the engagement stat cards, "แพลตฟอร์ม", "เนื้อหายอดนิยม", and "เวลาที่ดีที่สุดในการโพสต์"
+- **THEN** it shows the engagement stat cards, "แพลตฟอร์ม", "เนื้อหายอดนิยม", "เวลาที่ดีที่สุดในการโพสต์", "แนวโน้ม Throughput รายเดือน", "Lead time แยกตามขั้น", "ความสมบูรณ์ SEO", "Plan → Content conversion", and "อัตราสำเร็จการเผยแพร่แยกแพลตฟอร์ม"
 
 #### Scenario: แท็บวิเคราะห์ไม่มี widget เชิงปฏิบัติการ
 - **WHEN** the "วิเคราะห์" tab is active
-- **THEN** it does NOT show the production stat cards, "เนื้อหาล่าสุด", "รออนุมัติ", "กำหนดการโพสต์ถัดไป", or "สถานะช่องทาง"
+- **THEN** it does NOT show the production stat cards, "สุขภาพคิวเผยแพร่", "Funnel การผลิต", "คอนเทนต์ค้างท่อ", "สถานะสร้างสื่อ AI", "เนื้อหาล่าสุด", "รออนุมัติ", "กำหนดการโพสต์ถัดไป", or "สถานะช่องทาง"
 
 ### Requirement: รูปแบบ tab bar สอดคล้องกับหน้าผลงานคอนเทนต์
 tab bar "ภาพรวม"/"วิเคราะห์" ของแดชบอร์ดคอนเทนต์ SHALL ใช้รูปแบบการแสดงผล (visual style) เดียวกับ tab bar ระดับบนสุดของหน้า "ผลงานคอนเทนต์" (`ContentPage`): `TabsList` ที่มี `flex overflow-x-auto w-full text-xs sm:text-sm sm:grid sm:grid-cols-2` และ `TabsTrigger` แต่ละอันมี `gap-1 sm:gap-2 px-2 sm:px-3 shrink-0`

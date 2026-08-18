@@ -137,6 +137,104 @@ export interface ResultMetricsResponse {
   has_data: boolean;
 }
 
+// ── Content BI (api/content-analytics.php) ─────────────────────
+
+export interface QueueFailure {
+  id: string; content_id: string; channel_id: string;
+  title: string;
+  channel_name: string | null;
+  /** null เมื่อ channel มี platform เป็นสตริงว่าง */
+  platform: string | null;
+  error_msg: string | null;
+  retry_count: number;
+  scheduled_at: string;
+}
+
+export interface StaleContentItem {
+  id: string; title: string; status: string;
+  platform: string | null;
+  age_days: number;
+}
+
+export interface AssetGenBreakdown {
+  none: number; generating: number; done: number; failed: number;
+}
+
+export interface ContentOverview {
+  queue: {
+    pending: number; processing: number; sent: number; failed: number;
+    /** pending ที่เลย scheduled_at แล้ว */
+    overdue_pending: number;
+    total: number;
+    failures: QueueFailure[];
+  };
+  /** นับ "เคยผ่าน" แต่ละขั้นจาก timestamp (ไม่ใช่ status ปัจจุบัน) */
+  funnel: {
+    created: number; requested: number; approved: number; published: number;
+  };
+  aging: {
+    d0_7: number; d8_30: number; d31_90: number; d90_plus: number;
+    total: number;
+    /** null = ไม่มีคอนเทนต์ที่ยังไม่เผยแพร่ */
+    oldest_days: number | null;
+    items: StaleContentItem[];
+  };
+  assets: { image: AssetGenBreakdown; video: AssetGenBreakdown };
+}
+
+export interface ThroughputPoint {
+  /** 'YYYY-MM' */
+  period: string;
+  created: number; requested: number; approved: number; published: number;
+}
+
+export interface LeadTimeStage {
+  key: string; label: string;
+  sample_size: number;
+  /** null = ขั้นนี้ยังไม่มีรายการที่มี timestamp ครบทั้งสองฝั่ง */
+  avg_hours: number | null;
+  p50_hours: number | null;
+  p90_hours: number | null;
+}
+
+export interface SeoFieldCompleteness {
+  key: string; label: string;
+  filled: number; total: number; pct: number;
+}
+
+export interface PlanConversionRow {
+  plan_type: string; label: string;
+  plans: number; plan_items: number;
+  converted: number; published: number; convert_pct: number;
+}
+
+export interface PublishSuccessRow {
+  /** '__unknown__' = channel ไม่ระบุแพลตฟอร์ม */
+  platform: string;
+  sent: number; failed: number; pending: number; processing: number; total: number;
+  /** null = ยังไม่มีรายการที่จบ (sent+failed = 0) */
+  success_pct: number | null;
+  top_error: string | null;
+}
+
+export interface ContentAnalytics {
+  /** 12 เดือนย้อนหลัง เดือนละจุดเสมอ (เดือนที่ไม่มีข้อมูล = 0) */
+  throughput: ThroughputPoint[];
+  lead_time: LeadTimeStage[];
+  seo: {
+    total_articles: number;
+    fields: SeoFieldCompleteness[];
+    gate_enabled: boolean;
+    gate_min_score: number;
+  };
+  plan_conversion: {
+    by_type: PlanConversionRow[];
+    /** คอนเทนต์ที่สร้างนอกแผน (plan_item_id IS NULL) */
+    adhoc_items: number;
+  };
+  publish_success: PublishSuccessRow[];
+}
+
 export interface AIGatewaySettings {
   ai_active_provider_id: string | null;
   ai_default_model_id: string | null;
