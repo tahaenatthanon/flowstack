@@ -305,9 +305,11 @@ if ($action === 'global-settings') {
         $row = $stmt->fetch();
         if (!$row) {
             jsonResponse(['tenant_id' => $tenantId, 'global_instruction' => '', 'image_gen_provider' => 'none',
-                          'image_gen_model' => '', 'image_gen_base_url' => '', 'product_ref_image_url' => '', 'has_image_gen_key' => false]);
+                          'image_gen_model' => '', 'image_gen_base_url' => '', 'product_ref_image_url' => '', 'has_image_gen_key' => false,
+                          'weekly_posts_target' => 0]);
         }
         $row['has_image_gen_key'] = !empty($row['image_gen_api_key_encrypted']);
+        $row['weekly_posts_target'] = (int)($row['weekly_posts_target'] ?? 0);
         unset($row['image_gen_api_key_encrypted']);
         jsonResponse($row);
     }
@@ -330,14 +332,15 @@ if ($action === 'global-settings') {
             if (array_key_exists('image_gen_base_url', $body))  { $sets[] = 'image_gen_base_url=?';  $vals[] = $body['image_gen_base_url']  ?? ''; }
             if (array_key_exists('product_ref_image_url', $body)){ $sets[] = 'product_ref_image_url=?'; $vals[] = $body['product_ref_image_url'] ?? ''; }
             if (array_key_exists('product_refs', $body))          { $sets[] = 'product_refs=?';          $vals[] = $body['product_refs'] ?? '[]'; }
+            if (array_key_exists('weekly_posts_target', $body))   { $sets[] = 'weekly_posts_target=?';   $vals[] = max(0, (int)($body['weekly_posts_target'] ?? 0)); }
             if ($encKey !== null) { $sets[] = 'image_gen_api_key_encrypted=?'; $vals[] = $encKey; }
             if (count($sets) > 1) {
                 $vals[] = $tenantId;
                 $db->prepare('UPDATE content_global_settings SET ' . implode(',', $sets) . ' WHERE tenant_id=?')->execute($vals);
             }
         } else {
-            $db->prepare('INSERT INTO content_global_settings (tenant_id,global_instruction,image_gen_provider,image_gen_api_key_encrypted,image_gen_model,image_gen_base_url,product_ref_image_url,product_refs) VALUES (?,?,?,?,?,?,?,?)')
-               ->execute([$tenantId, $body['global_instruction'] ?? '', $body['image_gen_provider'] ?? 'none', $encKey, $body['image_gen_model'] ?? '', $body['image_gen_base_url'] ?? '', $body['product_ref_image_url'] ?? '', $body['product_refs'] ?? '[]']);
+            $db->prepare('INSERT INTO content_global_settings (tenant_id,global_instruction,image_gen_provider,image_gen_api_key_encrypted,image_gen_model,image_gen_base_url,product_ref_image_url,product_refs,weekly_posts_target) VALUES (?,?,?,?,?,?,?,?,?)')
+               ->execute([$tenantId, $body['global_instruction'] ?? '', $body['image_gen_provider'] ?? 'none', $encKey, $body['image_gen_model'] ?? '', $body['image_gen_base_url'] ?? '', $body['product_ref_image_url'] ?? '', $body['product_refs'] ?? '[]', max(0, (int)($body['weekly_posts_target'] ?? 0))]);
         }
         jsonResponse(['saved' => true]);
     }
@@ -2736,6 +2739,51 @@ if ($action === 'analytics-posting-times') {
         'by_day'         => $byDay,
         'by_hour'        => $byHour,
         'recommendations' => $recommendations,
+    ]);
+}
+
+// ─── RESULT METRICS (lead time + posting frequency vs target) ──────
+if ($action === 'result-metrics') {
+    if ($method !== 'GET') jsonError('Method not allowed', 405);
+
+    // เวลาผลิตเฉลี่ย (lead time) — เฉพาะรายการที่อนุมัติแล้ว
+    $leadStmt = $db->prepare(
+        'SELECT AVG(TIMESTAMPDIFF(HOUR, created_at, approved_at)) AS avg_hours,
+                COUNT(*) AS approved_count
+         FROM content_items
+         WHERE tenant_id=? AND approved_at IS NOT NULL'
+    );
+    $leadStmt->execute([$tenantId]);
+    $lead = $leadStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+    // ความถี่การเผยแพร่ — นับ 7 วันล่าสุด และยอดรวมที่เผยแพร่แล้ว
+    $pubStmt = $db->prepare(
+        'SELECT SUM(published_at >= NOW() - INTERVAL 7 DAY) AS posts_last_7_days,
+                COUNT(*) AS published_count
+         FROM content_items
+         WHERE tenant_id=? AND published_at IS NOT NULL'
+    );
+    $pubStmt->execute([$tenantId]);
+    $pub = $pubStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+    // เป้าหมายความถี่รายสัปดาห์ (0 = ยังไม่ได้ตั้งเป้าหมาย)
+    $tgtStmt = $db->prepare('SELECT weekly_posts_target FROM content_global_settings WHERE tenant_id=?');
+    $tgtStmt->execute([$tenantId]);
+    $target = (int)($tgtStmt->fetchColumn() ?: 0);
+
+    $approvedCount  = (int)($lead['approved_count'] ?? 0);
+    $publishedCount = (int)($pub['published_count'] ?? 0);
+    $avgHours       = ($approvedCount > 0 && $lead['avg_hours'] !== null)
+        ? round((float)$lead['avg_hours'], 1)
+        : null;
+
+    jsonResponse([
+        'avg_production_hours' => $avgHours,
+        'approved_count'       => $approvedCount,
+        'posts_last_7_days'    => (int)($pub['posts_last_7_days'] ?? 0),
+        'published_count'      => $publishedCount,
+        'weekly_posts_target'  => $target,
+        'has_data'             => ($approvedCount > 0 || $publishedCount > 0),
     ]);
 }
 

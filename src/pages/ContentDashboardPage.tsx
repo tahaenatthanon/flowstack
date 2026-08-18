@@ -1,10 +1,10 @@
-import { FileText, Clock, CheckCircle2, Edit3, AlertTriangle, Eye, ThumbsUp, ArrowRight, BarChart3, CalendarClock, Share2, Radio, TrendingUp, LayoutDashboard } from 'lucide-react';
+import { FileText, Clock, CheckCircle2, Edit3, AlertTriangle, Eye, ThumbsUp, ArrowRight, BarChart3, CalendarClock, Share2, Radio, TrendingUp, LayoutDashboard, Timer, Gauge } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { useContentItems, useOverdueCount, useAllSchedules, usePublishChannels, useChannelConnectionStatus, usePostingAnalytics, useRecalculateAnalytics } from '@/hooks/useContent';
+import { useContentItems, useOverdueCount, useAllSchedules, usePublishChannels, useChannelConnectionStatus, usePostingAnalytics, useRecalculateAnalytics, useResultMetrics } from '@/hooks/useContent';
 import PageShell from '@/components/PageShell';
 import { STATUS_MAP, PLATFORM_MAP, TYPE_MAP } from '@/components/content/types';
 import { PlatformIcon } from '@/components/content/PlatformIcon';
@@ -30,6 +30,7 @@ export default function ContentDashboardPage() {
 
   // Analytics data (fetched only while the analytics tab is active)
   const { data: postingAnalytics, isLoading: analyticsLoading, refetch: refetchAnalytics } = usePostingAnalytics(tab === 'analytics');
+  const { data: resultMetrics, isLoading: metricsLoading } = useResultMetrics(tab === 'analytics');
   const recalcAnalytics = useRecalculateAnalytics();
   const handleRecalculate = () => {
     recalcAnalytics.mutate(undefined, { onSuccess: () => { refetchAnalytics(); } });
@@ -106,11 +107,45 @@ export default function ContentDashboardPage() {
     { label: 'ฉบับร่าง', value: draftCount, icon: Edit3, color: 'text-gray-600', bgColor: 'bg-gray-500/10', border: 'border-gray-600', countColor: 'text-gray-700' },
   ];
 
-  // Engagement stat cards (analytics tab)
-  const engagementStatCards = [
-    { label: 'ยอดวิวรวม', value: totalViews, icon: Eye, color: 'text-cyan-600', bgColor: 'bg-cyan-500/10', border: 'border-cyan-600', countColor: 'text-cyan-700' },
-    { label: 'ยอดไลก์รวม', value: totalLikes, icon: ThumbsUp, color: 'text-pink-600', bgColor: 'bg-pink-500/10', border: 'border-pink-600', countColor: 'text-pink-700' },
+  // Result metric cards (analytics tab) — คำนวณจาก approved_at/published_at จริงใน DB
+  const avgProductionHours = resultMetrics?.avg_production_hours ?? null;
+  const approvedCount = resultMetrics?.approved_count ?? 0;
+  const postsLast7Days = resultMetrics?.posts_last_7_days ?? 0;
+  const weeklyTarget = resultMetrics?.weekly_posts_target ?? 0;
+
+  const frequencyHint = weeklyTarget === 0
+    ? 'ยังไม่ได้ตั้งเป้าหมาย'
+    : postsLast7Days > weeklyTarget
+      ? `เกินเป้าหมาย (เป้า ${weeklyTarget} โพสต์)`
+      : postsLast7Days === weeklyTarget
+        ? `ตรงเป้าหมาย (เป้า ${weeklyTarget} โพสต์)`
+        : `ต่ำกว่าเป้าหมาย (เป้า ${weeklyTarget} โพสต์)`;
+
+  const resultStatCards = [
+    {
+      label: 'เวลาผลิตเฉลี่ย',
+      value: metricsLoading ? 'กำลังโหลด...' : avgProductionHours === null ? 'ยังไม่มีข้อมูล' : `${avgProductionHours.toFixed(1)} ชม.`,
+      hint: metricsLoading ? null : avgProductionHours === null ? 'ยังไม่มีเนื้อหาที่อนุมัติแล้ว' : `จาก ${approvedCount.toLocaleString()} ชิ้นที่อนุมัติแล้ว`,
+      icon: Timer, color: 'text-violet-600', bgColor: 'bg-violet-500/10', border: 'border-violet-600', countColor: 'text-violet-700',
+    },
+    {
+      label: 'ความถี่การโพสต์/สัปดาห์',
+      value: metricsLoading ? 'กำลังโหลด...' : `${postsLast7Days.toLocaleString()} โพสต์`,
+      hint: metricsLoading ? null : frequencyHint,
+      icon: Gauge, color: 'text-indigo-600', bgColor: 'bg-indigo-500/10', border: 'border-indigo-600', countColor: 'text-indigo-700',
+    },
   ];
+
+  // Engagement stat cards (analytics tab) — ซ่อนเมื่อยังไม่มีข้อมูล engagement จริง (ไม่โชว์ 0 เป็นผลลัพธ์)
+  const hasEngagementData = totalViews > 0 || totalLikes > 0;
+  const engagementStatCards = [
+    { label: 'ยอดวิวรวม', value: totalViews.toLocaleString(), hint: null, icon: Eye, color: 'text-cyan-600', bgColor: 'bg-cyan-500/10', border: 'border-cyan-600', countColor: 'text-cyan-700' },
+    { label: 'ยอดไลก์รวม', value: totalLikes.toLocaleString(), hint: null, icon: ThumbsUp, color: 'text-pink-600', bgColor: 'bg-pink-500/10', border: 'border-pink-600', countColor: 'text-pink-700' },
+  ];
+
+  const analyticsStatCards = hasEngagementData
+    ? [...resultStatCards, ...engagementStatCards]
+    : resultStatCards;
 
   return (
     <PageShell
@@ -383,17 +418,18 @@ export default function ContentDashboardPage() {
 
           {/* ── วิเคราะห์ ───────────────────────────────────────── */}
           <TabsContent value="analytics" className="space-y-6">
-            {/* Engagement Stat Cards */}
-            <div className="grid grid-cols-2 gap-3">
-              {engagementStatCards.map((card) => {
+            {/* Result Metrics + Engagement Stat Cards */}
+            <div className={`grid grid-cols-2 gap-3 ${hasEngagementData ? 'sm:grid-cols-4' : 'sm:grid-cols-2'}`}>
+              {analyticsStatCards.map((card) => {
                 const Icon = card.icon;
                 return (
                   <div key={card.label} className={`stat-card p-3 sm:p-5 ${card.border} ${card.bgColor}`}>
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-sm font-medium">{card.label}</span>
-                      <Icon className={`w-4 h-4 ${card.color}`} />
+                      <Icon className={`w-4 h-4 shrink-0 ${card.color}`} />
                     </div>
-                    <p className={`text-xl sm:text-2xl font-bold font-heading tabular-nums ${card.countColor}`}>{card.value.toLocaleString()}</p>
+                    <p className={`text-xl sm:text-2xl font-bold font-heading tabular-nums ${card.countColor}`}>{card.value}</p>
+                    {card.hint && <p className="text-xs text-muted-foreground mt-1">{card.hint}</p>}
                   </div>
                 );
               })}

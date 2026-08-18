@@ -1,7 +1,7 @@
 // src/hooks/useContent.ts
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api';
-import type { ContentItem, BrandContext, ContentSkill, ContentTrigger, ContentPlan, PlanItem, PublishChannel, ContentSchedule, PublishQueueItem, GlobalSettings, AIGatewaySettings, PostingAnalyticsResponse } from '@/components/content/types';
+import type { ContentItem, BrandContext, ContentSkill, ContentTrigger, ContentPlan, PlanItem, PublishChannel, ContentSchedule, PublishQueueItem, GlobalSettings, AIGatewaySettings, PostingAnalyticsResponse, ResultMetricsResponse } from '@/components/content/types';
 
 // ── Query keys ─────────────────────────────────────────────────
 
@@ -22,6 +22,7 @@ export const contentKeys = {
   globalSettings: () => [...contentKeys.all, 'globalSettings'] as const,
   aiGatewaySettings: () => [...contentKeys.all, 'aiGateway'] as const,
   analytics: () => [...contentKeys.all, 'analytics'] as const,
+  resultMetrics: () => [...contentKeys.all, 'resultMetrics'] as const,
 };
 
 // ── Queries ────────────────────────────────────────────────────
@@ -136,6 +137,15 @@ export function usePostingAnalytics(enabled = true) {
   return useQuery<PostingAnalyticsResponse>({
     queryKey: contentKeys.analytics(),
     queryFn: () => apiFetch('/brand-content.php?action=analytics-posting-times'),
+    staleTime: 300_000,
+    enabled,
+  });
+}
+
+export function useResultMetrics(enabled = true) {
+  return useQuery<ResultMetricsResponse>({
+    queryKey: contentKeys.resultMetrics(),
+    queryFn: () => apiFetch('/brand-content.php?action=result-metrics'),
     staleTime: 300_000,
     enabled,
   });
@@ -314,7 +324,11 @@ export function useSaveGlobalSettings() {
         method: 'POST',
         body: JSON.stringify(payload),
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: contentKeys.globalSettings() }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: contentKeys.globalSettings() });
+      // เป้าหมาย weekly_posts_target ถูกใช้ในการ์ดเมตริกผลลัพธ์ด้วย
+      qc.invalidateQueries({ queryKey: contentKeys.resultMetrics() });
+    },
   });
 }
 

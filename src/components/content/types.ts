@@ -123,6 +123,18 @@ export interface GlobalSettings {
   global_instruction: string; image_gen_provider: string; image_gen_model: string;
   image_gen_base_url: string; product_ref_image_url: string; product_refs?: string;
   has_image_gen_key: boolean;
+  weekly_posts_target?: number;
+}
+
+export interface ResultMetricsResponse {
+  /** ค่าเฉลี่ยชั่วโมง created_at → approved_at (null = ยังไม่มีรายการที่อนุมัติ) */
+  avg_production_hours: number | null;
+  approved_count: number;
+  posts_last_7_days: number;
+  published_count: number;
+  /** เป้าหมายโพสต์/สัปดาห์ (0 = ยังไม่ได้ตั้งเป้าหมาย) */
+  weekly_posts_target: number;
+  has_data: boolean;
 }
 
 export interface AIGatewaySettings {

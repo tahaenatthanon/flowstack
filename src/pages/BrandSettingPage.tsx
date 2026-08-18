@@ -2,6 +2,7 @@ import PageShell from '@/components/PageShell';
 import BrandContextTab from '@/components/content/tabs/BrandContextTab';
 import BrandInstructionForm from '@/components/brand/BrandInstructionForm';
 import BrandProductRefsForm from '@/components/brand/BrandProductRefsForm';
+import ContentGoalForm from '@/components/brand/ContentGoalForm';
 
 export default function BrandSettingPage() {
   return (
@@ -13,6 +14,7 @@ export default function BrandSettingPage() {
       <div className="space-y-8 max-w-3xl">
         <BrandContextTab />
         <BrandInstructionForm />
+        <ContentGoalForm />
         <BrandProductRefsForm />
       </div>
     </PageShell>
