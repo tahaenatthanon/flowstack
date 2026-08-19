@@ -109,9 +109,11 @@ foreach ($entries as $entry) {
 
     if ($result['success']) {
         $meta = extract_publish_meta($result, $entry['platform'], $channel);
+        // เก็บเนื้อ response ทุกกรณีเช่นเดียวกับ send_now — sent เพียงอย่างเดียวพิสูจน์ไม่ได้
+        $snippet = extract_response_snippet($result);
         $db->prepare(
-            "UPDATE content_publish_queue SET status='sent', sent_at=NOW(), platform_post_id=?, published_url=? WHERE id=?"
-        )->execute([$meta['platform_post_id'], $meta['published_url'], $queueId]);
+            "UPDATE content_publish_queue SET status='sent', sent_at=NOW(), platform_post_id=?, published_url=?, response_snippet=? WHERE id=?"
+        )->execute([$meta['platform_post_id'], $meta['published_url'], $snippet, $queueId]);
         // บันทึกผลเผยแพร่กลับ content_items (content_id คือ content_items.id)
         $db->prepare(
             "UPDATE content_items SET status='published', published_at=NOW(), published_url=?, external_post_id=? WHERE id=? AND tenant_id=?"
@@ -119,18 +121,20 @@ foreach ($entries as $entry) {
         echo "  [{$queueId}] sent via {$entry['platform']}\n";
     } else {
         $retryCount = (int)$entry['retry_count'] + 1;
+        $errMsg     = mb_substr((string) ($result['error'] ?? 'dispatch failed'), 0, 500);
+        $snippet    = extract_response_snippet($result);
         if ($retryCount < 3) {
             // Retry in 5 minutes
             $db->prepare(
                 "UPDATE content_publish_queue
-                 SET status='pending', error_msg=?, retry_count=?, scheduled_at=DATE_ADD(NOW(), INTERVAL 5 MINUTE)
+                 SET status='pending', error_msg=?, response_snippet=?, retry_count=?, scheduled_at=DATE_ADD(NOW(), INTERVAL 5 MINUTE)
                  WHERE id=?"
-            )->execute([$result['error'] ?? 'dispatch failed', $retryCount, $queueId]);
-            echo "  [{$queueId}] failed (retry {$retryCount}/3): " . ($result['error'] ?? '') . "\n";
+            )->execute([$errMsg, $snippet, $retryCount, $queueId]);
+            echo "  [{$queueId}] failed (retry {$retryCount}/3): {$errMsg}\n";
         } else {
             $db->prepare(
-                "UPDATE content_publish_queue SET status='failed', error_msg=?, retry_count=? WHERE id=?"
-            )->execute([$result['error'] ?? 'dispatch failed', $retryCount, $queueId]);
+                "UPDATE content_publish_queue SET status='failed', error_msg=?, response_snippet=?, retry_count=? WHERE id=?"
+            )->execute([$errMsg, $snippet, $retryCount, $queueId]);
             echo "  [{$queueId}] permanently failed after 3 retries\n";
         }
     }

@@ -89,8 +89,23 @@ export default function ContentDashboardPage() {
     sendNow.mutate(
       { content_id: contentId, channel_ids: [channelId] },
       {
-        onSuccess: () => {
-          toast({ title: 'ส่งคำสั่งเผยแพร่ใหม่แล้ว', description: 'ระบบกำลังลองส่งอีกครั้ง — รายการที่ล้มเหลวเดิมยังคงอยู่ในประวัติ' });
+        // API คืน 200 พร้อมผลรายช่องทาง — ต้องอ่าน results[] ไม่ใช่ถือว่าส่งแล้วทุกกรณี
+        onSuccess: (res) => {
+          const row = res?.results?.[0];
+          if (row?.status === 'skipped') {
+            toast({
+              title: 'ข้ามการส่งซ้ำ',
+              description: row.reason || 'เพิ่งส่งช่องทางนี้ไปแล้ว — ระบบข้ามเพื่อกันเผยแพร่ซ้ำ',
+            });
+          } else if (row?.status === 'failed') {
+            toast({
+              title: 'ลองส่งใหม่ไม่สำเร็จ',
+              description: row.error || 'ปลายทางตอบกลับว่าล้มเหลว',
+              variant: 'destructive',
+            });
+          } else {
+            toast({ title: 'ส่งคำสั่งเผยแพร่ใหม่แล้ว', description: 'ระบบกำลังลองส่งอีกครั้ง — รายการที่ล้มเหลวเดิมยังคงอยู่ในประวัติ' });
+          }
           refetchBi();
         },
         onError: (err: unknown) => {

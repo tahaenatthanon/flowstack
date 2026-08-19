@@ -385,10 +385,25 @@ export function useScheduleContent() {
   });
 }
 
+/** ผลรายช่องทางจาก send_now — แยก สำเร็จ / ข้าม (idempotency guard) / ล้มเหลว ได้ตามจริง */
+export interface SendNowChannelResult {
+  channel_id: string;
+  success: boolean;
+  status: 'success' | 'skipped' | 'failed';
+  /** เหตุผลที่ถูกข้าม (มีเฉพาะ status='skipped') */
+  reason?: string;
+  /** ข้อความล้มเหลวจากปลายทาง (มีเฉพาะ status='failed') */
+  error?: string;
+}
+
+export interface SendNowResponse {
+  results: SendNowChannelResult[];
+}
+
 export function useSendNow() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: { content_id: string; channel_ids: string[]; channel_overrides?: Record<string, string> }) =>
+  return useMutation<SendNowResponse, Error, { content_id: string; channel_ids: string[]; channel_overrides?: Record<string, string> }>({
+    mutationFn: (payload) =>
       apiFetch('/content-publish.php', {
         method: 'POST',
         body: JSON.stringify({ ...payload, action: 'send_now' }),

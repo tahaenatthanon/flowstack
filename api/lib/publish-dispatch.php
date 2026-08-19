@@ -81,6 +81,29 @@ function extract_publish_meta(array $result, string $platform, array $channel): 
     return ['platform_post_id' => $postId, 'published_url' => $url];
 }
 
+/**
+ * สกัดเนื้อ response ที่ปลายทางตอบกลับ เพื่อเก็บลง content_publish_queue.response_snippet
+ * ใช้ร่วมกันโดย send_now (content-publish.php) และ cron scheduler (publish-scheduler.php)
+ *
+ * ตอบคำถาม "ปลายทางพูดว่าอะไร" ซึ่งต่างจาก error_msg ที่ตอบว่า "ทำไมถือว่าล้มเหลว"
+ * - สำเร็จ  : $result['data']      (payload ที่ decode แล้ว)
+ * - ล้มเหลว : $result['response']  (payload ที่ decode แล้ว ตอน HTTP >= 400)
+ * - ไม่มี response เลย (cURL error / ยังไม่ได้ยิงเพราะ config ขาด) → ระบุไว้ตรง ๆ พร้อม error
+ *
+ * ตัดที่ 2000 ตัวอักษรด้วย mb_substr เพื่อไม่ให้ตัดกลางอักขระไทย
+ */
+function extract_response_snippet(array $result): string {
+    $payload = $result['data'] ?? $result['response'] ?? null;
+    if ($payload === null) {
+        $raw = '(no response body) ' . ($result['error'] ?? '');
+    } elseif (is_string($payload)) {
+        $raw = $payload;
+    } else {
+        $raw = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    }
+    return mb_substr((string) $raw, 0, 2000);
+}
+
 // ─── cURL helper ────────────────────────────────────────────────────────────────
 
 function _dispatch_post(string $url, array $options = []): array {
@@ -99,7 +122,9 @@ function _dispatch_post(string $url, array $options = []): array {
     if ($err) {
         return ['success' => false, 'error' => "cURL error: $err"];
     }
-    $data = json_decode($res, true) ?: ['raw' => substr($res, 0, 500)];
+    // 2000 = เพดานเดียวกับ response_snippet — ปลายทางที่ตอบ HTML/text (เช่น Domino agent)
+    // จะถูกเก็บไว้ให้ตรวจย้อนหลังได้ ไม่ถูกตัดเหลือ 500 ก่อนถึงผู้เรียก
+    $data = json_decode($res, true) ?: ['raw' => mb_substr((string) $res, 0, 2000)];
     if ($code >= 400) {
         $msg = $data['error']['message'] ?? $data['message'] ?? $data['error'] ?? "HTTP $code";
         if (is_array($msg)) $msg = json_encode($msg);
@@ -457,18 +482,19 @@ function dispatch_lotusdomino(array $channel, array $creds, string $title, strin
         CURLOPT_SSL_VERIFYPEER => false,
     ]);
 
-    // Domino agent เป็น black-box: ไม่คืน HTTP status ที่เชื่อถือได้
-    // → ถือว่าสำเร็จถ้าไม่มี cURL error (คงพฤติกรรมเดิมของ inline handler)
-    // _dispatch_post() ตั้ง http_code ไว้เฉพาะกรณีที่ตอบกลับมาแล้วแต่ HTTP >= 400
-    // ซึ่งแยกจากกรณี cURL error (ไม่มี http_code) ได้ชัดเจน
-    if (!$result['success'] && isset($result['http_code'])) {
-        $result['success'] = true;
-        unset($result['error']);
+    // เดิม: ถ้า HTTP >= 400 จะพลิก success กลับเป็น true ("Domino เป็น black-box")
+    // เลิกพฤติกรรมนั้น — ทำให้ status='sent' ไม่มีค่าเป็นหลักฐาน (เหตุการณ์ 19 ส.ค. 2026)
+    // ตอนนี้: สำเร็จ = ไม่มี cURL error และ HTTP < 400 ตามที่ _dispatch_post() ตัดสิน
+    if (!$result['success']) {
+        // ใส่เลข HTTP status ลงในข้อความ error ให้วินิจฉัยได้จาก error_msg คอลัมน์เดียว
+        // (กรณี cURL error ไม่มี http_code → ข้อความคงเดิมว่า "cURL error: ...")
+        if (isset($result['http_code'])) {
+            $result['error'] = "HTTP {$result['http_code']}: " . ($result['error'] ?? '');
+        }
+        return $result;
     }
-    if ($result['success']) {
-        // Domino agent ไม่คืน document id → ใช้ค่าอ้างอิงเวลาโพสต์ (แบบเดียวกับ lineoa/custom)
-        $result['platform_post_id'] = 'lotusdomino_' . time();
-    }
+    // Domino agent ไม่คืน document id → ใช้ค่าอ้างอิงเวลาโพสต์ (แบบเดียวกับ lineoa/custom)
+    $result['platform_post_id'] = 'lotusdomino_' . time();
     return $result;
 }
 

@@ -27,14 +27,3 @@
 #### Scenario: endpoint_url ว่างคืน error
 - **WHEN** `dispatch_lotusdomino()` ถูกเรียกแต่ channel ไม่มี `endpoint_url`
 - **THEN** คืน `['success' => false, 'error' => 'Lotus Domino endpoint_url missing']`
-
-### Requirement: dispatch_lotusdomino assume สำเร็จเมื่อไม่มี curl error
-`dispatch_lotusdomino()` SHALL คืน `success=true` เมื่อการโพสต์ไม่มี curl error (Domino agent เป็น black-box ไม่คืน HTTP error ที่เชื่อถือได้) — สอดคล้องกับ inline handler เดิมใน `api/brand-content.php`
-
-#### Scenario: curl ไม่มี error ถือว่าสำเร็จ
-- **WHEN** `dispatch_lotusdomino()` POST สำเร็จโดยไม่มี curl error
-- **THEN** คืน `['success' => true, ...]`
-
-#### Scenario: curl error คืน failure
-- **WHEN** `dispatch_lotusdomino()` เจอ curl error
-- **THEN** คืน `['success' => false, 'error' => ...]`

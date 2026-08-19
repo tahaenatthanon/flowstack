@@ -93,11 +93,19 @@ if ($method === 'POST') {
             jsonError('content_id, channel_ids required', 400);
         }
 
-        // Verify content exists and belongs to tenant (allow any status)
+        // Verify content exists and belongs to tenant
         $cs = $db->prepare("SELECT * FROM content_items WHERE id=? AND tenant_id=?");
         $cs->execute([$contentId, $tenantId]);
         $content = $cs->fetch(PDO::FETCH_ASSOC);
         if (!$content) jsonError('Content not found', 422);
+
+        // เกตอนุมัติ — ต้องอยู่ก่อนเกต SEO: ไม่ต้อง query เพิ่ม (approved_at มาพร้อม SELECT * ด้านบน)
+        // และเป็นเงื่อนไขเด็ดขาดกว่า จึงควรตอบเรื่องอนุมัติก่อนเรื่อง SEO
+        // ใช้ approved_at ไม่ใช่ status เพราะเป็นหลักฐานเวลาที่อนุมัติจริง
+        // บล็อกก่อนสร้างแถวคิวและก่อน dispatch → ไม่มี request ออกไปยังปลายทางเลย
+        if (empty($content['approved_at'])) {
+            jsonError('เผยแพร่ไม่ได้ — คอนเทนต์นี้ยังไม่ผ่านการอนุมัติ กรุณาอนุมัติก่อนส่ง', 422);
+        }
 
         // เกต SEO — ตรวจครั้งเดียวก่อน dispatch ทุก channel; บล็อกถ้าเปิดเกตและมีกฎ fail/คะแนนต่ำ
         $gate = seo_gate_check($db, $tenantId, $content);
@@ -115,41 +123,85 @@ if ($method === 'POST') {
 
         $results = [];
         foreach ($channels as $channel) {
-            $id = generateUUID();
-            $now = date('Y-m-d H:i:s');
-
-            $db->prepare(
-                "INSERT INTO content_publish_queue (id,tenant_id,content_id,channel_id,scheduled_at,status)
-                 VALUES (?,?,?,?,?,?)"
-            )->execute([$id, $tenantId, $contentId, $channel['id'], $now, 'processing']);
-
-            // Apply per-channel content override if provided
-            $contentForChannel = $content;
-            if (!empty($channelOverrides[$channel['id']])) {
-                $overrideText = $channelOverrides[$channel['id']];
-                $contentForChannel = array_merge($content, [
-                    'caption'         => $overrideText,
-                    'article_content' => json_encode(['html' => $overrideText, 'title' => $content['title'] ?? '', 'excerpt' => '']),
-                ]);
+            // ── idempotency guard ต่อคู่ (content_id, channel_id) ─────────────────
+            // ใช้ advisory lock ไม่ใช่ SELECT ... FOR UPDATE เพราะตารางไม่มี composite index
+            // บน (content_id, channel_id, status) → FOR UPDATE จะ lock ช่วงกว้างเกินจำเป็น
+            // ชื่อ lock ยาว 35 ตัวอักษร (เพดาน MariaDB = 64) — raw uuid สองตัวจะยาว 76 ตัว เกิน
+            $lockName = 'sn:' . md5($contentId . ':' . $channel['id']);
+            $lk = $db->prepare("SELECT GET_LOCK(?, 5) AS got");
+            $lk->execute([$lockName]);
+            $got = (int) ($lk->fetchColumn() ?: 0);
+            if ($got !== 1) {
+                // มีคำขออื่นถือล็อกคู่นี้อยู่ = กำลังยิงซ้ำพร้อมกัน → ข้าม ไม่ใช่ error
+                $results[] = [
+                    'channel_id' => $channel['id'], 'success' => false, 'status' => 'skipped',
+                    'reason'     => 'มีคำขอเผยแพร่ช่องทางนี้กำลังทำงานอยู่',
+                ];
+                continue;
             }
 
-            $result = dispatch_content($channel['platform'], $channel, $contentForChannel);
+            try {
+                // เพิ่งส่งคู่นี้ไปในกรอบ 10 นาที และยังไม่ล้มเหลว → ข้าม ไม่สร้างแถว ไม่ dispatch
+                // แถว failed ไม่นับ เพื่อให้ปุ่ม "ลองส่งใหม่" ยังทำงานได้ทันที
+                $dupe = $db->prepare(
+                    "SELECT COUNT(*) FROM content_publish_queue
+                     WHERE tenant_id=? AND content_id=? AND channel_id=?
+                       AND status IN ('processing','sent')
+                       AND created_at >= NOW() - INTERVAL 10 MINUTE"
+                );
+                $dupe->execute([$tenantId, $contentId, $channel['id']]);
+                if ((int) $dupe->fetchColumn() > 0) {
+                    $results[] = [
+                        'channel_id' => $channel['id'], 'success' => false, 'status' => 'skipped',
+                        'reason'     => 'เพิ่งส่งช่องทางนี้ไปภายใน 10 นาที — ข้ามเพื่อกันเผยแพร่ซ้ำ',
+                    ];
+                    continue;
+                }
 
-            if ($result['success']) {
-                $meta = extract_publish_meta($result, $channel['platform'], $channel);
+                $id = generateUUID();
+                $now = date('Y-m-d H:i:s');
+
                 $db->prepare(
-                    "UPDATE content_publish_queue SET status='sent', sent_at=NOW(), platform_post_id=?, published_url=? WHERE id=?"
-                )->execute([$meta['platform_post_id'], $meta['published_url'], $id]);
-                // บันทึกผลเผยแพร่กลับ content_items (content_id คือ content_items.id ที่โหลดมา)
-                $db->prepare(
-                    "UPDATE content_items SET status='published', published_at=NOW(), published_url=?, external_post_id=? WHERE id=? AND tenant_id=?"
-                )->execute([$meta['published_url'], $meta['platform_post_id'], $contentId, $tenantId]);
-                $results[] = ['channel_id' => $channel['id'], 'success' => true];
-            } else {
-                $db->prepare(
-                    "UPDATE content_publish_queue SET status='failed', error_msg=? WHERE id=?"
-                )->execute([$result['error'] ?? 'dispatch failed', $id]);
-                $results[] = ['channel_id' => $channel['id'], 'success' => false, 'error' => $result['error'] ?? ''];
+                    "INSERT INTO content_publish_queue (id,tenant_id,content_id,channel_id,scheduled_at,status)
+                     VALUES (?,?,?,?,?,?)"
+                )->execute([$id, $tenantId, $contentId, $channel['id'], $now, 'processing']);
+
+                // Apply per-channel content override if provided
+                $contentForChannel = $content;
+                if (!empty($channelOverrides[$channel['id']])) {
+                    $overrideText = $channelOverrides[$channel['id']];
+                    $contentForChannel = array_merge($content, [
+                        'caption'         => $overrideText,
+                        'article_content' => json_encode(['html' => $overrideText, 'title' => $content['title'] ?? '', 'excerpt' => '']),
+                    ]);
+                }
+
+                $result  = dispatch_content($channel['platform'], $channel, $contentForChannel);
+                // เก็บเนื้อ response ทุกกรณี — status='sent' เพียงอย่างเดียวพิสูจน์ไม่ได้ว่าปลายทางรับจริง
+                $snippet = extract_response_snippet($result);
+
+                if ($result['success']) {
+                    $meta = extract_publish_meta($result, $channel['platform'], $channel);
+                    $db->prepare(
+                        "UPDATE content_publish_queue SET status='sent', sent_at=NOW(), platform_post_id=?, published_url=?, response_snippet=? WHERE id=?"
+                    )->execute([$meta['platform_post_id'], $meta['published_url'], $snippet, $id]);
+                    // บันทึกผลเผยแพร่กลับ content_items (content_id คือ content_items.id ที่โหลดมา)
+                    $db->prepare(
+                        "UPDATE content_items SET status='published', published_at=NOW(), published_url=?, external_post_id=? WHERE id=? AND tenant_id=?"
+                    )->execute([$meta['published_url'], $meta['platform_post_id'], $contentId, $tenantId]);
+                    $results[] = ['channel_id' => $channel['id'], 'success' => true, 'status' => 'success'];
+                } else {
+                    $errMsg = mb_substr((string) ($result['error'] ?? 'dispatch failed'), 0, 500);
+                    $db->prepare(
+                        "UPDATE content_publish_queue SET status='failed', error_msg=?, response_snippet=? WHERE id=?"
+                    )->execute([$errMsg, $snippet, $id]);
+                    $results[] = [
+                        'channel_id' => $channel['id'], 'success' => false, 'status' => 'failed',
+                        'error'      => $errMsg,
+                    ];
+                }
+            } finally {
+                $db->prepare("SELECT RELEASE_LOCK(?)")->execute([$lockName]);
             }
         }
         jsonResponse(['results' => $results]);

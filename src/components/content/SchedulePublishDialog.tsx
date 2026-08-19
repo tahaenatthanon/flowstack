@@ -84,8 +84,41 @@ export function SchedulePublishDialog({ open, onOpenChange, contentId, contentTi
     const channel_overrides = buildOverrides();
     try {
       if (isSendNow) {
-        await sendNow.mutateAsync({ content_id: contentId, channel_ids: selectedChannels, channel_overrides });
-        toast({ title: 'ส่งสำเร็จ!' });
+        // API คืน HTTP 200 พร้อมผลรายช่องทาง — ต้องอ่าน results[] ไม่ใช่ถือว่าสำเร็จทั้งก้อน
+        const res = await sendNow.mutateAsync({ content_id: contentId, channel_ids: selectedChannels, channel_overrides });
+        const rows = res?.results ?? [];
+        const ok      = rows.filter(r => r.status === 'success');
+        const skipped = rows.filter(r => r.status === 'skipped');
+        const failed  = rows.filter(r => r.status === 'failed');
+
+        // ไม่มีช่องใดสำเร็จและมีช่องล้มเหลว → แจ้งล้มเหลวและคง dialog ไว้ให้ลองใหม่
+        if (ok.length === 0 && failed.length > 0) {
+          toast({
+            title: 'ส่งไม่สำเร็จ',
+            description: failed[0].error || `ล้มเหลว ${failed.length} channel`,
+            variant: 'destructive',
+          });
+          return;
+        }
+        if (ok.length === 0 && skipped.length > 0) {
+          // ถูกข้ามทั้งหมดจาก idempotency guard — ไม่ใช่สำเร็จ และไม่ใช่ล้มเหลว
+          toast({
+            title: 'ข้ามการส่ง',
+            description: skipped[0].reason || 'เพิ่งส่งช่องทางนี้ไปแล้ว',
+          });
+        } else if (ok.length === 0) {
+          toast({ title: 'ไม่มีช่องทางที่ถูกส่ง', variant: 'destructive' });
+          return;
+        } else {
+          const parts = [`สำเร็จ ${ok.length}`];
+          if (skipped.length) parts.push(`ข้าม ${skipped.length}`);
+          if (failed.length)  parts.push(`ล้มเหลว ${failed.length}`);
+          toast({
+            title: failed.length ? 'ส่งบางส่วนไม่สำเร็จ' : 'ส่งสำเร็จ!',
+            description: parts.length > 1 ? parts.join(' · ') : undefined,
+            variant: failed.length ? 'destructive' : undefined,
+          });
+        }
       } else {
         if (!scheduleDate || !scheduleTime) {
           toast({ title: 'กรุณาระบุวันที่และเวลา', variant: 'destructive' });
