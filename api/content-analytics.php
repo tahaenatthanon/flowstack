@@ -10,6 +10,9 @@
 //   ?action=analytics  → throughput trend, lead time, SEO, plan conversion,
 //                        publish success by platform
 //
+// ?action=analytics also accepts &from=YYYY-MM-DD&to=YYYY-MM-DD. ?action=overview
+// deliberately does not: it is a "right now" snapshot of the production queue.
+//
 // No migration: every column read here already exists.
 
 require_once __DIR__ . '/config.php';
@@ -36,6 +39,24 @@ function percentile(array $sorted, float $p): ?float {
     if ($rank < 0) $rank = 0;
     if ($rank >= $n) $rank = $n - 1;
     return (float)$sorted[$rank];
+}
+
+/**
+ * Read a YYYY-MM-DD query parameter.
+ * Returns null when the param is absent/empty so the caller applies its own
+ * default. A present-but-malformed value aborts with 400 — a bad date must never
+ * reach SQL and must never surface as a 500.
+ */
+function dateParam(string $name): ?string {
+    $raw = trim((string)($_GET[$name] ?? ''));
+    if ($raw === '') return null;
+    $d = DateTime::createFromFormat('Y-m-d', $raw);
+    // createFromFormat rolls overflow dates forward (2026-02-31 → 2026-03-03),
+    // so the round-trip comparison is what rejects impossible calendar dates.
+    if ($d === false || $d->format('Y-m-d') !== $raw) {
+        jsonError("พารามิเตอร์ $name ต้องเป็นวันที่รูปแบบ YYYY-MM-DD", 400);
+    }
+    return $raw;
 }
 
 // ─── OVERVIEW ──────────────────────────────────────────────────────
@@ -195,6 +216,28 @@ if ($action === 'overview') {
 // ─── ANALYTICS ─────────────────────────────────────────────────────
 if ($action === 'analytics') {
 
+    // Date range. Every block below except the SEO snapshot (3) is scoped to it.
+    // Default = a 12-month window (first day of the month 11 months back → today),
+    // which is exactly the window this endpoint used before the filter existed, so
+    // callers that send no params see no change.
+    $from = dateParam('from') ?? date('Y-m-01', strtotime('-11 month'));
+    $to   = dateParam('to')   ?? date('Y-m-d');
+    if ($from > $to) jsonError('ช่วงวันที่ไม่ถูกต้อง — from ต้องไม่เกิน to', 400);
+
+    $fromMonth = new DateTime(substr($from, 0, 7) . '-01');
+    $toMonth   = new DateTime(substr($to,   0, 7) . '-01');
+    $monthDiff = $fromMonth->diff($toMonth);
+    // The throughput axis emits one point per month in range, so a 200-year range
+    // would mean a 2,400-point payload. Reject rather than silently truncate.
+    if ($monthDiff->y * 12 + $monthDiff->m > 120) {
+        jsonError('ช่วงวันที่กว้างเกินไป — รองรับสูงสุด 10 ปี', 400);
+    }
+
+    // Bound values for the queries below. `to` covers the whole end day because
+    // the columns being compared are DATETIME, not DATE.
+    $fromDt = $from . ' 00:00:00';
+    $toDt   = $to   . ' 23:59:59';
+
     // 1) Throughput trend — created / requested / approved / published per month.
     // Each metric is counted in the month of its own timestamp, so one item can
     // land in different months across the four series.
@@ -207,23 +250,25 @@ if ($action === 'analytics') {
     $throughputRaw = [];
     foreach ($series as $key => $col) {
         // $col comes from the hardcoded whitelist above, never from user input.
+        // from/to are bound parameters.
         $st = $db->prepare(
             "SELECT DATE_FORMAT(`$col`, '%Y-%m') AS period, COUNT(*) AS n
              FROM content_items
              WHERE tenant_id = ?
                AND `$col` IS NOT NULL
-               AND `$col` >= DATE_FORMAT(DATE_SUB(NOW(), INTERVAL 11 MONTH), '%Y-%m-01')
+               AND `$col` BETWEEN ? AND ?
              GROUP BY period"
         );
-        $st->execute([$tenantId]);
+        $st->execute([$tenantId, $fromDt, $toDt]);
         foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
             $throughputRaw[$r['period']][$key] = (int)$r['n'];
         }
     }
-    // Emit a dense 12-month axis so months with no activity still plot as 0.
+    // Emit a dense axis across the selected range so months with no activity
+    // still plot as 0 instead of being skipped.
     $throughput = [];
-    for ($i = 11; $i >= 0; $i--) {
-        $p = date('Y-m', strtotime("-$i month"));
+    for ($cursor = clone $fromMonth; $cursor <= $toMonth; $cursor->modify('+1 month')) {
+        $p = $cursor->format('Y-m');
         $throughput[] = [
             'period'    => $p,
             'created'   => (int)($throughputRaw[$p]['created']   ?? 0),
@@ -244,6 +289,8 @@ if ($action === 'analytics') {
     $leadTime = [];
     foreach ($stageDefs as $s) {
         // Column names come from the hardcoded $stageDefs table above.
+        // Scoped by the stage's *end* timestamp: the range answers "stages that
+        // finished in this window", so a stage still in flight never counts.
         $st = $db->prepare(
             "SELECT TIMESTAMPDIFF(MINUTE, `{$s['from']}`, `{$s['to']}`) AS mins
              FROM content_items
@@ -251,9 +298,10 @@ if ($action === 'analytics') {
                AND `{$s['from']}` IS NOT NULL
                AND `{$s['to']}`   IS NOT NULL
                AND `{$s['to']}` >= `{$s['from']}`
+               AND `{$s['to']}` BETWEEN ? AND ?
              ORDER BY mins ASC"
         );
-        $st->execute([$tenantId]);
+        $st->execute([$tenantId, $fromDt, $toDt]);
         $mins = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
         $n = count($mins);
         $leadTime[] = [
@@ -269,6 +317,8 @@ if ($action === 'analytics') {
     }
 
     // 3) SEO / content completeness across articles.
+    // Deliberately NOT date-scoped: this is a snapshot of how complete the article
+    // library is *right now*, not of work done inside the selected window.
     $seoStmt = $db->prepare(
         "SELECT
             COUNT(*)                                                     AS total,
@@ -313,6 +363,9 @@ if ($action === 'analytics') {
     $gate = $gateStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
     // 4) Plan → content conversion, grouped by plan type.
+    // Scoped by plan creation date. The content_items join stays unscoped on
+    // purpose: filtering it too would count a plan item in the denominator while
+    // dropping the content it produced from the numerator, understating conversion.
     $pcStmt = $db->prepare(
         "SELECT cp.plan_type,
                 COUNT(DISTINCT cp.id)            AS plans,
@@ -322,11 +375,11 @@ if ($action === 'analytics') {
          FROM content_plans cp
          LEFT JOIN content_plan_items cpi ON cpi.plan_id = cp.id
          LEFT JOIN content_items      ci  ON ci.plan_item_id = cpi.id AND ci.tenant_id = cp.tenant_id
-         WHERE cp.tenant_id = ?
+         WHERE cp.tenant_id = ? AND cp.created_at BETWEEN ? AND ?
          GROUP BY cp.plan_type
          ORDER BY plan_items DESC"
     );
-    $pcStmt->execute([$tenantId]);
+    $pcStmt->execute([$tenantId, $fromDt, $toDt]);
     $planRows = $pcStmt->fetchAll(PDO::FETCH_ASSOC);
 
     $planTypeLabels = [
@@ -351,12 +404,15 @@ if ($action === 'analytics') {
 
     // Items created outside any plan — the remainder plan conversion cannot see.
     $adhocStmt = $db->prepare(
-        'SELECT COUNT(*) FROM content_items WHERE tenant_id = ? AND plan_item_id IS NULL'
+        'SELECT COUNT(*) FROM content_items
+         WHERE tenant_id = ? AND plan_item_id IS NULL AND created_at BETWEEN ? AND ?'
     );
-    $adhocStmt->execute([$tenantId]);
+    $adhocStmt->execute([$tenantId, $fromDt, $toDt]);
     $adhocCount = (int)$adhocStmt->fetchColumn();
 
     // 5) Publish success rate per platform, with the most frequent error.
+    // Scoped by scheduled_at — the only timestamp every queue row has (sent_at is
+    // NULL until a row actually goes out).
     // NULLIF guards against publish_channels rows whose platform is an empty
     // string, which would otherwise form their own unlabelled group.
     $psStmt = $db->prepare(
@@ -368,11 +424,11 @@ if ($action === 'analytics') {
                 COUNT(*)                     AS total
          FROM content_publish_queue q
          LEFT JOIN publish_channels pc ON pc.id = q.channel_id
-         WHERE q.tenant_id = ?
+         WHERE q.tenant_id = ? AND q.scheduled_at BETWEEN ? AND ?
          GROUP BY platform
          ORDER BY total DESC"
     );
-    $psStmt->execute([$tenantId]);
+    $psStmt->execute([$tenantId, $fromDt, $toDt]);
     $psRows = $psStmt->fetchAll(PDO::FETCH_ASSOC);
 
     // Most common error text per platform.
@@ -382,11 +438,12 @@ if ($action === 'analytics') {
          FROM content_publish_queue q
          LEFT JOIN publish_channels pc ON pc.id = q.channel_id
          WHERE q.tenant_id = ? AND q.status = 'failed'
+           AND q.scheduled_at BETWEEN ? AND ?
            AND q.error_msg IS NOT NULL AND q.error_msg <> ''
          GROUP BY platform, q.error_msg
          ORDER BY n DESC"
     );
-    $errStmt->execute([$tenantId]);
+    $errStmt->execute([$tenantId, $fromDt, $toDt]);
     $topError = [];
     foreach ($errStmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
         if (!isset($topError[$r['platform']])) $topError[$r['platform']] = $r['error_msg'];
@@ -410,7 +467,44 @@ if ($action === 'analytics') {
         ];
     }, $psRows);
 
+    // 6) Stat-card totals for the "เนื้อหา" sub-tab. One cohort — items *created*
+    // in the window — so total / published / engagement all describe the same set
+    // and the published rate can never exceed 100%.
+    // Aggregated here rather than client-side because published_at is not part of
+    // the content-items.php list payload.
+    $statStmt = $db->prepare(
+        'SELECT COUNT(*)                      AS total,
+                SUM(published_at IS NOT NULL) AS published,
+                COALESCE(SUM(views), 0)       AS views,
+                COALESCE(SUM(likes), 0)       AS likes
+         FROM content_items
+         WHERE tenant_id = ? AND created_at BETWEEN ? AND ?'
+    );
+    $statStmt->execute([$tenantId, $fromDt, $toDt]);
+    $stat = $statStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    $statTotal     = (int)($stat['total'] ?? 0);
+    $statPublished = (int)($stat['published'] ?? 0);
+    $statViews     = (int)($stat['views'] ?? 0);
+    $statLikes     = (int)($stat['likes'] ?? 0);
+
     jsonResponse([
+        // Echo the window actually applied, so the client can tell a default apart
+        // from what it asked for.
+        'range'      => ['from' => $from, 'to' => $to],
+        'stats'      => [
+            'total'     => $statTotal,
+            'published' => $statPublished,
+            'views'     => $statViews,
+            'likes'     => $statLikes,
+            // 0 is a real value here — engagement is entered by hand until platform
+            // ingestion exists, so it must not be reported as "no data".
+            'engagement' => $statViews + $statLikes,
+            // null (not 0) when nothing was created in the window — an empty cohort
+            // has no publish rate to report.
+            'performance_pct' => $statTotal > 0
+                ? (int)round($statPublished / $statTotal * 100)
+                : null,
+        ],
         'throughput' => $throughput,
         'lead_time'  => $leadTime,
         'seo'        => [

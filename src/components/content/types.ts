@@ -126,13 +126,22 @@ export interface GlobalSettings {
   weekly_posts_target?: number;
 }
 
+/** ช่วงวันที่ YYYY-MM-DD ที่ endpoint ใช้จริง */
+export interface DateRange {
+  from: string;
+  to: string;
+}
+
 export interface ResultMetricsResponse {
-  /** ค่าเฉลี่ยชั่วโมง created_at → approved_at (null = ยังไม่มีรายการที่อนุมัติ) */
+  /** ช่วงวันที่ที่ backend ใช้จริง (default 12 เดือนย้อนหลังเมื่อ client ไม่ส่งมา) */
+  range: DateRange;
+  /** ค่าเฉลี่ยชั่วโมง created_at → approved_at ในช่วงวันที่ (null = ยังไม่มีรายการที่อนุมัติ) */
   avg_production_hours: number | null;
   approved_count: number;
+  /** snapshot 7 วันล่าสุด — ไม่ผูกช่วงวันที่ที่เลือก */
   posts_last_7_days: number;
   published_count: number;
-  /** เป้าหมายโพสต์/สัปดาห์ (0 = ยังไม่ได้ตั้งเป้าหมาย) */
+  /** เป้าหมายโพสต์/สัปดาห์ (0 = ยังไม่ได้ตั้งเป้าหมาย) — snapshot */
   weekly_posts_target: number;
   has_data: boolean;
 }
@@ -217,10 +226,27 @@ export interface PublishSuccessRow {
   top_error: string | null;
 }
 
+/** ยอดรวมสำหรับ stat card ของ sub-tab เนื้อหา — นับจากคอนเทนต์ที่ created_at อยู่ในช่วงวันที่ */
+export interface ContentStatsSummary {
+  total: number;
+  /** SUM(published_at IS NOT NULL) ในกลุ่มเดียวกับ total */
+  published: number;
+  views: number;
+  likes: number;
+  /** views + likes — 0 คือค่าจริง (ยังไม่มีการซิงก์จากแพลตฟอร์ม) ไม่ใช่ "ไม่มีข้อมูล" */
+  engagement: number;
+  /** อัตราถึงขั้นเผยแพร่ %; null เมื่อ total = 0 */
+  performance_pct: number | null;
+}
+
 export interface ContentAnalytics {
-  /** 12 เดือนย้อนหลัง เดือนละจุดเสมอ (เดือนที่ไม่มีข้อมูล = 0) */
+  /** ช่วงวันที่ที่ backend ใช้จริง (default 12 เดือนย้อนหลังเมื่อ client ไม่ส่งมา) */
+  range: DateRange;
+  stats: ContentStatsSummary;
+  /** หนึ่งจุดต่อเดือนตลอดช่วงวันที่ที่เลือก (เดือนที่ไม่มีข้อมูล = 0) */
   throughput: ThroughputPoint[];
   lead_time: LeadTimeStage[];
+  /** snapshot — ไม่ผูกช่วงวันที่ที่เลือก */
   seo: {
     total_articles: number;
     fields: SeoFieldCompleteness[];

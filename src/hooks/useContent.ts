@@ -22,10 +22,24 @@ export const contentKeys = {
   globalSettings: () => [...contentKeys.all, 'globalSettings'] as const,
   aiGatewaySettings: () => [...contentKeys.all, 'aiGateway'] as const,
   analytics: () => [...contentKeys.all, 'analytics'] as const,
-  resultMetrics: () => [...contentKeys.all, 'resultMetrics'] as const,
+  /** from/to อยู่ใน key เพื่อให้แต่ละช่วงวันที่ cache แยกกัน */
+  resultMetrics: (from?: string, to?: string) =>
+    [...contentKeys.all, 'resultMetrics', from ?? null, to ?? null] as const,
+  /** prefix สำหรับ invalidate ทุกช่วงวันที่พร้อมกัน */
+  resultMetricsAll: () => [...contentKeys.all, 'resultMetrics'] as const,
   biOverview: () => [...contentKeys.all, 'biOverview'] as const,
-  biAnalytics: () => [...contentKeys.all, 'biAnalytics'] as const,
+  biAnalytics: (from?: string, to?: string) =>
+    [...contentKeys.all, 'biAnalytics', from ?? null, to ?? null] as const,
 };
+
+/** '?from=..&to=..' — เว้นว่างเมื่อไม่ระบุ ให้ backend ใช้ default 12 เดือน */
+function dateRangeQuery(from?: string, to?: string): string {
+  const params = new URLSearchParams();
+  if (from) params.set('from', from);
+  if (to) params.set('to', to);
+  const qs = params.toString();
+  return qs ? `&${qs}` : '';
+}
 
 // ── Queries ────────────────────────────────────────────────────
 
@@ -144,10 +158,11 @@ export function usePostingAnalytics(enabled = true) {
   });
 }
 
-export function useResultMetrics(enabled = true) {
+/** เมตริกผลลัพธ์ — from/to ผูกเฉพาะเวลาผลิตเฉลี่ย (ความถี่ 7 วันเป็น snapshot) */
+export function useResultMetrics(from?: string, to?: string, enabled = true) {
   return useQuery<ResultMetricsResponse>({
-    queryKey: contentKeys.resultMetrics(),
-    queryFn: () => apiFetch('/brand-content.php?action=result-metrics'),
+    queryKey: contentKeys.resultMetrics(from, to),
+    queryFn: () => apiFetch(`/brand-content.php?action=result-metrics${dateRangeQuery(from, to)}`),
     staleTime: 300_000,
     enabled,
   });
@@ -163,11 +178,11 @@ export function useContentOverview(enabled = true) {
   });
 }
 
-/** BI แท็บวิเคราะห์ — fetch เฉพาะเมื่อแท็บนั้น active */
-export function useContentAnalytics(enabled = true) {
+/** BI แท็บวิเคราะห์ — fetch เฉพาะเมื่อแท็บนั้น active; ผูกช่วงวันที่ from/to */
+export function useContentAnalytics(from?: string, to?: string, enabled = true) {
   return useQuery<ContentAnalytics>({
-    queryKey: contentKeys.biAnalytics(),
-    queryFn: () => apiFetch('/content-analytics.php?action=analytics'),
+    queryKey: contentKeys.biAnalytics(from, to),
+    queryFn: () => apiFetch(`/content-analytics.php?action=analytics${dateRangeQuery(from, to)}`),
     staleTime: 300_000,
     enabled,
   });
@@ -348,8 +363,9 @@ export function useSaveGlobalSettings() {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: contentKeys.globalSettings() });
-      // เป้าหมาย weekly_posts_target ถูกใช้ในการ์ดเมตริกผลลัพธ์ด้วย
-      qc.invalidateQueries({ queryKey: contentKeys.resultMetrics() });
+      // เป้าหมาย weekly_posts_target ถูกใช้ในการ์ดเมตริกผลลัพธ์ด้วย — invalidate
+      // ทุกช่วงวันที่ที่ cache ไว้
+      qc.invalidateQueries({ queryKey: contentKeys.resultMetricsAll() });
     },
   });
 }

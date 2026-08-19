@@ -1,4 +1,6 @@
-import { FileText, Clock, CheckCircle2, Edit3, AlertTriangle, Eye, ThumbsUp, ArrowRight, BarChart3, CalendarClock, Share2, Radio, TrendingUp, LayoutDashboard, Timer, Gauge, Filter, Hourglass, Sparkles, Send, RefreshCw, XCircle, Loader2, SearchCheck, GitBranch } from 'lucide-react';
+import { useState } from 'react';
+import { FileText, Clock, CheckCircle2, Edit3, AlertTriangle, ArrowRight, BarChart3, CalendarClock, Share2, Globe, Radio, LayoutDashboard, Filter, Hourglass, Sparkles, Send, RefreshCw, XCircle, Loader2 } from 'lucide-react';
+import { format, startOfMonth, subMonths } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -8,11 +10,32 @@ import { useContentItems, useOverdueCount, useAllSchedules, usePublishChannels, 
 import PageShell from '@/components/PageShell';
 import { STATUS_MAP, PLATFORM_MAP, TYPE_MAP } from '@/components/content/types';
 import { PlatformIcon } from '@/components/content/PlatformIcon';
-import { BestTimeAnalyticsPanel } from '@/components/content/BestTimeAnalyticsPanel';
-import { ContentThroughputChart } from '@/components/content/ContentThroughputChart';
+import { AnalyticsContentTab } from '@/components/content/AnalyticsContentTab';
+import { AnalyticsSocialTab } from '@/components/content/AnalyticsSocialTab';
+import { AnalyticsWebsiteTab } from '@/components/content/AnalyticsWebsiteTab';
+import ReportDateFilter from '@/components/reports/ReportDateFilter';
 import { getPlatformColors } from '@/lib/platformConfig';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+
+/** sub-tab ของแท็บวิเคราะห์ — ค่าที่ผูกกับ URL param `view` */
+const ANALYTICS_VIEWS = ['social', 'website', 'content'] as const;
+type AnalyticsView = typeof ANALYTICS_VIEWS[number];
+
+const ANALYTICS_SUBTABS: Array<{ value: AnalyticsView; label: string; icon: React.ElementType }> = [
+  { value: 'social',  label: 'โซเชียล', icon: Share2 },
+  { value: 'website', label: 'เว็บไซต์', icon: Globe },
+  { value: 'content', label: 'เนื้อหา',  icon: FileText },
+];
+
+/** ช่วงวันที่ default = 12 เดือนย้อนหลังถึงวันนี้ — ตรงกับ default ฝั่ง backend */
+function defaultDateRange(): { from: string; to: string } {
+  const today = new Date();
+  return {
+    from: format(startOfMonth(subMonths(today, 11)), 'yyyy-MM-dd'),
+    to: format(today, 'yyyy-MM-dd'),
+  };
+}
 
 export default function ContentDashboardPage() {
   const { data: items = [], isLoading } = useContentItems();
@@ -24,16 +47,32 @@ export default function ContentDashboardPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  // Active tab driven by the `tab` URL query param (default: overview)
+  // Active tab driven by the `tab` URL query param (default: overview).
+  // The analytics sub-tab lives in `view` so a refresh restores both levels.
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = searchParams.get('tab') === 'analytics' ? 'analytics' : 'overview';
+  const rawView = searchParams.get('view');
+  const view: AnalyticsView = ANALYTICS_VIEWS.includes(rawView as AnalyticsView)
+    ? (rawView as AnalyticsView)
+    : 'content';
+
+  // Carry `view` along when entering the analytics tab so the sub-tab never
+  // gets dropped, and drop both params when returning to the overview tab.
   const handleTabChange = (value: string) => {
-    setSearchParams(value === 'analytics' ? { tab: 'analytics' } : {});
+    setSearchParams(value === 'analytics' ? { tab: 'analytics', view } : {});
   };
+  const handleViewChange = (value: string) => {
+    setSearchParams({ tab: 'analytics', view: value });
+  };
+
+  // Date range for the analytics tab. Kept in component state (not the URL) —
+  // only `tab` and `view` are URL-bound.
+  const [range, setRange] = useState(defaultDateRange);
+  const { from, to } = range;
 
   // Analytics data (fetched only while the analytics tab is active)
   const { data: postingAnalytics, isLoading: analyticsLoading, refetch: refetchAnalytics } = usePostingAnalytics(tab === 'analytics');
-  const { data: resultMetrics, isLoading: metricsLoading } = useResultMetrics(tab === 'analytics');
+  const { data: resultMetrics, isLoading: metricsLoading } = useResultMetrics(from, to, tab === 'analytics');
   const recalcAnalytics = useRecalculateAnalytics();
   const handleRecalculate = () => {
     recalcAnalytics.mutate(undefined, { onSuccess: () => { refetchAnalytics(); } });
@@ -41,7 +80,7 @@ export default function ContentDashboardPage() {
 
   // BI aggregations — one request per tab, fetched lazily
   const { data: bi, isLoading: biLoading, refetch: refetchBi } = useContentOverview(tab === 'overview');
-  const { data: biAnalytics, isLoading: biAnalyticsLoading } = useContentAnalytics(tab === 'analytics');
+  const { data: biAnalytics, isLoading: biAnalyticsLoading } = useContentAnalytics(from, to, tab === 'analytics');
 
   // Retry a failed publish through the existing send_now action. The original
   // failed row stays in the queue — send_now dispatches a new attempt.
@@ -66,10 +105,6 @@ export default function ContentDashboardPage() {
   const draftCount = items.filter(i => i.status === 'draft').length;
   const pendingApprovalCount = items.filter(i => i.status === 'pending_approval').length;
 
-  // Totals for engagement
-  const totalViews = items.reduce((s, i) => s + (Number(i.views) || 0), 0);
-  const totalLikes = items.reduce((s, i) => s + (Number(i.likes) || 0), 0);
-
   // Status distribution for Work Progress
   const statusCounts = {
     published: publishedCount,
@@ -80,22 +115,9 @@ export default function ContentDashboardPage() {
   };
   const workProgressStatuses = ['published', 'approved', 'pending_approval', 'revision', 'draft'] as const;
 
-  // Platform distribution
-  const platformCounts = items.reduce<Record<string, number>>((acc, item) => {
-    const p = (item.platform ?? 'unknown').trim().toLowerCase();
-    acc[p] = (acc[p] || 0) + 1;
-    return acc;
-  }, {});
-
   // Recent items (last 5)
   const recentItems = [...items]
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-    .slice(0, 5);
-
-  // Top content by engagement score (views + likes * 2), highest first
-  const engagementScore = (i: typeof items[number]) => (Number(i.views) || 0) + (Number(i.likes) || 0) * 2;
-  const topContent = [...items]
-    .sort((a, b) => engagementScore(b) - engagementScore(a))
     .slice(0, 5);
 
   // Pending approval queue (oldest request first, null last)
@@ -131,44 +153,6 @@ export default function ContentDashboardPage() {
     { label: 'รออนุมัติ', value: pendingApprovalCount, icon: Clock, color: 'text-amber-600', bgColor: 'bg-amber-500/10', border: 'border-amber-600', countColor: 'text-amber-700' },
     { label: 'ฉบับร่าง', value: draftCount, icon: Edit3, color: 'text-gray-600', bgColor: 'bg-gray-500/10', border: 'border-gray-600', countColor: 'text-gray-700' },
   ];
-
-  // Result metric cards (analytics tab) — คำนวณจาก approved_at/published_at จริงใน DB
-  const avgProductionHours = resultMetrics?.avg_production_hours ?? null;
-  const approvedCount = resultMetrics?.approved_count ?? 0;
-  const postsLast7Days = resultMetrics?.posts_last_7_days ?? 0;
-  const weeklyTarget = resultMetrics?.weekly_posts_target ?? 0;
-
-  const frequencyHint = weeklyTarget === 0
-    ? 'ยังไม่ได้ตั้งเป้าหมาย'
-    : postsLast7Days > weeklyTarget
-      ? `เกินเป้าหมาย (เป้า ${weeklyTarget} โพสต์)`
-      : postsLast7Days === weeklyTarget
-        ? `ตรงเป้าหมาย (เป้า ${weeklyTarget} โพสต์)`
-        : `ต่ำกว่าเป้าหมาย (เป้า ${weeklyTarget} โพสต์)`;
-
-  const resultStatCards = [
-    {
-      label: 'เวลาผลิตเฉลี่ย',
-      value: metricsLoading ? 'กำลังโหลด...' : avgProductionHours === null ? 'ยังไม่มีข้อมูล' : `${avgProductionHours.toFixed(1)} ชม.`,
-      hint: metricsLoading ? null : avgProductionHours === null ? 'ยังไม่มีเนื้อหาที่อนุมัติแล้ว' : `จาก ${approvedCount.toLocaleString()} ชิ้นที่อนุมัติแล้ว`,
-      icon: Timer, color: 'text-violet-600', bgColor: 'bg-violet-500/10', border: 'border-violet-600', countColor: 'text-violet-700',
-    },
-    {
-      label: 'ความถี่การโพสต์/สัปดาห์',
-      value: metricsLoading ? 'กำลังโหลด...' : `${postsLast7Days.toLocaleString()} โพสต์`,
-      hint: metricsLoading ? null : frequencyHint,
-      icon: Gauge, color: 'text-indigo-600', bgColor: 'bg-indigo-500/10', border: 'border-indigo-600', countColor: 'text-indigo-700',
-    },
-  ];
-
-  // Engagement stat cards (analytics tab) — แสดงตลอดแม้ค่าเป็น 0 เพื่อสื่อว่า
-  // "ยังไม่มี engagement" อย่างตรงไปตรงมา (0 คือค่าจริงที่รอ ingestion)
-  const engagementStatCards = [
-    { label: 'ยอดวิวรวม', value: totalViews.toLocaleString(), hint: null, icon: Eye, color: 'text-cyan-600', bgColor: 'bg-cyan-500/10', border: 'border-cyan-600', countColor: 'text-cyan-700' },
-    { label: 'ยอดไลก์รวม', value: totalLikes.toLocaleString(), hint: null, icon: ThumbsUp, color: 'text-pink-600', bgColor: 'bg-pink-500/10', border: 'border-pink-600', countColor: 'text-pink-700' },
-  ];
-
-  const analyticsStatCards = [...resultStatCards, ...engagementStatCards];
 
   // ── BI derived values ────────────────────────────────────────────
   const queue = bi?.queue;
@@ -209,9 +193,6 @@ export default function ContentDashboardPage() {
     { key: 'none' as const,       label: 'ยังไม่สร้าง', color: 'text-muted-foreground' },
   ];
   const hasAssetActivity = assetKinds.some(k => k.data.done + k.data.generating + k.data.failed > 0);
-
-  const formatHours = (h: number | null) => h === null ? '—' : h < 1 ? `${Math.round(h * 60)} นาที` : `${h.toFixed(1)} ชม.`;
-  const platformLabel = (p: string) => p === '__unknown__' ? 'ไม่ระบุแพลตฟอร์ม' : (PLATFORM_MAP[p]?.label ?? p);
 
   return (
     <PageShell
@@ -715,319 +696,57 @@ export default function ContentDashboardPage() {
 
           {/* ── วิเคราะห์ ───────────────────────────────────────── */}
           <TabsContent value="analytics" className="space-y-6">
-            {/* Result Metrics + Engagement Stat Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {analyticsStatCards.map((card) => {
-                const Icon = card.icon;
-                return (
-                  <div key={card.label} className={`stat-card p-3 sm:p-5 ${card.border} ${card.bgColor}`}>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium">{card.label}</span>
-                      <Icon className={`w-4 h-4 shrink-0 ${card.color}`} />
-                    </div>
-                    <p className={`text-xl sm:text-2xl font-bold font-heading tabular-nums ${card.countColor}`}>{card.value}</p>
-                    {card.hint && <p className="text-xs text-muted-foreground mt-1">{card.hint}</p>}
-                  </div>
-                );
-              })}
-            </div>
+            {/* ตัวกรองช่วงวันที่ — ใช้ร่วมกับทุก sub-tab ที่มีเมตริกผูกช่วงเวลา */}
+            <ReportDateFilter
+              startDate={from}
+              endDate={to}
+              onDateRangeChange={(start, end) => setRange({ from: start, to: end })}
+              onReset={() => setRange(defaultDateRange())}
+              summary={'ช่วงวันที่นี้ใช้กับ widget ที่ผูกช่วงเวลา — widget ที่เป็น snapshot จะกำกับไว้ว่า "ไม่ผูกช่วงวันที่ที่เลือก"'}
+            />
 
-            {/* Platform Distribution + Top Content */}
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-              {/* Platform Distribution */}
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
-                    <Share2 className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    <span className="truncate">แพลตฟอร์ม</span>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {Object.keys(platformCounts).length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-4">ไม่มีข้อมูล</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {Object.entries(platformCounts)
-                        .sort(([pa, a], [pb, b]) => {
-                          const diff = b - a;
-                          if (diff !== 0) return diff;
-                          const nameA = PLATFORM_MAP[pa]?.label ?? pa;
-                          const nameB = PLATFORM_MAP[pb]?.label ?? pb;
-                          return nameA.localeCompare(nameB);
-                        })
-                        .map(([platform, count]) => {
-                          const info = PLATFORM_MAP[platform];
-                          const name = info?.label ?? platform;
-                          const pc = getPlatformColors(platform);
-                          return (
-                            <div key={platform} className="flex items-center justify-between">
-                              <div className="flex items-center gap-2 min-w-0">
-                                <span
-                                  className="inline-flex items-center justify-center w-8 h-8 rounded-lg shrink-0"
-                                  style={{ backgroundColor: pc.bg, color: pc.text }}
-                                  title={name}
-                                >
-                                  <PlatformIcon platform={platform} size={18} />
-                                </span>
-                                <span className="text-sm truncate">{name}</span>
-                              </div>
-                              <span className="text-sm font-medium">{count}</span>
-                            </div>
-                          );
-                        })}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+            {/* ── sub-tab ระดับที่ 2 ────────────────────────────── */}
+            <Tabs value={view} onValueChange={handleViewChange} className="space-y-6">
+              <TabsList className="flex overflow-x-auto sm:grid sm:grid-cols-3 border-b rounded-none bg-transparent h-auto p-0 gap-0 w-full justify-start">
+                {ANALYTICS_SUBTABS.map(subtab => {
+                  const Icon = subtab.icon;
+                  return (
+                    <TabsTrigger
+                      key={subtab.value}
+                      value={subtab.value}
+                      className="shrink-0 gap-1.5 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-4 py-2.5 text-sm font-medium"
+                    >
+                      <Icon className="h-4 w-4 shrink-0" />
+                      {subtab.label}
+                    </TabsTrigger>
+                  );
+                })}
+              </TabsList>
 
-              {/* Top Content */}
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
-                    <TrendingUp className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    <span className="truncate">เนื้อหายอดนิยม</span>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {topContent.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-8">ไม่มีเนื้อหา</p>
-                  ) : (
-                    <div className="space-y-3">
-                      {topContent.map((item, idx) => (
-                        <div key={item.id} className="flex items-center gap-3">
-                          <span className="flex items-center justify-center w-6 h-6 rounded-full bg-muted text-xs font-bold shrink-0 tabular-nums">{idx + 1}</span>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">{item.title}</p>
-                            <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                              <span className="inline-flex items-center gap-1">
-                                <Eye className="h-3 w-3" />
-                                {(Number(item.views) || 0).toLocaleString()}
-                              </span>
-                              <span className="inline-flex items-center gap-1">
-                                <ThumbsUp className="h-3 w-3" />
-                                {(Number(item.likes) || 0).toLocaleString()}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
+              <TabsContent value="social" className="mt-0">
+                <AnalyticsSocialTab />
+              </TabsContent>
 
-            {/* Best Time To Post */}
-            <Card className="overflow-hidden">
-              <BestTimeAnalyticsPanel
-                analytics={postingAnalytics}
-                isLoading={analyticsLoading}
-                onRecalculate={handleRecalculate}
-                isRecalculating={recalcAnalytics.isPending}
-              />
-            </Card>
+              <TabsContent value="website" className="mt-0">
+                <AnalyticsWebsiteTab />
+              </TabsContent>
 
-            {/* แนวโน้ม Throughput รายเดือน */}
-            <ContentThroughputChart data={biAnalytics?.throughput ?? []} isLoading={biAnalyticsLoading} />
-
-            {/* Lead time + ความสมบูรณ์ SEO */}
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-              {/* Lead time แยกตามขั้น */}
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
-                    <Timer className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    <span className="truncate">Lead time แยกตามขั้น</span>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {biAnalyticsLoading ? (
-                    <p className="py-8 text-center text-sm text-muted-foreground">กำลังโหลด...</p>
-                  ) : !biAnalytics || biAnalytics.lead_time.every(s => s.sample_size === 0) ? (
-                    <p className="py-8 text-center text-sm text-muted-foreground">ยังไม่มีคอนเทนต์ที่เดินผ่านขั้นตอนครบพอจะวัดเวลาได้</p>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b text-xs text-muted-foreground">
-                            <th className="pb-2 text-left font-medium">ขั้นตอน</th>
-                            <th className="pb-2 text-right font-medium">เฉลี่ย</th>
-                            <th className="pb-2 text-right font-medium">p50</th>
-                            <th className="pb-2 text-right font-medium">p90</th>
-                            <th className="pb-2 text-right font-medium">จำนวน</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {biAnalytics.lead_time.map(stage => (
-                            <tr key={stage.key} className="border-b last:border-0">
-                              <td className="py-2 pr-2">{stage.label}</td>
-                              {stage.sample_size === 0 ? (
-                                <td colSpan={3} className="py-2 text-right text-xs text-muted-foreground">ยังไม่มีข้อมูล</td>
-                              ) : (
-                                <>
-                                  <td className="py-2 text-right font-medium tabular-nums">{formatHours(stage.avg_hours)}</td>
-                                  <td className="py-2 text-right tabular-nums text-muted-foreground">{formatHours(stage.p50_hours)}</td>
-                                  <td className="py-2 text-right tabular-nums text-muted-foreground">{formatHours(stage.p90_hours)}</td>
-                                </>
-                              )}
-                              <td className="py-2 text-right tabular-nums text-muted-foreground">{stage.sample_size.toLocaleString()}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                      <p className="mt-3 text-xs text-muted-foreground">
-                        p50/p90 อาจแกว่งมากเมื่อจำนวนตัวอย่างน้อย — ดูคอลัมน์ "จำนวน" ประกอบเสมอ
-                      </p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* ความสมบูรณ์ SEO */}
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
-                    <SearchCheck className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    <span className="truncate">ความสมบูรณ์ SEO</span>
-                  </CardTitle>
-                  {biAnalytics && (
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {biAnalytics.seo.gate_enabled
-                        ? `เกณฑ์บังคับ ≥ ${biAnalytics.seo.gate_min_score} คะแนน`
-                        : 'ยังไม่เปิดเกณฑ์บังคับ'}
-                    </span>
-                  )}
-                </CardHeader>
-                <CardContent>
-                  {biAnalyticsLoading ? (
-                    <p className="py-8 text-center text-sm text-muted-foreground">กำลังโหลด...</p>
-                  ) : !biAnalytics || biAnalytics.seo.total_articles === 0 ? (
-                    <p className="py-8 text-center text-sm text-muted-foreground">ยังไม่มีคอนเทนต์ประเภทบทความ</p>
-                  ) : (
-                    <div className="space-y-3">
-                      <p className="text-xs text-muted-foreground">
-                        จากบทความทั้งหมด {biAnalytics.seo.total_articles.toLocaleString()} ชิ้น
-                      </p>
-                      {biAnalytics.seo.fields.map(f => (
-                        <div key={f.key}>
-                          <div className="mb-1 flex items-center justify-between">
-                            <span className="text-sm text-muted-foreground">{f.label}</span>
-                            <span className={`text-sm font-medium tabular-nums ${f.pct === 0 ? 'text-red-600' : f.pct < 50 ? 'text-amber-600' : 'text-green-600'}`}>
-                              {f.filled.toLocaleString()}/{f.total.toLocaleString()} ({f.pct}%)
-                            </span>
-                          </div>
-                          <Progress value={f.pct} className="h-1.5" />
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Plan conversion + อัตราสำเร็จการเผยแพร่ */}
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-              {/* Plan → Content conversion */}
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
-                    <GitBranch className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    <span className="truncate">Plan → Content conversion</span>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {biAnalyticsLoading ? (
-                    <p className="py-8 text-center text-sm text-muted-foreground">กำลังโหลด...</p>
-                  ) : !biAnalytics || biAnalytics.plan_conversion.by_type.length === 0 ? (
-                    <p className="py-8 text-center text-sm text-muted-foreground">ยังไม่มีแผนคอนเทนต์</p>
-                  ) : (
-                    <div className="space-y-4">
-                      {biAnalytics.plan_conversion.by_type.map(row => (
-                        <div key={row.plan_type}>
-                          <div className="mb-1 flex items-center justify-between gap-2">
-                            <span className="flex min-w-0 items-center gap-2">
-                              <span className="truncate text-sm">{row.label}</span>
-                              <Badge variant="outline" className="shrink-0 text-xs">{row.plans.toLocaleString()} แผน</Badge>
-                            </span>
-                            <span className="shrink-0 text-sm font-medium tabular-nums">
-                              {row.converted.toLocaleString()}/{row.plan_items.toLocaleString()} ({row.convert_pct}%)
-                            </span>
-                          </div>
-                          <Progress value={row.convert_pct} className="h-1.5" />
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {row.plan_items === 0
-                              ? 'แผนนี้ยังไม่มีรายการย่อย'
-                              : `แปลงเป็นคอนเทนต์แล้ว ${row.converted.toLocaleString()} ชิ้น · เผยแพร่แล้ว ${row.published.toLocaleString()} ชิ้น`}
-                          </p>
-                        </div>
-                      ))}
-                      <div className="flex items-center justify-between border-t pt-3">
-                        <span className="text-sm text-muted-foreground">คอนเทนต์ที่สร้างนอกแผน</span>
-                        <span className="text-sm font-medium tabular-nums">{biAnalytics.plan_conversion.adhoc_items.toLocaleString()} ชิ้น</span>
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* อัตราสำเร็จการเผยแพร่แยกแพลตฟอร์ม */}
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
-                    <Send className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    <span className="truncate">อัตราสำเร็จการเผยแพร่แยกแพลตฟอร์ม</span>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {biAnalyticsLoading ? (
-                    <p className="py-8 text-center text-sm text-muted-foreground">กำลังโหลด...</p>
-                  ) : !biAnalytics || biAnalytics.publish_success.length === 0 ? (
-                    <p className="py-8 text-center text-sm text-muted-foreground">ยังไม่มีรายการเผยแพร่</p>
-                  ) : (
-                    <div className="space-y-4">
-                      {biAnalytics.publish_success.map(row => (
-                        <div key={row.platform}>
-                          <div className="mb-1 flex items-center justify-between gap-2">
-                            <div className="flex min-w-0 items-center gap-2">
-                              <span
-                                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
-                                style={{
-                                  backgroundColor: getPlatformColors(row.platform).bg,
-                                  color: getPlatformColors(row.platform).text,
-                                }}
-                                title={platformLabel(row.platform)}
-                              >
-                                <PlatformIcon platform={row.platform} size={16} />
-                              </span>
-                              <span className="truncate text-sm">{platformLabel(row.platform)}</span>
-                            </div>
-                            {row.success_pct === null ? (
-                              <span className="shrink-0 text-xs text-muted-foreground">ยังไม่มีรายการที่จบ</span>
-                            ) : (
-                              <span className={`shrink-0 text-sm font-medium tabular-nums ${row.success_pct >= 80 ? 'text-green-600' : row.success_pct >= 50 ? 'text-amber-600' : 'text-red-600'}`}>
-                                สำเร็จ {row.success_pct}%
-                              </span>
-                            )}
-                          </div>
-                          {row.success_pct !== null && <Progress value={row.success_pct} className="h-1.5" />}
-                          <div className="mt-1 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
-                            <span className="text-green-600">ส่งแล้ว <span className="font-medium tabular-nums">{row.sent.toLocaleString()}</span></span>
-                            <span className="text-red-600">ล้มเหลว <span className="font-medium tabular-nums">{row.failed.toLocaleString()}</span></span>
-                            <span>รอส่ง <span className="font-medium tabular-nums">{row.pending.toLocaleString()}</span></span>
-                            {row.processing > 0 && <span>กำลังส่ง <span className="font-medium tabular-nums">{row.processing.toLocaleString()}</span></span>}
-                          </div>
-                          {row.top_error && (
-                            <p className="mt-1 break-words text-xs text-red-700 dark:text-red-300">
-                              ข้อผิดพลาดที่พบบ่อย: {row.top_error}
-                            </p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
+              <TabsContent value="content" className="mt-0">
+                <AnalyticsContentTab
+                  items={items}
+                  biAnalytics={biAnalytics}
+                  biAnalyticsLoading={biAnalyticsLoading}
+                  resultMetrics={resultMetrics}
+                  metricsLoading={metricsLoading}
+                  postingAnalytics={postingAnalytics}
+                  analyticsLoading={analyticsLoading}
+                  onRecalculate={handleRecalculate}
+                  isRecalculating={recalcAnalytics.isPending}
+                  from={from}
+                  to={to}
+                />
+              </TabsContent>
+            </Tabs>
           </TabsContent>
         </Tabs>
       )}

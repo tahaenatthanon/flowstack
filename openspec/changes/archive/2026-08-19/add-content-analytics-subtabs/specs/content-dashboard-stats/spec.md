@@ -1,10 +1,4 @@
-# content-dashboard-stats Specification
-
-## Purpose
-
-Display aggregated content stat cards (จำนวนคอนเทนต์ทั้งหมด, เผยแพร่แล้ว, Engagement รวม, Content Performance) on the "เนื้อหา" sub-tab of the content dashboard.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: แสดง Stat Cards ยอดวิวรวมและยอดไลก์รวม
 The "เนื้อหา" sub-tab of the analytics tab of the content dashboard SHALL display four stat cards: "จำนวนคอนเทนต์ทั้งหมด", "เผยแพร่แล้ว", "Engagement รวม", and "Content Performance", aggregated across all content items.

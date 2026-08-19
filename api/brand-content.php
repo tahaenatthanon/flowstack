@@ -2746,17 +2746,41 @@ if ($action === 'analytics-posting-times') {
 if ($action === 'result-metrics') {
     if ($method !== 'GET') jsonError('Method not allowed', 405);
 
+    // ช่วงวันที่ from/to (YYYY-MM-DD) — validate ก่อนใช้ และ bind เป็น parameter
+    // เท่านั้น ค่าที่ผิดรูปแบบต้องตอบ 400 ไม่ใช่ 500
+    $parseDate = static function (string $name): ?string {
+        $raw = trim((string)($_GET[$name] ?? ''));
+        if ($raw === '') return null;
+        $d = DateTime::createFromFormat('Y-m-d', $raw);
+        // createFromFormat ทดวันที่เกินจริงไปข้างหน้า (2026-02-31 → 2026-03-03)
+        // จึงต้องเทียบ round-trip เพื่อปฏิเสธวันที่ที่ไม่มีอยู่จริง
+        if ($d === false || $d->format('Y-m-d') !== $raw) {
+            jsonError("พารามิเตอร์ $name ต้องเป็นวันที่รูปแบบ YYYY-MM-DD", 400);
+        }
+        return $raw;
+    };
+    // default = 12 เดือนย้อนหลัง ให้ตรงกับ content-analytics.php?action=analytics
+    // เพื่อไม่ให้ตัวเลขบนหน้าจอเดียวกันอ้างช่วงเวลาต่างกัน
+    $rmFrom = $parseDate('from') ?? date('Y-m-01', strtotime('-11 month'));
+    $rmTo   = $parseDate('to')   ?? date('Y-m-d');
+    if ($rmFrom > $rmTo) jsonError('ช่วงวันที่ไม่ถูกต้อง — from ต้องไม่เกิน to', 400);
+    $rmFromDt = $rmFrom . ' 00:00:00';
+    $rmToDt   = $rmTo   . ' 23:59:59'; // ครอบคลุมทั้งวันสุดท้าย (คอลัมน์เป็น DATETIME)
+
     // เวลาผลิตเฉลี่ย (lead time) — เฉพาะรายการที่อนุมัติแล้ว
+    // ผูกช่วงวันที่ด้วย approved_at คือ "อนุมัติในช่วงนี้" ตามความหมายของเมตริก
     $leadStmt = $db->prepare(
         'SELECT AVG(TIMESTAMPDIFF(HOUR, created_at, approved_at)) AS avg_hours,
                 COUNT(*) AS approved_count
          FROM content_items
-         WHERE tenant_id=? AND approved_at IS NOT NULL'
+         WHERE tenant_id=? AND approved_at IS NOT NULL
+           AND approved_at BETWEEN ? AND ?'
     );
-    $leadStmt->execute([$tenantId]);
+    $leadStmt->execute([$tenantId, $rmFromDt, $rmToDt]);
     $lead = $leadStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
     // ความถี่การเผยแพร่ — นับ 7 วันล่าสุด และยอดรวมที่เผยแพร่แล้ว
+    // เป็น snapshot โดยเจตนา: ไม่ผูก from/to เพราะนิยามคือ "7 วันล่าสุด" เสมอ
     $pubStmt = $db->prepare(
         'SELECT SUM(published_at >= NOW() - INTERVAL 7 DAY) AS posts_last_7_days,
                 COUNT(*) AS published_count
@@ -2766,7 +2790,7 @@ if ($action === 'result-metrics') {
     $pubStmt->execute([$tenantId]);
     $pub = $pubStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
-    // เป้าหมายความถี่รายสัปดาห์ (0 = ยังไม่ได้ตั้งเป้าหมาย)
+    // เป้าหมายความถี่รายสัปดาห์ (0 = ยังไม่ได้ตั้งเป้าหมาย) — snapshot เช่นกัน
     $tgtStmt = $db->prepare('SELECT weekly_posts_target FROM content_global_settings WHERE tenant_id=?');
     $tgtStmt->execute([$tenantId]);
     $target = (int)($tgtStmt->fetchColumn() ?: 0);
@@ -2778,6 +2802,8 @@ if ($action === 'result-metrics') {
         : null;
 
     jsonResponse([
+        // ช่วงที่ใช้จริง เพื่อให้ client แยกออกว่าเป็น default หรือค่าที่ส่งมา
+        'range'                => ['from' => $rmFrom, 'to' => $rmTo],
         'avg_production_hours' => $avgHours,
         'approved_count'       => $approvedCount,
         'posts_last_7_days'    => (int)($pub['posts_last_7_days'] ?? 0),

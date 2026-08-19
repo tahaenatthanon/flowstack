@@ -1,10 +1,4 @@
-# content-dashboard-analytics Specification
-
-## Purpose
-
-แสดงข้อมูลเชิง insight ในแท็บ "วิเคราะห์" ของแดชบอร์ดคอนเทนต์ — widget "เนื้อหายอดนิยม" (Top Content) และ "เวลาที่ดีที่สุดในการโพสต์" (Best Time Analytics)
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: แสดงเนื้อหายอดนิยม (Top Content)
 The "เนื้อหา" sub-tab of the "วิเคราะห์" (Analytics) tab SHALL display a "เนื้อหายอดนิยม" widget listing the top content items ordered by an engagement score (`views + likes * 2`) descending, limited to the top 5 items.

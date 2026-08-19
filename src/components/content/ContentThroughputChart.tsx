@@ -20,11 +20,13 @@ function formatPeriod(period: string): string {
 interface Props {
   data: ThroughputPoint[];
   isLoading: boolean;
+  /** ข้อความมุมขวาของหัวการ์ด — ระบุช่วงวันที่ที่กราฟกำลังแสดง */
+  caption?: string;
 }
 
-export function ContentThroughputChart({ data, isLoading }: Props) {
-  // The endpoint always returns a dense 12-month axis, so "no activity" means
-  // every point is zero rather than an empty array.
+export function ContentThroughputChart({ data, isLoading, caption = '12 เดือนย้อนหลัง' }: Props) {
+  // The endpoint always returns a dense axis across the selected range, so
+  // "no activity" means every point is zero rather than an empty array.
   const hasActivity = data.some(p => p.created + p.requested + p.approved + p.published > 0);
   const chartData = data.map(p => ({ ...p, label: formatPeriod(p.period) }));
 
@@ -35,13 +37,13 @@ export function ContentThroughputChart({ data, isLoading }: Props) {
           <TrendingUp className="h-4 w-4 shrink-0 text-muted-foreground" />
           <span className="truncate">แนวโน้ม Throughput รายเดือน</span>
         </CardTitle>
-        <span className="shrink-0 text-xs text-muted-foreground">12 เดือนย้อนหลัง</span>
+        <span className="shrink-0 text-xs text-muted-foreground">{caption}</span>
       </CardHeader>
       <CardContent>
         {isLoading ? (
           <p className="py-16 text-center text-sm text-muted-foreground">กำลังโหลด...</p>
         ) : !hasActivity ? (
-          <p className="py-16 text-center text-sm text-muted-foreground">ยังไม่มีความเคลื่อนไหวใน 12 เดือนที่ผ่านมา</p>
+          <p className="py-16 text-center text-sm text-muted-foreground">ยังไม่มีความเคลื่อนไหวในช่วงวันที่ที่เลือก</p>
         ) : (
           <ResponsiveContainer width="100%" height={280}>
             <LineChart data={chartData} margin={{ top: 5, right: 8, left: -20, bottom: 0 }}>
