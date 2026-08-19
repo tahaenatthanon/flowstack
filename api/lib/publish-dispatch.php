@@ -31,6 +31,18 @@ function dispatch_content(string $platform, array $channel, array $content): arr
     $excerpt = $art['excerpt'] ?? '';
     $imgUrl  = $content['generated_image_url'] ?? '';
 
+    // ฟิลด์ SEO/AEO สำหรับ Lotus Domino — อ่านจาก article_content JSON ก่อน แล้ว fallback ไปคอลัมน์ content_items
+    // (ลำดับ fallback ตรงกับ inline handler เดิมใน brand-content.php)
+    $seo = [
+        'date'             => $content['scheduled_at'] ?? $content['scheduled_date'] ?? '',
+        'slug'             => $art['slug']             ?? $content['slug']             ?? '',
+        'seo_title'        => $art['seo_title']        ?? $content['seo_title']        ?? $title,
+        'meta_description' => $art['meta_description'] ?? $content['meta_description'] ?? $excerpt,
+        'tags'             => is_array($art['hashtags'] ?? null)
+            ? implode(',', array_map(fn($t) => ltrim($t, '#'), $art['hashtags']))
+            : ($art['meta_keywords'] ?? $content['meta_keywords'] ?? ''),
+    ];
+
     return match($platform) {
         'facebook'  => dispatch_facebook($channel, $creds, $title, $body),
         'instagram' => dispatch_instagram($channel, $creds, $title, $body, $imgUrl),
@@ -40,6 +52,7 @@ function dispatch_content(string $platform, array $channel, array $content): arr
         'twitter'   => dispatch_twitter($channel, $creds, $title, $body),
         'wordpress' => dispatch_wordpress($channel, $creds, $title, $body, $excerpt),
         'wix'       => dispatch_wix($channel, $creds, $title, $body),
+        'lotusdomino' => dispatch_lotusdomino($channel, $creds, $title, $body, $excerpt, $imgUrl, $seo),
         'custom'    => dispatch_custom($channel, $creds, $title, $body, $excerpt, $imgUrl),
         default     => ['success' => false, 'error' => "Unknown platform: $platform"],
     };
@@ -407,6 +420,54 @@ function dispatch_wix(array $channel, array $creds, string $title, string $body)
     ]);
     if ($result['success']) {
         $result['platform_post_id'] = $result['data']['post']['id'] ?? null;
+    }
+    return $result;
+}
+
+// ─── Lotus Domino ───────────────────────────────────────────────────────────────
+// Creds: ไม่ใช้ (Domino agent endpoint เปิดรับ POST โดยไม่ต้อง auth)
+// Channel.endpoint_url = Domino agent URL (เช่น .../transform.nsf/ParseJSONString)
+// สกัดจาก inline handler เดิมใน api/brand-content.php (?action=publish)
+// เพื่อให้ cron queue และ send_now เผยแพร่ผ่าน dispatch_content() ได้
+//
+// $seo: ['date','slug','seo_title','meta_description','tags'] — optional ทุก key
+
+function dispatch_lotusdomino(array $channel, array $creds, string $title, string $body, string $excerpt, string $imgUrl, array $seo = []): array {
+    $url = $channel['endpoint_url'] ?? '';
+    if (!$url) {
+        return ['success' => false, 'error' => 'Lotus Domino endpoint_url missing'];
+    }
+
+    // Domino agent รับ JSON array ของ document (1 element = 1 โพสต์)
+    $payload = [[
+        'Date'            => !empty($seo['date']) ? $seo['date'] : date('Y-m-d H:i:s'),
+        'Title'           => $title,
+        'Body'            => $body,
+        'Excerpt'         => $excerpt,
+        'Slug'            => $seo['slug']             ?? '',
+        'SEOTitle'        => $seo['seo_title']        ?? $title,
+        'MetaDescription' => $seo['meta_description'] ?? $excerpt,
+        'Tags'            => $seo['tags']             ?? '',
+        'AttachPhoto'     => $imgUrl,
+    ]];
+
+    $result = _dispatch_post($url, [
+        CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
+        CURLOPT_POSTFIELDS     => json_encode($payload),
+        CURLOPT_SSL_VERIFYPEER => false,
+    ]);
+
+    // Domino agent เป็น black-box: ไม่คืน HTTP status ที่เชื่อถือได้
+    // → ถือว่าสำเร็จถ้าไม่มี cURL error (คงพฤติกรรมเดิมของ inline handler)
+    // _dispatch_post() ตั้ง http_code ไว้เฉพาะกรณีที่ตอบกลับมาแล้วแต่ HTTP >= 400
+    // ซึ่งแยกจากกรณี cURL error (ไม่มี http_code) ได้ชัดเจน
+    if (!$result['success'] && isset($result['http_code'])) {
+        $result['success'] = true;
+        unset($result['error']);
+    }
+    if ($result['success']) {
+        // Domino agent ไม่คืน document id → ใช้ค่าอ้างอิงเวลาโพสต์ (แบบเดียวกับ lineoa/custom)
+        $result['platform_post_id'] = 'lotusdomino_' . time();
     }
     return $result;
 }

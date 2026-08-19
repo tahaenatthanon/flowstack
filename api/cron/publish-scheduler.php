@@ -18,6 +18,8 @@ function isCancelled(PDO $db): bool {
 }
 
 // Select up to 50 pending entries due now, across all tenants
+// pc.is_active = 1: ข้าม channel ที่ถูกปิด — การปิด channel จึงกัน cron ได้จริง
+// (ก่อนหน้านี้ไม่กรอง ทำให้ channel ที่ปิดยังถูกหยิบมา dispatch แล้ว fail ซ้ำ ๆ)
 $stmt = $db->prepare(
     "SELECT q.*, ci.title, ci.caption, ci.article_content, ci.generated_image_url,
             ci.platform AS content_platform,
@@ -26,6 +28,7 @@ $stmt = $db->prepare(
      JOIN content_items ci       ON ci.id = q.content_id
      JOIN publish_channels pc    ON pc.id = q.channel_id
      WHERE q.status = 'pending' AND q.scheduled_at <= NOW()
+       AND pc.is_active = 1
      ORDER BY q.scheduled_at ASC
      LIMIT 50"
 );
