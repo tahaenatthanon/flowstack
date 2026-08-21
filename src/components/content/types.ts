@@ -239,10 +239,32 @@ export interface ContentStatsSummary {
   performance_pct: number | null;
 }
 
+/**
+ * ยอดรวม engagement เฉพาะ Facebook/Instagram — มาจากตาราง time-series
+ * `content_post_metrics` (แถวล่าสุดต่อคอนเทนต์+ช่องทาง) ไม่ใช่ `content_items.views/likes`
+ * ที่เป็นผลรวมทุกแพลตฟอร์ม
+ */
+export interface SocialEngagementSummary {
+  /** แพลตฟอร์มที่ตัวเลขนี้ครอบคลุมจริง */
+  platforms: string[];
+  /** จำนวนโพสต์ที่มีข้อมูลซิงก์แล้วในช่วงที่เลือก */
+  posts: number;
+  views: number;
+  likes: number;
+  /** views + likes */
+  engagement: number;
+  /** เวลาซิงก์ล่าสุด; null = ยังไม่เคยซิงก์ */
+  last_fetched_at: string | null;
+  /** false = ยังไม่มีโพสต์ FB/IG ที่ซิงก์แล้ว → ต้องแสดง "—" ไม่ใช่ 0 */
+  has_data: boolean;
+}
+
 export interface ContentAnalytics {
   /** ช่วงวันที่ที่ backend ใช้จริง (default 12 เดือนย้อนหลังเมื่อ client ไม่ส่งมา) */
   range: DateRange;
   stats: ContentStatsSummary;
+  /** engagement เฉพาะ Facebook/Instagram จาก content_post_metrics (cohort = โพสต์ที่เผยแพร่ในช่วงที่เลือก) */
+  social: SocialEngagementSummary;
   /** หนึ่งจุดต่อเดือนตลอดช่วงวันที่ที่เลือก (เดือนที่ไม่มีข้อมูล = 0) */
   throughput: ThroughputPoint[];
   lead_time: LeadTimeStage[];

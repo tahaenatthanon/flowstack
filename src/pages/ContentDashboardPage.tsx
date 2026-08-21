@@ -739,7 +739,10 @@ export default function ContentDashboardPage() {
               </TabsList>
 
               <TabsContent value="social" className="mt-0">
-                <AnalyticsSocialTab />
+                <AnalyticsSocialTab
+                  social={biAnalytics?.social}
+                  socialLoading={biAnalyticsLoading}
+                />
               </TabsContent>
 
               <TabsContent value="website" className="mt-0">

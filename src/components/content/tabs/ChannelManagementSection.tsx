@@ -180,7 +180,20 @@ export default function ChannelManagementSection() {
             {credFields[form.platform]?.map(field => (
               <div key={field.key} className="space-y-1.5">
                 <Label>{field.label} {editing && <span className="text-xs text-muted-foreground font-normal">(เว้นว่างเพื่อไม่เปลี่ยน)</span>}</Label>
-                <Input type={field.type ?? 'text'} value={form.credentials[field.key] ?? ''} onChange={e => setForm(f => ({ ...f, credentials: { ...f.credentials, [field.key]: e.target.value } }))} />
+                {/* กัน autofill ของเบราว์เซอร์/password manager ยัดค่าที่จำไว้ลงช่อง creds:
+                    ช่อง text (Page ID) ที่อยู่ติดกับช่อง password (Access Token) ทำให้ Chrome
+                    มองว่าเป็นฟอร์ม login แล้วเติมอีเมลผู้ใช้ลง Page ID และรหัสผ่านที่จำไว้ลง
+                    Access Token — ผู้ใช้เจอปัญหานี้จริงและ token ที่ผิดถูกบันทึกลงฐานข้อมูล
+                    name ที่ไม่สื่อว่าเป็น username/password + autoComplete="new-password" คือชุดที่กันได้ */}
+                <Input
+                  type={field.type ?? 'text'}
+                  name={`chcred-${form.platform}-${field.key}`}
+                  autoComplete="new-password"
+                  data-lpignore="true"
+                  data-1p-ignore
+                  value={form.credentials[field.key] ?? ''}
+                  onChange={e => setForm(f => ({ ...f, credentials: { ...f.credentials, [field.key]: e.target.value } }))}
+                />
                 {field.hint && <p className="text-[11px] text-muted-foreground">{field.hint}</p>}
               </div>
             ))}

@@ -1777,7 +1777,36 @@ if ($action === 'channels') {
         if (isset($body['platform']))     { $sets[] = 'platform=?';     $params[] = $body['platform']; }
         if (isset($body['endpoint_url'])) { $sets[] = 'endpoint_url=?'; $params[] = $body['endpoint_url']; }
         if (isset($body['is_active']))    { $sets[] = 'is_active=?';    $params[] = (int)$body['is_active']; }
-        if (isset($body['credentials']))  { $sets[] = 'credentials_encrypted=?'; $params[] = encryptValue(json_encode($body['credentials'])); }
+        // creds: merge ทับเฉพาะคีย์ที่ส่งค่ามาจริง — ตามที่ UI สัญญาไว้ว่า "(เว้นว่างเพื่อไม่เปลี่ยน)"
+        // เดิมเขียนทับทั้งชุด ทำให้แก้แค่ชื่อช่องทาง (frontend ส่ง credentials: {} มาด้วยเสมอ)
+        // ล้าง creds หายทั้งหมด และกรอกแค่ access_token ก็ทำให้ page_id หาย
+        // ส่ง credentials_replace: true มาด้วยถ้าต้องการเขียนทับทั้งชุด (ใช้ลบคีย์ที่ไม่ใช้แล้ว)
+        if (isset($body['credentials']) && is_array($body['credentials'])) {
+            $current = [];
+            if (empty($body['credentials_replace'])) {
+                $curStmt = $db->prepare("SELECT credentials_encrypted FROM publish_channels WHERE id=? AND tenant_id=?");
+                $curStmt->execute([$id, $tenantId]);
+                $enc = (string)($curStmt->fetchColumn() ?: '');
+                if ($enc !== '') {
+                    $decoded = json_decode(decryptValue($enc), true);
+                    if (is_array($decoded)) $current = $decoded;
+                }
+            }
+            // trim: token ที่ copy มามัก ติด space/newline ท้ายค่า ซึ่งทำให้ปลายทางตอบ error
+            // ที่อ่านไม่รู้สาเหตุ — ตัดทิ้งตรงนี้ที่เดียว และค่าว่าง = ไม่เปลี่ยนค่าเดิม
+            $incoming = [];
+            foreach ($body['credentials'] as $k => $v) {
+                if (!is_scalar($v)) continue;
+                $trimmed = trim((string)$v);
+                if ($trimmed === '') continue;
+                $incoming[$k] = $trimmed;
+            }
+            $merged = array_merge($current, $incoming);
+            if ($merged !== $current) {
+                $sets[] = 'credentials_encrypted=?';
+                $params[] = encryptValue(json_encode($merged));
+            }
+        }
         if (empty($sets)) jsonError('nothing to update', 400);
         $params[] = $id; $params[] = $tenantId;
         $db->prepare("UPDATE publish_channels SET ".implode(',',$sets)." WHERE id=? AND tenant_id=?")->execute($params);
@@ -2815,26 +2844,49 @@ if ($action === 'result-metrics') {
 
 // ─── ANALYTICS RECALCULATE ────────────────────────────────────────
 if ($action === 'analytics-recalculate' && $method === 'POST') {
-    $cnt = $db->prepare('SELECT COUNT(*) FROM content_items WHERE tenant_id=? AND status=?');
-    $cnt->execute([$tenantId, 'published']);
-    if ((int)$cnt->fetchColumn() < 10) {
-        jsonError('Need at least 10 published posts to calculate', 400);
+    // นับ cohort เดียวกับที่ INSERT ด้านล่างใช้จริง — ถ้านับกว้างกว่านั้น เกตจะผ่าน
+    // แต่ข้อมูลที่จัดกลุ่มได้จะน้อยกว่า 10 (published_at NULL หรือไม่ระบุ platform ถูกตัดออก)
+    $cnt = $db->prepare(
+        "SELECT COUNT(*) FROM content_items
+         WHERE tenant_id=? AND status='published'
+           AND published_at IS NOT NULL
+           AND platform IS NOT NULL AND platform != ''"
+    );
+    $cnt->execute([$tenantId]);
+    $eligible = (int)$cnt->fetchColumn();
+    if ($eligible < 10) {
+        $missing = 10 - $eligible;
+        jsonError(
+            "ต้องมีคอนเทนต์ที่เผยแพร่แล้ว (มีเวลาเผยแพร่และระบุแพลตฟอร์ม) อย่างน้อย 10 รายการ "
+            . "จึงจะคำนวณเวลาโพสต์ที่ดีที่สุดได้ — ปัจจุบันมี {$eligible} รายการ ขาดอีก {$missing} รายการ",
+            400
+        );
     }
 
     $db->prepare('DELETE FROM content_posting_analytics WHERE tenant_id=?')->execute([$tenantId]);
 
+    // จัดกลุ่มด้วย published_at (เวลาที่เผยแพร่จริง) ไม่ใช่ created_at (เวลาที่สร้างดราฟต์)
+    // — คำถามของ widget คือ "ควรโพสต์เวลาไหน" ไม่ใช่ "ควรเขียนดราฟต์เวลาไหน"
+    // published_at IS NOT NULL: กันแถวเก่าที่ status='published' แต่ไม่มีเวลาเผยแพร่
+    // ทำให้ day_of_week/hour_of_day เป็น NULL
+    //
+    // น้ำหนัก likes × 2: ยกมาตามแผนเดิม docs/superpowers/plans/2026-05-10-content-calendar-planner.md:490
+    // ซึ่งไม่ได้ระบุเหตุผลของตัวเลข 2 ไว้ และค่าเดียวกันถูกคัดลอกไปใช้ที่
+    // src/components/content/AnalyticsContentTab.tsx:141 ("เนื้อหายอดนิยม") ด้วย
+    // คงค่าเดิมไว้เพื่อไม่ให้อันดับเปลี่ยนไปจากที่ผู้ใช้เห็นอยู่ — ถ้าจะปรับต้องแก้ทั้งสองที่พร้อมกัน
     $sql = "
         INSERT INTO content_posting_analytics (id, tenant_id, platform, day_of_week, hour_of_day, avg_engagement, total_posts, sample_size)
         SELECT UUID(), ?, platform,
-               (DAYOFWEEK(created_at) - 1) AS day_of_week,
-               HOUR(created_at) AS hour_of_day,
+               (DAYOFWEEK(published_at) - 1) AS day_of_week,
+               HOUR(published_at) AS hour_of_day,
                AVG(COALESCE(views, 0) + COALESCE(likes, 0) * 2) AS avg_engagement,
                COUNT(*) AS total_posts,
                COUNT(*) AS sample_size
         FROM content_items
         WHERE tenant_id=? AND status='published'
+          AND published_at IS NOT NULL
           AND platform IS NOT NULL AND platform != ''
-        GROUP BY platform, DAYOFWEEK(created_at), HOUR(created_at)
+        GROUP BY platform, DAYOFWEEK(published_at), HOUR(published_at)
     ";
     $db->prepare($sql)->execute([$tenantId, $tenantId]);
 

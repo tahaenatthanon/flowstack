@@ -487,10 +487,65 @@ if ($action === 'analytics') {
     $statViews     = (int)($stat['views'] ?? 0);
     $statLikes     = (int)($stat['likes'] ?? 0);
 
+    // 7) Social engagement — Facebook/Instagram only, from the phase-2 time-series
+    // table. Deliberately NOT read from content_items.views/likes: that column holds
+    // the sum across *all* channels (including hand-entered numbers), so it cannot
+    // answer "how much engagement came from FB/IG".
+    // One row per (content, ช่องทาง) is used — the latest fetched_at — because
+    // content_post_metrics keeps every sync round. The inner GROUP BY collapses
+    // same-second ties (fetched_at is DATETIME, second precision) to one value per
+    // ช่องทาง so two rounds landing in the same second cannot double-count.
+    // ช่องทาง = channel_id, falling back to platform_post_id when the channel row
+    // was deleted (FK sets channel_id to NULL): grouping orphaned rows by a NULL
+    // channel_id would merge two different posts into one and under-count them.
+    // Cohort = posts *published* inside the window (ci.published_at), not the round
+    // the metrics were fetched in.
+    $socialStmt = $db->prepare(
+        "SELECT COALESCE(SUM(s.views), 0)          AS views,
+                COALESCE(SUM(s.likes), 0)          AS likes,
+                COUNT(DISTINCT s.content_item_id)  AS posts,
+                MAX(s.fetched_at)                  AS last_fetched_at
+         FROM (SELECT m.content_item_id,
+                      MAX(m.views) AS views, MAX(m.likes) AS likes, MAX(m.fetched_at) AS fetched_at
+                 FROM content_post_metrics m
+                 JOIN content_items ci ON ci.id = m.content_item_id
+                 JOIN (SELECT content_item_id,
+                              COALESCE(channel_id, CONCAT('#', platform_post_id)) AS series_key,
+                              MAX(fetched_at) AS mx
+                         FROM content_post_metrics
+                        WHERE tenant_id = ?
+                        GROUP BY content_item_id, series_key) t
+                   ON t.content_item_id = m.content_item_id
+                  AND t.series_key = COALESCE(m.channel_id, CONCAT('#', m.platform_post_id))
+                  AND t.mx = m.fetched_at
+                WHERE m.tenant_id = ?
+                  AND m.platform IN ('facebook', 'instagram')
+                  AND ci.published_at BETWEEN ? AND ?
+                GROUP BY m.content_item_id,
+                         COALESCE(m.channel_id, CONCAT('#', m.platform_post_id))) s"
+    );
+    $socialStmt->execute([$tenantId, $tenantId, $fromDt, $toDt]);
+    $social      = $socialStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    $socialPosts = (int)($social['posts'] ?? 0);
+    $socialViews = (int)($social['views'] ?? 0);
+    $socialLikes = (int)($social['likes'] ?? 0);
+
     jsonResponse([
         // Echo the window actually applied, so the client can tell a default apart
         // from what it asked for.
         'range'      => ['from' => $from, 'to' => $to],
+        'social'     => [
+            'platforms'       => ['facebook', 'instagram'],
+            'posts'           => $socialPosts,
+            'views'           => $socialViews,
+            'likes'           => $socialLikes,
+            'engagement'      => $socialViews + $socialLikes,
+            'last_fetched_at' => $social['last_fetched_at'] ?? null,
+            // false when no FB/IG post has ever been synced — the client must show
+            // "—" then, not 0, because 0 would read as "no engagement" instead of
+            // "not measured yet".
+            'has_data'        => $socialPosts > 0,
+        ],
         'stats'      => [
             'total'     => $statTotal,
             'published' => $statPublished,
