@@ -2414,9 +2414,10 @@ if ($action === 'publish') {
 
     // Sync linked content_item status to 'published' on success
     // แก้บั๊กคีย์: ใช้ WHERE id=? (คีย์เดียวกับที่โหลด $itemId มา) แทน plan_item_id ที่อาจไม่ตรง/เป็น NULL
+    // platform: เขียนตาม channel ที่โพสต์จริง — analytics-recalculate group by คอลัมน์นี้
     if (isset($ok) && $ok) {
-        $db->prepare("UPDATE content_items SET status='published', published_at=NOW(), published_url=?, external_post_id=?, updated_at=NOW() WHERE id=? AND tenant_id=?")
-           ->execute([$publishedUrl, $postId, $itemId, $tenantId]);
+        $db->prepare("UPDATE content_items SET status='published', published_at=NOW(), published_url=?, external_post_id=?, platform=?, updated_at=NOW() WHERE id=? AND tenant_id=?")
+           ->execute([$publishedUrl, $postId, $platform, $itemId, $tenantId]);
     }
 
     jsonResponse(['ok' => isset($ok) ? $ok : true, 'result' => $result]);
@@ -2647,11 +2648,12 @@ if ($action === 'cron-publish') {
 
         // บันทึกผลเผยแพร่กลับ content_items เมื่อสำเร็จ — resolve id จาก plan_item_id
         // (derived table ครอบ subquery เพื่อเลี่ยง MariaDB error 1093 จากการอ้าง target table ใน subquery)
+        // platform: เขียนตาม channel ของ schedule ที่โพสต์จริง — analytics-recalculate group by คอลัมน์นี้
         if ($ok) {
             $db->prepare(
-                "UPDATE content_items SET status='published', published_at=NOW(), updated_at=NOW()
+                "UPDATE content_items SET status='published', published_at=NOW(), platform=?, updated_at=NOW()
                  WHERE id=(SELECT id FROM (SELECT id FROM content_items WHERE plan_item_id=? AND tenant_id=? LIMIT 1) AS ci_match)"
-            )->execute([$sc['plan_item_id'], $tenantId]);
+            )->execute([$sc['platform'], $sc['plan_item_id'], $tenantId]);
         }
 
         $processed[] = ['id' => $sc['id'], 'status' => $status, 'topic' => $sc['topic']];

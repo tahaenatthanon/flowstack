@@ -117,8 +117,10 @@ export default function ContentApprovalTab() {
       });
       toast({ title: 'อนุมัติเรียบร้อย', description: `"${item.title}" ได้รับการอนุมัติแล้ว` });
       qc.invalidateQueries({ queryKey: contentKeys.items() });
-    } catch {
-      toast({ title: 'เกิดข้อผิดพลาด', description: 'ไม่สามารถอนุมัติได้', variant: 'destructive' });
+    } catch (e: any) {
+      // แสดงข้อความจาก API ตรง ๆ — เกตกันถอยสถานะ (422) อธิบายว่าคอนเทนต์เผยแพร่แล้วเมื่อไหร่
+      // ซึ่งข้อความ hardcode เดิมกลืนทิ้งไป
+      toast({ title: 'เกิดข้อผิดพลาด', description: e?.message || 'ไม่สามารถอนุมัติได้', variant: 'destructive' });
     }
     setConfirmApprove(null);
   };
@@ -140,8 +142,9 @@ export default function ContentApprovalTab() {
         description: `"${item.title}" ${kind === 'revision' ? 'ถูกส่งกลับให้แก้ไข' : 'ถูกเปลี่ยนสถานะเป็นปฏิเสธ'}`,
       });
       qc.invalidateQueries({ queryKey: contentKeys.items() });
-    } catch {
-      toast({ title: 'เกิดข้อผิดพลาด', description: 'ไม่สามารถดำเนินการได้', variant: 'destructive' });
+    } catch (e: any) {
+      // แสดงข้อความจาก API ตรง ๆ — เกตกันถอยสถานะ (422) อธิบายว่าคอนเทนต์เผยแพร่แล้วเมื่อไหร่
+      toast({ title: 'เกิดข้อผิดพลาด', description: e?.message || 'ไม่สามารถดำเนินการได้', variant: 'destructive' });
     }
     setReasonDialog({ open: false, item: null, kind: 'rejected' });
     setRejectReason('');

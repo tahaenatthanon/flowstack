@@ -64,7 +64,10 @@ function dispatch_content(string $platform, array $channel, array $content): arr
  * เป็น additive — ไม่เปลี่ยนพฤติกรรม dispatch_* เดิม
  *
  * platform_post_id : แต่ละ dispatch_* ตั้ง $result['platform_post_id'] ไว้แล้วเมื่อสำเร็จ
- * published_url    : WordPress คืน URL โพสต์กลับใน data.link — platform อื่นยังไม่มี URL ที่เชื่อถือได้ → null
+ * published_url    : อ่าน $result['published_url'] ก่อน — dispatch_* ที่หา URL โพสต์ได้เอง
+ *                    (facebook ยิง permalink lookup) จะตั้งคีย์นี้ไว้ให้
+ *                    ถ้าไม่มี ค่อย fallback ไป WordPress ที่คืน URL ใน data.link
+ *                    platform อื่นที่ยังไม่มี URL ที่เชื่อถือได้ → null
  *
  * @return array{platform_post_id: ?string, published_url: ?string}
  */
@@ -74,7 +77,9 @@ function extract_publish_meta(array $result, string $platform, array $channel): 
         : null;
 
     $url = null;
-    if ($platform === 'wordpress' && !empty($result['data']['link'])) {
+    if (isset($result['published_url']) && $result['published_url'] !== '') {
+        $url = (string) $result['published_url'];
+    } elseif ($platform === 'wordpress' && !empty($result['data']['link'])) {
         $url = (string) $result['data']['link'];
     }
 
@@ -133,6 +138,35 @@ function _dispatch_post(string $url, array $options = []): array {
     return ['success' => true, 'data' => $data];
 }
 
+/**
+ * GET helper — โครงเดียวกับ _dispatch_post แต่ไม่ตั้ง CURLOPT_POST
+ *
+ * ใช้สำหรับ lookup ข้อมูลโพสต์หลังเผยแพร่สำเร็จ (เช่น permalink_url ของ facebook)
+ * ผู้เรียกต้องถือว่าผลลัพธ์เป็น "ข้อมูลเสริม" — ล้มเหลวได้โดยไม่ทำให้การเผยแพร่ล้มเหลว
+ */
+function _dispatch_get(string $url): array {
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 30,
+    ]);
+    $res  = curl_exec($ch);
+    $err  = curl_error($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($err) {
+        return ['success' => false, 'error' => "cURL error: $err"];
+    }
+    $data = json_decode((string) $res, true) ?: ['raw' => mb_substr((string) $res, 0, 2000)];
+    if ($code >= 400) {
+        $msg = $data['error']['message'] ?? $data['message'] ?? $data['error'] ?? "HTTP $code";
+        if (is_array($msg)) $msg = json_encode($msg);
+        return ['success' => false, 'error' => $msg, 'http_code' => $code, 'response' => $data];
+    }
+    return ['success' => true, 'data' => $data];
+}
+
 // ─── Facebook ───────────────────────────────────────────────────────────────────
 // Creds: { "page_id": "...", "access_token": "..." }
 
@@ -150,6 +184,20 @@ function dispatch_facebook(array $channel, array $creds, string $title, string $
     ]);
     if ($result['success']) {
         $result['platform_post_id'] = $result['data']['id'] ?? null;
+        // ดึงลิงก์โพสต์ — endpoint /{pageId}/feed คืนแค่ id ไม่มี URL จึงต้อง GET เพิ่มอีกครั้ง
+        //
+        // Non-blocking โดยเจตนา: โพสต์ถูกสร้างที่ปลายทางไปแล้ว ถ้า lookup ล้มเหลว
+        // (token หมดอายุ / ไม่มีสิทธิ์ pages_read_engagement) ต้องคง success=true ไว้
+        // แล้วปล่อย published_url เป็น null — การรายงานว่า "ล้มเหลว" จะทำให้ผู้ใช้กดส่งซ้ำ
+        if ($result['platform_post_id']) {
+            $lookup = _dispatch_get(
+                'https://graph.facebook.com/v19.0/' . rawurlencode((string) $result['platform_post_id'])
+                . '?fields=permalink_url&access_token=' . urlencode($token)
+            );
+            if ($lookup['success'] && !empty($lookup['data']['permalink_url'])) {
+                $result['published_url'] = (string) $lookup['data']['permalink_url'];
+            }
+        }
     }
     return $result;
 }

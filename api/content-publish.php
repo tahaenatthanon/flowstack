@@ -186,9 +186,11 @@ if ($method === 'POST') {
                         "UPDATE content_publish_queue SET status='sent', sent_at=NOW(), platform_post_id=?, published_url=?, response_snippet=? WHERE id=?"
                     )->execute([$meta['platform_post_id'], $meta['published_url'], $snippet, $id]);
                     // บันทึกผลเผยแพร่กลับ content_items (content_id คือ content_items.id ที่โหลดมา)
+                    // platform: เขียนตาม channel ที่โพสต์จริง — analytics-recalculate group by คอลัมน์นี้
+                    // ถ้าไม่เขียน ค่าจะค้างจากตอนสร้างคอนเทนต์และแจกแจงแพลตฟอร์มผิด
                     $db->prepare(
-                        "UPDATE content_items SET status='published', published_at=NOW(), published_url=?, external_post_id=? WHERE id=? AND tenant_id=?"
-                    )->execute([$meta['published_url'], $meta['platform_post_id'], $contentId, $tenantId]);
+                        "UPDATE content_items SET status='published', published_at=NOW(), published_url=?, external_post_id=?, platform=? WHERE id=? AND tenant_id=?"
+                    )->execute([$meta['published_url'], $meta['platform_post_id'], $channel['platform'], $contentId, $tenantId]);
                     $results[] = ['channel_id' => $channel['id'], 'success' => true, 'status' => 'success'];
                 } else {
                     $errMsg = mb_substr((string) ($result['error'] ?? 'dispatch failed'), 0, 500);

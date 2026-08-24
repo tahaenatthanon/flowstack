@@ -91,6 +91,30 @@ if ($method === 'PUT') {
     if (array_key_exists('status', $body) && !in_array($body['status'], $validStatus, true)) {
         jsonError('สถานะไม่ถูกต้อง', 400);
     }
+    // เกตกันถอยสถานะ — คอนเทนต์ที่เผยแพร่แล้วห้ามกลับไปเป็นสถานะก่อนเผยแพร่
+    //
+    // ใช้ published_at เป็นหลักฐาน ไม่ใช่ status เพราะ status คือฟิลด์ที่ถูกเขียนทับไปแล้ว
+    // (ก่อนมีเกตนี้ ทั้ง 4 แถวที่มี published_at ถูกตั้งกลับเป็น draft หมด ทำให้ published_at
+    //  และ external_post_id ค้างอยู่กับแถวที่สถานะบอกว่า "ยังไม่เผยแพร่" จนหลุดจากทุก query
+    //  ที่กรอง status='published' รวมถึงเกตของ analytics-recalculate)
+    //
+    // ตรวจเฉพาะเมื่อ body ส่ง status มาด้วย — การแก้ title/caption ของคอนเทนต์ที่เผยแพร่แล้ว
+    // ยังทำได้ตามปกติ และการส่ง status='published' ซ้ำก็ผ่าน (ไม่อยู่ในเซตก่อนเผยแพร่)
+    if (array_key_exists('status', $body)) {
+        $preStatus = ['draft', 'pending_approval', 'approved', 'revision', 'rejected'];
+        if (in_array($body['status'], $preStatus, true)) {
+            $cur = $db->prepare('SELECT published_at FROM content_items WHERE id = ? AND tenant_id = ?');
+            $cur->execute([$id, $tenantId]);
+            $publishedAt = $cur->fetchColumn();
+            if (!empty($publishedAt)) {
+                jsonError(
+                    'เปลี่ยนสถานะไม่ได้ — คอนเทนต์นี้เผยแพร่แล้วเมื่อ ' . $publishedAt
+                    . ' หากต้องการแก้ไขเนื้อหา ให้สร้างคอนเทนต์ใหม่แทนการถอยสถานะ',
+                    422
+                );
+            }
+        }
+    }
     $allowed = ['title', 'type', 'status', 'views', 'likes', 'caption', 'platform', 'scheduled_date', 'image_brief', 'article_content', 'reject_reason'];
     $fields  = []; $values = [];
     foreach ($allowed as $f) {
