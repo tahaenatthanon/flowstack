@@ -31,6 +31,28 @@ if (file_exists($envFile)) {
     }
 }
 
+// --- Timezone ---
+// ตั้งเขตเวลาให้ทั้งชั้น API ที่จุดเดียว ก่อนโค้ดใดเรียก date()/strtotime()/DateTime
+// ไฟล์นี้ถูก require โดยทุก endpoint ทั้งทางตรงและผ่าน api/auth.php จึงเป็นจุดเดียว
+// ที่ครอบทั้งระบบได้
+//
+// ทำไมไม่พึ่ง date.timezone ใน php.ini: php.ini อยู่นอกโปรเจกต์ ไม่ถูกเวอร์ชันคุม และ
+// ค่าของ XAMPP บนเครื่องนี้เป็น Europe/Berlin ขณะที่ MariaDB ใช้เวลาระบบ (UTC+7) →
+// PHP ตามหลังฐานข้อมูล 5 ชั่วโมง ทำให้เกิดสองอาการพร้อมกัน:
+//   1) เขียนผิด — date('Y-m-d H:i:s') ลงคอลัมน์ที่ที่อื่นเขียนด้วย NOW() ของ MySQL
+//   2) อ่านผิด — strtotime($ค่าจากคอลัมน์ DATETIME) ตีความสตริงเป็นเขตเวลาของ PHP
+//      แล้วนำไปเทียบกับ time() ได้ผลต่างติดลบคงที่ (~-300 นาที)
+// เครื่องที่ไม่มีคีย์ APP_TIMEZONE ได้ Asia/Bangkok ซึ่งตรงกับ company_settings.timezone
+// ของทุก tenant ปัจจุบัน จึงไม่พังแบบเงียบ
+$_appTz = getenv('APP_TIMEZONE') ?: ($_ENV['APP_TIMEZONE'] ?? 'Asia/Bangkok');
+try {
+    new DateTimeZone($_appTz);           // โยน exception ถ้าไม่ใช่ชื่อ IANA ที่รู้จัก
+    date_default_timezone_set($_appTz);
+} catch (Exception $e) {
+    date_default_timezone_set('Asia/Bangkok');
+}
+unset($_appTz);
+
 // --- Database Configuration ---
 define('DB_HOST', getenv('DB_HOST') ?: ($_ENV['DB_HOST'] ?? 'localhost'));
 define('DB_NAME', getenv('DB_NAME') ?: ($_ENV['DB_NAME'] ?? 'flowstack'));
@@ -121,6 +143,29 @@ function getDB(): PDO {
         $pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
     }
     return $pdo;
+}
+
+// --- นาฬิกาฐานข้อมูล ---
+// เวลา "เดี๋ยวนี้" ตามนาฬิกาของ MariaDB ในรูปแบบ DATETIME พร้อมเขียนลงคอลัมน์ได้ตรง ๆ
+//
+// ใช้ในเส้นทางที่ค่าเวลาถูกส่งออกนอกระบบหรือถูกเทียบด้วย NOW() ของ MySQL — เช่น ฟิลด์
+// Date ที่ส่งให้ Lotus Domino (กลายเป็นวันที่บทความบนเว็บไซต์ลูกค้า) และ scheduled_at
+// ใน content_publish_queue ที่ publish-scheduler.php:30 เทียบด้วย `<= NOW()`
+// จุดเหล่านั้นต้องถูกต้องโดยโครงสร้าง ไม่ใช่โดยการตั้งค่า เพราะการตั้ง APP_TIMEZONE
+// หรือ date.timezone ผิดเพียงบรรทัดเดียวจะทำให้ของที่ส่งออกไปแล้วเรียกคืนไม่ได้
+//
+// ส่ง $db เข้ามาได้ถ้ามีอยู่ในมือ (ไม่ส่งก็ใช้ getDB() ซึ่งเป็น static singleton จึงไม่เปิด
+// connection ใหม่) — ถอยไปใช้ date() เมื่อ query ไม่สำเร็จ เพราะหลังบล็อก Timezone ด้านบน
+// PHP กับฐานข้อมูลใช้เขตเวลาเดียวกัน ค่าจึงตรงกันในทางปฏิบัติ และการโยน exception ที่นี่
+// จะทำให้การเผยแพร่ล้มทั้งรายการด้วยเรื่องเวลาอย่างเดียว ซึ่งแลกไม่คุ้ม
+function dbNow(?PDO $db = null): string {
+    try {
+        $db = $db ?? getDB();
+        return (string) $db->query('SELECT NOW()')->fetchColumn();
+    } catch (Throwable $e) {
+        error_log('[dbNow] ' . $e->getMessage());
+        return date('Y-m-d H:i:s');
+    }
 }
 
 // --- UUID Generator (RFC 4122 v4, cryptographically secure) ---

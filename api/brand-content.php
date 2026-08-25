@@ -2313,7 +2313,9 @@ if ($action === 'publish') {
         $tags           = is_array($artData['hashtags'] ?? null)
                             ? implode(',', array_map(fn($t) => ltrim($t,'#'), $artData['hashtags']))
                             : $keywords;
-        $publishDate    = !empty($item['scheduled_date']) ? $item['scheduled_date'] : date('Y-m-d H:i:s');
+        // Date: เวลาที่ตั้งไว้มาก่อนเสมอ ถ้าไม่มีจึงใช้นาฬิกาฐานข้อมูล (dbNow ใน config.php)
+        // ไม่ใช้ date() เพราะค่านี้กลายเป็นวันที่บทความบนเว็บไซต์ลูกค้าและเรียกคืนไม่ได้
+        $publishDate    = !empty($item['scheduled_date']) ? $item['scheduled_date'] : dbNow($db);
         $postBody = [[
             'Date'            => $publishDate,
             'Title'           => $title,
@@ -2587,7 +2589,9 @@ if ($action === 'cron-publish') {
                     $scTags    = is_array($artData['hashtags'] ?? null)
                                    ? implode(',', array_map(fn($t) => ltrim($t,'#'), $artData['hashtags']))
                                    : $scKw;
-                    $scDate    = !empty($sc['scheduled_at']) ? $sc['scheduled_at'] : date('Y-m-d H:i:s');
+                    // Date: เวลาที่ตั้งไว้มาก่อนเสมอ ถ้าไม่มีจึงใช้นาฬิกาฐานข้อมูล
+                    // (เหตุผลเดียวกับจุดเผยแพร่เดี่ยวด้านบน — ค่านี้ออกไปอยู่บนเว็บลูกค้า)
+                    $scDate    = !empty($sc['scheduled_at']) ? $sc['scheduled_at'] : dbNow($db);
                     $domBody   = [[
                         'Date'            => $scDate,
                         'Title'           => $title,

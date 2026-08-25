@@ -19,6 +19,21 @@ if (file_exists($envFile)) {
     }
 }
 
+// ── เขตเวลา ───────────────────────────────────────────────────────────────────
+// ตรรกะนี้ซ้ำกับ api/config.php:34-54 โดยเจตนา — ไฟล์นี้ตั้งใจไม่ require config.php
+// เพื่อให้ยังตอบได้เมื่อ config.php พังเอง (เช่น JWT_SECRET หาย ซึ่งทำให้ config.php
+// exit 500 ทันที) ตัวตรวจสุขภาพที่ตายพร้อมระบบที่มันต้องตรวจนั้นไร้ประโยชน์
+// จึงยอมแลกความซ้ำ 6 บรรทัดกับความเป็นอิสระของไฟล์นี้
+// ผลที่ต้องการ: date('c') ท้ายไฟล์รายงาน offset ตรงกับที่ระบบใช้จริง (+07:00)
+$_hcTz = getenv('APP_TIMEZONE') ?: ($_ENV['APP_TIMEZONE'] ?? 'Asia/Bangkok');
+try {
+    new DateTimeZone($_hcTz);
+    date_default_timezone_set($_hcTz);
+} catch (Exception $e) {
+    date_default_timezone_set('Asia/Bangkok');
+}
+unset($_hcTz);
+
 $checks = [];
 $overallOk = true;
 
@@ -53,15 +68,19 @@ try {
 // ── Cron last run (requires cron_runs table) ──────────────────────────────────
 if (isset($pdo)) {
     try {
+        // อายุคำนวณด้วย TIMESTAMPDIFF ในฐานข้อมูล ไม่ใช่ time() - strtotime() ของ PHP
+        // เพราะ finished_at เขียนด้วย NOW() ของ MySQL — ถ้าเอาสตริงนั้นมาให้ PHP ตีความ
+        // ผลจะคลาดไปเท่ากับส่วนต่างเขตเวลาของสอง runtime และเคยติดลบคงที่ ~-300 นาที
+        // ทำให้เพดาน STALE 120 นาทีไม่เคยถึงเลย (cron ตาย 15 ชม. คืน 24 ส.ค. 2026 ไม่มีเตือน)
+        // ตัวตรวจสุขภาพต้องไม่พึ่งการตั้งค่าเขตเวลาของ PHP จึงเทียบสองค่าในนาฬิกาเดียวกัน
         $row = $pdo->query(
-            "SELECT job_name, finished_at, errors
+            "SELECT job_name, finished_at, errors,
+                    TIMESTAMPDIFF(MINUTE, finished_at, NOW()) AS minutes_ago
              FROM cron_runs
              ORDER BY finished_at DESC LIMIT 1"
         )->fetch(PDO::FETCH_ASSOC);
         if ($row) {
-            $minutesAgo = $row['finished_at']
-                ? (int)round((time() - strtotime($row['finished_at'])) / 60)
-                : null;
+            $minutesAgo = $row['minutes_ago'] === null ? null : (int)$row['minutes_ago'];
             $checks['cron_last_run'] = [
                 'job'         => $row['job_name'],
                 'finished_at' => $row['finished_at'],

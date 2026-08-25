@@ -512,8 +512,11 @@ function dispatch_lotusdomino(array $channel, array $creds, string $title, strin
     }
 
     // Domino agent รับ JSON array ของ document (1 element = 1 โพสต์)
+    // Date: ลำดับความสำคัญเดิม — เวลาที่ตั้งไว้มาก่อน ถ้าไม่มีจึงใช้ "เดี๋ยวนี้"
+    // ค่านี้กลายเป็นวันที่บทความบนเว็บไซต์ลูกค้าและเรียกคืนไม่ได้ จึงอ่านจากนาฬิกา
+    // ฐานข้อมูลด้วย dbNow() (config.php) ไม่ใช่ date() ที่ขึ้นกับ date.timezone ของ runtime
     $payload = [[
-        'Date'            => !empty($seo['date']) ? $seo['date'] : date('Y-m-d H:i:s'),
+        'Date'            => !empty($seo['date']) ? $seo['date'] : dbNow(),
         'Title'           => $title,
         'Body'            => $body,
         'Excerpt'         => $excerpt,

@@ -159,12 +159,16 @@ if ($method === 'POST') {
                 }
 
                 $id = generateUUID();
-                $now = date('Y-m-d H:i:s');
 
+                // scheduled_at เขียนด้วย NOW() ของฐานข้อมูล ไม่ใช่ date() ของ PHP
+                // เพราะคอลัมน์นี้ถูกเทียบด้วย `scheduled_at <= NOW()` ที่
+                // api/cron/publish-scheduler.php:30 และถูกเขียนทับด้วย
+                // DATE_ADD(NOW(), INTERVAL 5 MINUTE) ตอน retry ที่บรรทัด 131
+                // → ต้องเป็นนาฬิกาเดียวกันทั้งคอลัมน์ ไม่ให้ขึ้นกับ date.timezone ของ runtime
                 $db->prepare(
                     "INSERT INTO content_publish_queue (id,tenant_id,content_id,channel_id,scheduled_at,status)
-                     VALUES (?,?,?,?,?,?)"
-                )->execute([$id, $tenantId, $contentId, $channel['id'], $now, 'processing']);
+                     VALUES (?,?,?,?,NOW(),?)"
+                )->execute([$id, $tenantId, $contentId, $channel['id'], 'processing']);
 
                 // Apply per-channel content override if provided
                 $contentForChannel = $content;

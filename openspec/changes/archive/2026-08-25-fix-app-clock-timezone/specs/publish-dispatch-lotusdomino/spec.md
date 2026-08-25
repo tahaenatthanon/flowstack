@@ -1,21 +1,4 @@
-# publish-dispatch-lotusdomino Specification
-
-## Purpose
-
-เพิ่มการรองรับ platform `lotusdomino` ใน `dispatch_content()` (`api/lib/publish-dispatch.php`) เพื่อให้ cron queue และ `send_now` เผยแพร่คอนเทนต์ไปยัง Lotus Domino agent endpoint ได้ แทนที่จะคืน `Unknown platform: lotusdomino`
-
-## Requirements
-
-### Requirement: dispatch_content รองรับ platform lotusdomino
-`dispatch_content()` ใน `api/lib/publish-dispatch.php` SHALL รองรับ platform `lotusdomino` โดยมีฟังก์ชัน `dispatch_lotusdomino()` และ arm ใน `match($platform)` เพื่อให้ cron queue (`publish-scheduler.php`) และ `send_now` (`content-publish.php`) เผยแพร่คอนเทนต์ไปยัง Lotus Domino agent endpoint ได้แทนที่จะคืน `Unknown platform: lotusdomino`
-
-#### Scenario: cron queue เผยแพร่ไป lotusdomino ได้
-- **WHEN** `publish-scheduler.php` ประมวลผลแถว pending ที่ channel มี `platform='lotusdomino'` และเรียก `dispatch_content('lotusdomino', ...)`
-- **THEN** ไม่คืน error `Unknown platform: lotusdomino` และเรียก `dispatch_lotusdomino()` แทน
-
-#### Scenario: send_now เผยแพร่ไป lotusdomino ได้
-- **WHEN** ผู้ใช้เรียก `send_now` กับ channel `lotusdomino`
-- **THEN** `dispatch_content('lotusdomino', ...)` คืนผลจาก `dispatch_lotusdomino()` (ไม่ใช่ error unknown platform)
+## MODIFIED Requirements
 
 ### Requirement: dispatch_lotusdomino โพสต์ JSON ไปยัง Domino agent
 `dispatch_lotusdomino()` SHALL โพสต์ JSON ไปยัง `channel.endpoint_url` ด้วย method POST พร้อม header `Content-Type: application/json` และ payload array ที่มีฟิลด์ `Date`, `Title`, `Body`, `Excerpt`, `Slug`, `SEOTitle`, `MetaDescription`, `Tags`, `AttachPhoto` — ค่าของฟิลด์ `Date` SHALL เป็นเวลาท้องถิ่นเดียวกับที่ฐานข้อมูลใช้ ไม่ใช่เวลาตาม `date.timezone` ของ PHP เพราะค่านี้แสดงเป็นวันที่ของบทความบนเว็บไซต์ลูกค้า และเมื่อไม่มีเวลาที่ตั้งไว้ (`seo['date']`, `scheduled_at`, `scheduled_date`) fallback SHALL มาจากนาฬิกาฐานข้อมูล
