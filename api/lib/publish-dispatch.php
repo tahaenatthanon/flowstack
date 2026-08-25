@@ -44,7 +44,7 @@ function dispatch_content(string $platform, array $channel, array $content): arr
     ];
 
     return match($platform) {
-        'facebook'  => dispatch_facebook($channel, $creds, $title, $body),
+        'facebook'  => dispatch_facebook($channel, $creds, $title, $body, $imgUrl),
         'instagram' => dispatch_instagram($channel, $creds, $title, $body, $imgUrl),
         'tiktok'    => dispatch_tiktok($channel, $creds, $title, $body),
         'lineoa'    => dispatch_lineoa($channel, $creds, $title, $body),
@@ -167,10 +167,86 @@ function _dispatch_get(string $url): array {
     return ['success' => true, 'data' => $data];
 }
 
+// ─── Local image resolver ───────────────────────────────────────────────────────
+
+/**
+ * แปลงค่า generated_image_url ให้เป็นไฟล์จริงบนดิสก์ เพื่ออัปโหลดขึ้น platform
+ *
+ * ทำไมต้องมีขั้นนี้: generated_image_url ที่ระบบผลิตเองเป็น path เทียบ document root
+ * (`/uploads/content/...` — ดู brand-content.php) ไม่ใช่ URL ที่เข้าถึงได้จากอินเทอร์เน็ต
+ * และโปรเจกต์ไม่มีคีย์ config ที่บอก public base URL จึงส่งค่านี้ให้ platform
+ * ไปดึงรูปเองไม่ได้ ต้องอ่านไฟล์แล้วอัปโหลด bytes ขึ้นไป
+ *
+ * ค่า $imgUrl มาจากคอลัมน์ในฐานข้อมูล — ไม่ถือเป็น path ที่เชื่อถือได้โดยปริยาย
+ * จึง resolve ด้วย realpath() แล้วบังคับให้ผลลัพธ์อยู่ใต้ uploads/ เท่านั้น
+ * เพื่อไม่ให้ `../` ไต่ไปหยิบ .env หรือ api/config.php ขึ้นไปโพสต์บนเพจสาธารณะ
+ *
+ * @return array{ok: bool, path?: string, mime?: string, error?: string}
+ */
+function resolve_local_image(string $imgUrl): array {
+    $imgUrl = trim($imgUrl);
+    if ($imgUrl === '') {
+        return ['ok' => false, 'error' => 'ไม่ได้ระบุ path ของรูป'];
+    }
+
+    // ไฟล์นี้อยู่ที่ api/lib/ — ย้อนขึ้น 2 ระดับได้ project root ซึ่งเป็น document root ด้วย
+    $projectRoot = realpath(__DIR__ . '/../..');
+    $uploadsRoot = $projectRoot !== false ? realpath($projectRoot . DIRECTORY_SEPARATOR . 'uploads') : false;
+    if ($uploadsRoot === false) {
+        return ['ok' => false, 'error' => 'หาไดเรกทอรี uploads ของโปรเจกต์ไม่พบ'];
+    }
+
+    // ตัด query string / fragment ที่อาจติดมากับค่าในคอลัมน์ก่อนแปลงเป็น path บนดิสก์
+    $relative = parse_url($imgUrl, PHP_URL_PATH);
+    if ($relative === false || $relative === null || $relative === '') {
+        return ['ok' => false, 'error' => "path ของรูปอ่านไม่ออก: $imgUrl"];
+    }
+    $candidate = $projectRoot . DIRECTORY_SEPARATOR
+        . ltrim(str_replace('/', DIRECTORY_SEPARATOR, $relative), DIRECTORY_SEPARATOR);
+
+    $real = realpath($candidate);
+    if ($real === false) {
+        return ['ok' => false, 'error' => "ไม่พบไฟล์รูปที่ระบุไว้: $imgUrl (มองหาที่ $candidate)"];
+    }
+
+    // เทียบ path ที่ normalize แล้วทั้งสองฝั่ง — ทั้งคู่ผ่าน realpath() จึงใช้ separator
+    // และรูปแบบเดียวกัน ไม่ใช่สตริงดิบเทียบสตริงดิบ
+    // Windows: ระบบไฟล์ไม่สนตัวพิมพ์ จึงต้องเทียบแบบไม่สนตัวพิมพ์ ไม่งั้น C:\ vs c:\ จะไม่ตรง
+    // Linux: เทียบตรงตัว เพื่อไม่ให้ไดเรกทอรีชื่อ UPLOADS หลุดผ่านขอบเขต
+    $prefix = rtrim($uploadsRoot, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
+    $inScope = (DIRECTORY_SEPARATOR === '\\')
+        ? strncasecmp($real, $prefix, strlen($prefix)) === 0
+        : strncmp($real, $prefix, strlen($prefix)) === 0;
+    if (!$inScope) {
+        return ['ok' => false, 'error' => "รูปอยู่นอกขอบเขตที่อนุญาต (ต้องอยู่ใต้ uploads/): $imgUrl"];
+    }
+
+    if (!is_file($real) || !is_readable($real)) {
+        return ['ok' => false, 'error' => "ไฟล์รูปอ่านไม่ได้: $real"];
+    }
+
+    // เดา MIME จากนามสกุล ไม่ใช้ mime_content_type() ซึ่งต้องการ extension fileinfo
+    // ที่อาจไม่ได้เปิดไว้บน XAMPP บางเครื่อง
+    $mimeByExt = [
+        'jpg'  => 'image/jpeg',
+        'jpeg' => 'image/jpeg',
+        'png'  => 'image/png',
+        'gif'  => 'image/gif',
+        'webp' => 'image/webp',
+    ];
+    $ext = strtolower(pathinfo($real, PATHINFO_EXTENSION));
+
+    return [
+        'ok'   => true,
+        'path' => $real,
+        'mime' => $mimeByExt[$ext] ?? 'application/octet-stream',
+    ];
+}
+
 // ─── Facebook ───────────────────────────────────────────────────────────────────
 // Creds: { "page_id": "...", "access_token": "..." }
 
-function dispatch_facebook(array $channel, array $creds, string $title, string $body): array {
+function dispatch_facebook(array $channel, array $creds, string $title, string $body, string $imgUrl = ''): array {
     $pageId = $creds['page_id'] ?? '';
     $token  = $creds['access_token'] ?? '';
     if (!$pageId || !$token) {
@@ -179,11 +255,58 @@ function dispatch_facebook(array $channel, array $creds, string $title, string $
     $msg = $title ? "$title\n\n$body" : $body;
     $msg = mb_substr($msg, 0, 63206); // Facebook limit
 
-    $result = _dispatch_post("https://graph.facebook.com/v19.0/$pageId/feed", [
-        CURLOPT_POSTFIELDS => http_build_query(['message' => $msg, 'access_token' => $token]),
-    ]);
+    $apiBase = "https://graph.facebook.com/v19.0/$pageId";
+    $imgUrl  = trim($imgUrl);
+
+    if ($imgUrl === '') {
+        // ไม่มีรูป → /feed ตามพฤติกรรมเดิมทุกอย่าง (โพสต์ข้อความเปล่าไม่ใช่ความล้มเหลว)
+        $result = _dispatch_post("$apiBase/feed", [
+            CURLOPT_POSTFIELDS => http_build_query(['message' => $msg, 'access_token' => $token]),
+        ]);
+    } elseif (preg_match('#^https?://#i', $imgUrl)) {
+        // absolute URL → ให้ Graph API ไปดึงรูปเอง
+        // ยังไม่มีข้อมูลรูปแบบนี้ในฐานข้อมูล แต่แยกแขนงไว้เพื่อไม่ให้ไปเปิดไฟล์ชื่อ "https:/..." บนดิสก์
+        $result = _dispatch_post("$apiBase/photos", [
+            CURLOPT_POSTFIELDS => http_build_query([
+                'message'      => $msg,
+                'url'          => $imgUrl,
+                'access_token' => $token,
+            ]),
+        ]);
+    } else {
+        $img = resolve_local_image($imgUrl);
+        if (!$img['ok']) {
+            // ตั้งใจให้ล้มเหลว ไม่ถอยไปโพสต์ข้อความเปล่าผ่าน /feed
+            // การถอยเงียบจะได้โพสต์ที่ต่างจากที่ผู้ใช้อนุมัติไว้ โดยที่ผู้ใช้ไม่รู้ว่ารูปหายไป
+            // ซึ่งคืออาการเดิมที่การแก้ครั้งนี้กำลังซ่อม
+            return ['success' => false, 'error' => 'ส่งรูปไป Facebook ไม่ได้ — ' . $img['error']];
+        }
+        // /photos รับรูปเป็น multipart ในคำขอเดียวกับข้อความ ไม่ต้องมี public URL
+        //
+        // CURLOPT_POST ต้องตั้งที่นี่ให้มาก่อน CURLOPT_POSTFIELDS: _dispatch_post()
+        // รวม option ด้วย `$options + $defaults` ซึ่งเรียง key ของ $options ไว้หน้า
+        // ถ้าปล่อยให้ CURLOPT_POST มาจาก $defaults มันจะถูก setopt หลัง POSTFIELDS
+        // แล้วรีเซ็ต mime post ที่ PHP สร้างไว้ กลับเป็น urlencoded — รูปจะไม่ถูกส่ง
+        //
+        // POSTFIELDS ต้องเป็น array ดิบ ห้ามผ่าน http_build_query() ไม่งั้น CURLFile
+        // จะกลายเป็นข้อความ
+        $result = _dispatch_post("$apiBase/photos", [
+            CURLOPT_POST       => true,
+            CURLOPT_POSTFIELDS => [
+                'message'      => $msg,
+                'access_token' => $token,
+                'source'       => new CURLFile($img['path'], $img['mime'], basename($img['path'])),
+            ],
+        ]);
+    }
+
     if ($result['success']) {
-        $result['platform_post_id'] = $result['data']['id'] ?? null;
+        // อ่าน post_id ก่อน id — /photos คืน id เป็น photo id เปล่า ซึ่งใช้ทั้ง permalink
+        // lookup และ /insights ไม่ได้ ส่วน post_id เป็นรูปแบบผสม {page_id}_{post_id}
+        // ตัวเดียวกับที่ /feed คืนมาใน id (ยืนยันจาก content_publish_queue.response_snippet)
+        // api/lib/insights-fetch.php พึ่งค่านี้เป็นคีย์ดึง engagement — ถ้าเก็บ photo id ไว้
+        // การซิงก์จะเงียบหายไปทั้งที่โพสต์สำเร็จ
+        $result['platform_post_id'] = $result['data']['post_id'] ?? $result['data']['id'] ?? null;
         // ดึงลิงก์โพสต์ — endpoint /{pageId}/feed คืนแค่ id ไม่มี URL จึงต้อง GET เพิ่มอีกครั้ง
         //
         // Non-blocking โดยเจตนา: โพสต์ถูกสร้างที่ปลายทางไปแล้ว ถ้า lookup ล้มเหลว
