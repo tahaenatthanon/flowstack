@@ -17,13 +17,12 @@ $isCli = php_sapi_name() === 'cli';
 if (!$isCli) {
     header('Content-Type: application/json; charset=utf-8');
     // Simple secret token guard for HTTP calls
-    require_once __DIR__ . '/config.php'; // loads .env
-    $cronSecret = getenv('CRON_SECRET') ?: ($_ENV['CRON_SECRET'] ?? '');
-    if (empty($cronSecret)) {
-        http_response_code(500);
-        echo json_encode(['error' => 'Server misconfiguration: CRON_SECRET is not set. Add CRON_SECRET to your .env file.']);
-        exit;
-    }
+    require_once __DIR__ . '/config.php';           // loads .env
+    require_once __DIR__ . '/lib/cron-runner.php';  // cron_secret()
+    // cron_secret() มี fallback ชั้นสุดท้ายเสมอ จึงไม่มีกรณี "ไม่ได้ตั้งค่า" อีก
+    // เดิมไฟล์นี้ fallback เป็นค่าว่างแล้วตอบ 500 ขณะที่ cron-manager ส่ง
+    // 'flowstack-cron-2026' มา → งาน type='http' พังทุกครั้งแม้กดรันมือ
+    $cronSecret = cron_secret();
     $token = $_GET['token'] ?? '';
     if (!hash_equals($cronSecret, $token)) {
         http_response_code(403);

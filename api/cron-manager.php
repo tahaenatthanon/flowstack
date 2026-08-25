@@ -9,6 +9,7 @@
 // DELETE ?action=clear-history&job=<key> — clear cron_runs for job
 
 require_once __DIR__ . '/auth.php';
+require_once __DIR__ . '/lib/cron-runner.php';   // runJob(), cron_secret(), cron_expr_*(), CRON_STUCK_SECONDS
 $tokenData = requireAuth();
 $db        = getDB();
 requireAdmin($db, $tokenData['user_id'], $tokenData['tenant_id']);
@@ -29,8 +30,14 @@ function fetchJob(PDO $db, string $key): ?array {
 function jobState(array $job): string {
     if ($job['last_started_at'] && !$job['last_finished_at']) {
         if ($job['last_cancel_requested']) return 'cancelling';
-        $started = strtotime($job['last_started_at']);
-        if (time() - $started < 600) return 'running';
+        // อายุงานมาจาก TIMESTAMPDIFF ฝั่ง SQL ไม่ใช่ time() ของ PHP — started_at เขียน
+        // ด้วย NOW() ของ MySQL ซึ่งต่างเขตเวลากับ PHP (ดูหัวข้อ "นาฬิกา" ใน cron-runner.php)
+        // ถ้าเทียบด้วย time() ผลจะติดลบเสมอ → หน้านี้จะไม่เคยแสดง 'stuck' เลย
+        $age = $job['last_age_seconds'];
+        if ($age === null) return 'running';
+        // ใช้เพดานเดียวกับตัวเลือกงานใน tick.php — ถ้าใช้ค่าต่างกัน หน้านี้จะบอกว่า
+        // "running" ขณะที่ tick ปิดแถวค้างแล้วยิงงานใหม่ไปแล้ว
+        if ($age < CRON_STUCK_SECONDS) return 'running';
         return 'stuck';
     }
     return ($job['last_errors'] ?? 0) > 0 ? 'error' : ($job['last_started_at'] ? 'ok' : 'never');
@@ -39,7 +46,8 @@ function jobState(array $job): string {
 function mergeLastRun(PDO $db, array $jobs): array {
     if (empty($jobs)) return [];
     $stmt = $db->query(
-        "SELECT job_name, started_at, finished_at, cancel_requested, records_processed, errors, notes
+        "SELECT job_name, started_at, finished_at, cancel_requested, records_processed, errors, notes,
+                TIMESTAMPDIFF(SECOND, started_at, NOW()) AS age_seconds
          FROM cron_runs
          WHERE id IN (SELECT MAX(id) FROM cron_runs GROUP BY job_name)"
     );
@@ -55,79 +63,26 @@ function mergeLastRun(PDO $db, array $jobs): array {
         $j['last_processed']         = $r ? (int)$r['records_processed'] : null;
         $j['last_errors']            = $r ? (int)$r['errors']    : null;
         $j['last_notes']             = $r['notes']               ?? null;
+        $j['last_age_seconds']       = ($r && $r['age_seconds'] !== null) ? (int)$r['age_seconds'] : null;
         $j['state']                  = jobState($j);
+
+        // "เลยกำหนด" แยกจาก state โดยเจตนา — state บอกผลของ "การรันครั้งล่าสุด"
+        // ส่วนนี่บอกว่า "ยังถูกเรียกตามเวลาอยู่หรือไม่" งานหนึ่งเป็น ok ได้พร้อมกับ
+        // ที่ไม่ถูกเรียกมา 3 วันแล้ว (ตัวตั้งเวลาไม่ทำงาน) ถ้ารวมเป็นค่าเดียวจะกลบกัน
+        // ค่าบวก = เลยกำหนดมาแล้วกี่วินาที, ค่าลบ = อีกกี่วินาทีจะถึงกำหนด
+        $overdue = $j['next_run_overdue_seconds'];
+        $j['next_run_overdue_seconds'] = $overdue === null ? null : (int)$overdue;
+        $j['is_overdue'] = (int)(
+            !empty($j['enabled'])
+            && $j['next_run_overdue_seconds'] !== null
+            && $j['next_run_overdue_seconds'] > CRON_OVERDUE_SECONDS
+        );
         return $j;
     }, $jobs);
 }
 
-function runJob(PDO $db, array $def): array {
-    $cronSecret = getenv('CRON_SECRET') ?: 'flowstack-cron-2026';
-
-    // Close any stuck run first
-    $db->prepare(
-        "UPDATE cron_runs SET finished_at = NOW(), errors = 1,
-          notes = 'Force-restarted after timeout'
-         WHERE job_name = ? AND finished_at IS NULL"
-    )->execute([$def['key']]);
-
-    $db->prepare("INSERT INTO cron_runs (job_name, started_at) VALUES (?, NOW())")->execute([$def['key']]);
-    $runId = $db->lastInsertId();
-
-    $output = ''; $success = false; $processed = 0; $errors = 0;
-
-    try {
-        if ($def['type'] === 'include') {
-            ob_start();
-            if (!defined('CRON_MODE')) define('CRON_MODE', true);
-            $GLOBALS['cron_run_id'] = $runId;  // allows job script to check cancel flag
-            $file = (strpos($def['file_path'], '/') === 0 || strpos($def['file_path'], ':') === 1)
-                ? $def['file_path']
-                : __DIR__ . '/../' . $def['file_path'];
-            include $file;
-            $output  = ob_get_clean() ?: '';
-            $success = true;
-        } else {
-            $q   = $def['query_string'] ?? '';
-            $url = 'http://localhost/flowstack/api/' . $def['endpoint']
-                 . ($def['http_method'] === 'GET'
-                     ? '?token=' . urlencode($cronSecret) . ($q ? '&' . $q : '')
-                     : ($q ? '?' . $q : ''));
-            $ch = curl_init($url);
-            curl_setopt_array($ch, [
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_TIMEOUT        => 120,
-                CURLOPT_CUSTOMREQUEST  => $def['http_method'],
-                CURLOPT_HTTPHEADER     => $def['http_method'] === 'POST'
-                    ? ['Content-Type: application/json'] : [],
-            ]);
-            if ($def['http_method'] === 'POST') {
-                curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode(['secret' => $cronSecret]));
-            }
-            $output   = (string)(curl_exec($ch) ?: '');
-            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            $curlErr  = curl_error($ch);
-            curl_close($ch);
-            $success = !$curlErr && $httpCode < 400;
-            if ($curlErr) $output = 'cURL error: ' . $curlErr;
-        }
-        if (preg_match('/(\d+)\s+entries/i', $output, $m)) $processed = (int)$m[1];
-        if (preg_match('/(\d+)\s+error/i',   $output, $m)) $errors    = (int)$m[1];
-    } catch (Throwable $e) {
-        $output = 'Exception: ' . $e->getMessage();
-        $success = false; $errors = 1;
-    }
-
-    $db->prepare(
-        "UPDATE cron_runs SET finished_at=NOW(), records_processed=?, errors=?, notes=? WHERE id=?"
-    )->execute([$processed, $errors, mb_substr($output, 0, 500), $runId]);
-
-    return [
-        'success'   => $success,
-        'output'    => mb_substr($output ?: ($success ? 'Completed.' : 'Failed.'), 0, 2000),
-        'processed' => $processed,
-        'errors'    => $errors,
-    ];
-}
+// runJob() ย้ายไป api/lib/cron-runner.php แล้ว — ใช้ร่วมกับ api/cron/tick.php
+// ไฟล์นี้จึงไม่มี include ไฟล์งาน และไม่มี curl_init ไปยัง endpoint งานอีก
 
 // ── GET ────────────────────────────────────────────────────────────────────────
 
@@ -141,8 +96,12 @@ if ($method === 'GET') {
         $stmt->execute([$jobKey]);
         jsonResponse($stmt->fetchAll(PDO::FETCH_ASSOC));
     }
-    $jobs = $db->query('SELECT * FROM cron_jobs ORDER BY created_at ASC')
-               ->fetchAll(PDO::FETCH_ASSOC);
+    // next_run_overdue_seconds คำนวณฝั่ง SQL ด้วยนาฬิกาฐานข้อมูลตัวเดียวกับที่เขียน
+    // next_run_at (D10) — ถ้าให้เบราว์เซอร์เทียบเอง ผลจะเพี้ยนตามเขตเวลาเครื่องผู้ใช้
+    $jobs = $db->query(
+        "SELECT *, TIMESTAMPDIFF(SECOND, next_run_at, NOW()) AS next_run_overdue_seconds
+         FROM cron_jobs ORDER BY created_at ASC"
+    )->fetchAll(PDO::FETCH_ASSOC);
     jsonResponse(mergeLastRun($db, $jobs));
 }
 
@@ -182,19 +141,26 @@ if ($method === 'POST') {
         $key  = trim($body['key'] ?? '');
         if (!preg_match('/^[a-z0-9-]+$/', $key)) jsonError('key must be [a-z0-9-]+', 422);
         if (empty($body['name']))                 jsonError('name is required', 422);
+        // cron_expression เป็นตารางเวลาที่ tick.php ใช้จริง — ถ้าไม่มีหรือใช้ไม่ได้
+        // งานจะถูกสร้างแล้วไม่เคยถูกเรียก ต้องปฏิเสธตรงนี้ ไม่ปล่อยผ่านเงียบ ๆ
+        $expr = trim($body['cron_expression'] ?? '');
+        if ($expr === '')                       jsonError('ต้องระบุตารางเวลา (cron_expression) เช่น "*/15 * * * *"', 422);
+        if (!cron_expr_validate($expr))         jsonError('ตารางเวลาไม่ถูกต้อง: "' . $expr . '" — ต้องเป็น 5 ช่อง และใช้ได้เฉพาะ *, ตัวเลข, */N, A-B, A,B,C', 422);
         if (($body['type'] ?? 'http') === 'http'    && empty($body['endpoint']))  jsonError('endpoint required for http type', 422);
         if (($body['type'] ?? 'http') === 'include' && empty($body['file_path'])) jsonError('file_path required for include type', 422);
         if (fetchJob($db, $key)) jsonError('key already exists', 409);
 
         $id = generateUUID();
+        // next_run_at ปล่อย NULL — tick รอบถัดไปจะ initialize ให้เอง ไม่รันทันทีที่สร้าง (D2)
         $db->prepare(
-            "INSERT INTO cron_jobs (id, `key`, name, description, interval_label, type, endpoint, file_path, http_method, query_string, enabled)
-             VALUES (?,?,?,?,?,?,?,?,?,?,1)"
+            "INSERT INTO cron_jobs (id, `key`, name, description, interval_label, cron_expression, type, endpoint, file_path, http_method, query_string, enabled)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,1)"
         )->execute([
             $id, $key,
             $body['name'],
             $body['description']    ?? null,
             $body['interval_label'] ?? null,
+            $expr,
             $body['type']           ?? 'http',
             $body['endpoint']       ?? null,
             $body['file_path']      ?? null,
@@ -211,12 +177,23 @@ if ($method === 'POST') {
 
 if ($method === 'PUT') {
     if (!$jobKey) jsonError('job param required', 400);
-    if (!fetchJob($db, $jobKey)) jsonError('Job not found', 404);
+    $existing = fetchJob($db, $jobKey);
+    if (!$existing) jsonError('Job not found', 404);
 
-    $body    = json_decode(file_get_contents('php://input'), true) ?? [];
-    $fields  = [];
-    $params  = [];
-    $allowed = ['name','description','interval_label','type','endpoint','file_path','http_method','query_string','enabled'];
+    $body     = json_decode(file_get_contents('php://input'), true) ?? [];
+    $fields   = [];
+    $params   = [];
+    $allowed  = ['name','description','interval_label','cron_expression','type','endpoint','file_path','http_method','query_string','enabled'];
+
+    // validate ตารางเวลาก่อนแตะ UPDATE เลย — ถ้าผิดต้องตอบ 422 โดยค่าเดิมไม่เปลี่ยน
+    $newExpr = null;
+    if (array_key_exists('cron_expression', $body)) {
+        $newExpr = trim((string)$body['cron_expression']);
+        if ($newExpr === '')             jsonError('ต้องระบุตารางเวลา (cron_expression) เช่น "*/15 * * * *"', 422);
+        if (!cron_expr_validate($newExpr)) jsonError('ตารางเวลาไม่ถูกต้อง: "' . $newExpr . '" — ต้องเป็น 5 ช่อง และใช้ได้เฉพาะ *, ตัวเลข, */N, A-B, A,B,C', 422);
+        $body['cron_expression'] = $newExpr;
+    }
+
     foreach ($allowed as $f) {
         if (array_key_exists($f, $body)) {
             $fields[] = "`$f` = ?";
@@ -224,6 +201,15 @@ if ($method === 'PUT') {
         }
     }
     if (empty($fields)) jsonError('Nothing to update', 400);
+
+    // ตารางเวลาเปลี่ยน → next_run_at เดิมใช้ไม่ได้แล้ว ต้องคำนวณใหม่ในรอบเดียวกับ UPDATE
+    // ไม่ปล่อยเป็น NULL เพราะจะทำให้ tick เสียไปหนึ่งรอบเพื่อ initialize ใหม่
+    // เวลา "เดี๋ยวนี้" มาจากนาฬิกาฐานข้อมูล ไม่ใช่ time() ของ PHP (ดู D10)
+    if ($newExpr !== null && $newExpr !== ($existing['cron_expression'] ?? null)) {
+        $next = cron_next_run($newExpr, cron_now($db), cron_timezone($db));
+        $fields[] = '`next_run_at` = ?';
+        $params[]  = $next;   // null ได้ ถ้าหา match ไม่เจอในเพดาน → tick จะรายงานเป็น error ของงานนั้น
+    }
 
     $params[] = $jobKey;
     $db->prepare("UPDATE cron_jobs SET " . implode(', ', $fields) . " WHERE `key` = ?")->execute($params);

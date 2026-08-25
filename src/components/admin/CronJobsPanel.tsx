@@ -14,6 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import {
   Play, RefreshCw, Clock, CheckCircle2, XCircle, Minus,
   ChevronDown, ChevronUp, Plus, Pencil, Trash2, AlertTriangle, Loader2, Square,
+  CalendarClock,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { th } from 'date-fns/locale';
@@ -24,12 +25,17 @@ interface CronJob {
   name: string;
   description: string | null;
   interval_label: string | null;
+  cron_expression: string | null;
   type: 'http' | 'include';
   endpoint: string | null;
   file_path: string | null;
   http_method: 'GET' | 'POST';
   query_string: string | null;
   enabled: number;
+  last_run_at: string | null;          // ตัวตั้งเวลาเรียกล่าสุด (tick เขียน) — ไม่รวมการกดรันมือ
+  next_run_at: string | null;          // NULL = ยังไม่เคยตั้งรอบ tick ถัดไปจะตั้งให้
+  next_run_overdue_seconds: number | null;  // + = เลยกำหนดมาแล้ว, - = อีกกี่วินาทีจะถึง
+  is_overdue: number;                  // 1 = enabled แต่เลยกำหนดเกินเพดานที่ API กำหนด
   last_started_at: string | null;
   last_finished_at: string | null;
   last_processed: number | null;
@@ -54,10 +60,35 @@ interface RunResult {
 }
 
 const emptyForm = () => ({
-  key: '', name: '', description: '', interval_label: '',
+  key: '', name: '', description: '', interval_label: '', cron_expression: '',
   type: 'http' as 'http' | 'include',
   endpoint: '', file_path: '', http_method: 'GET' as 'GET' | 'POST', query_string: '',
 });
+
+// ไวยากรณ์ของ cron_expression ตรวจที่ฝั่งเซิร์ฟเวอร์เท่านั้น (cron_expr_validate()
+// ใน api/lib/cron-runner.php) แล้วตอบ 422 พร้อมข้อความไทยที่ฟอร์มนี้แสดงต่อ —
+// ไม่ทำตัวตรวจซ้ำในนี้ เพราะสองที่จะเพี้ยนไปคนละทางเมื่อไวยากรณ์ที่รองรับเปลี่ยน
+
+/** อธิบายเวลารันรอบถัดไปเป็นภาษาไทย — next_run_at เป็นเวลาของฐานข้อมูล */
+function describeNextRun(job: CronJob): { text: string; overdue: boolean } {
+  if (!job.enabled) return { text: 'ปิดอยู่ ไม่ถูกเรียกตามเวลา', overdue: false };
+  if (!job.next_run_at) return { text: 'ยังไม่ได้ตั้งรอบ (tick ถัดไปจะตั้งให้)', overdue: false };
+
+  const secs = job.next_run_overdue_seconds;
+  if (secs === null) return { text: job.next_run_at, overdue: false };
+  if (job.is_overdue) return { text: `เลยกำหนด ${formatSeconds(secs)} (${job.next_run_at})`, overdue: true };
+  if (secs >= 0) return { text: `ถึงกำหนดแล้ว (${job.next_run_at})`, overdue: false };
+  return { text: `อีก ${formatSeconds(-secs)} (${job.next_run_at})`, overdue: false };
+}
+
+function formatSeconds(total: number): string {
+  if (total < 60) return `${total} วินาที`;
+  const mins = Math.floor(total / 60);
+  if (mins < 60) return `${mins} นาที`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} ชั่วโมง`;
+  return `${Math.floor(hours / 24)} วัน`;
+}
 
 function StatusBadge({ job }: { job: CronJob }) {
   if (job.state === 'cancelling')
@@ -140,12 +171,14 @@ function HistoryPanel({ jobKey, onClear }: { jobKey: string; onClear: () => void
 }
 
 function JobFormDialog({
-  open, onOpenChange, initial, onSave,
+  open, onOpenChange, initial, onSave, error, pending,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   initial: ReturnType<typeof emptyForm> | null;
   onSave: (data: ReturnType<typeof emptyForm>) => void;
+  error: string | null;
+  pending: boolean;
 }) {
   const isEdit = !!initial?.key;
   const [form, setForm] = useState<ReturnType<typeof emptyForm>>(initial ?? emptyForm());
@@ -161,6 +194,7 @@ function JobFormDialog({
   const valid =
     !!form.key.match(/^[a-z0-9-]+$/) &&
     !!form.name.trim() &&
+    !!form.cron_expression.trim() &&
     (form.type === 'http' ? !!form.endpoint.trim() : !!form.file_path.trim());
 
   return (
@@ -188,9 +222,21 @@ function JobFormDialog({
               rows={2} placeholder="ทำอะไร ทำทำไม..." />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">ความถี่ (display เท่านั้น)</Label>
+            <Label className="text-xs">ตารางเวลา (cron) <span className="text-destructive">*</span></Label>
+            <Input value={form.cron_expression} onChange={e => set('cron_expression', e.target.value)}
+              placeholder="*/15 * * * *" className="font-mono text-sm" />
+            <p className="text-[10px] text-muted-foreground">
+              ค่านี้คือตารางเวลาที่ระบบใช้เรียกงานจริง — 5 ช่อง: นาที ชั่วโมง วันที่ เดือน วันในสัปดาห์
+              (0 = อาทิตย์) ใช้ได้เฉพาะ <code className="font-mono">*</code>, ตัวเลข,{' '}
+              <code className="font-mono">*/N</code>, <code className="font-mono">A-B</code>,{' '}
+              <code className="font-mono">A,B,C</code> เช่น <code className="font-mono">0 9 * * 1-5</code> = จันทร์–ศุกร์ 09:00
+            </p>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">ความถี่ (ข้อความสำหรับแสดงเท่านั้น)</Label>
             <Input value={form.interval_label} onChange={e => set('interval_label', e.target.value)}
               placeholder="เช่น ทุก 1 นาที" />
+            <p className="text-[10px] text-muted-foreground">คำอธิบายให้คนอ่าน ไม่มีผลกับเวลาที่ระบบเรียกงาน</p>
           </div>
           <div className="space-y-1">
             <Label className="text-xs">ประเภท</Label>
@@ -234,9 +280,18 @@ function JobFormDialog({
               placeholder="trigger=1&mode=test" className="font-mono text-sm" />
           </div>
         </div>
+        {/* ข้อความ 422 จาก API (เช่นตารางเวลาไม่ถูกต้อง) — ต้องเห็นในฟอร์ม ไม่ใช่แค่ toast
+            ที่หายไปเอง เพราะผู้ใช้ต้องแก้ค่าในฟอร์มนี้ */}
+        {error && (
+          <p className="flex items-start gap-1.5 text-xs text-destructive">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+            <span>{error}</span>
+          </p>
+        )}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>ยกเลิก</Button>
-          <Button disabled={!valid} onClick={() => { onSave(form); onOpenChange(false); }}>
+          <Button disabled={!valid || pending} onClick={() => onSave(form)}>
+            {pending && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />}
             {isEdit ? 'บันทึก' : 'เพิ่ม Job'}
           </Button>
         </DialogFooter>
@@ -328,12 +383,27 @@ export function CronJobsPanel() {
   };
 
   const handleSave = (form: ReturnType<typeof emptyForm>) => {
+    // ปิด dialog เฉพาะเมื่อบันทึกสำเร็จ — ถ้า API ตอบ 422 (เช่นตารางเวลาไม่ถูกต้อง)
+    // ฟอร์มต้องยังเปิดพร้อมค่าที่ผู้ใช้พิมพ์ไว้ ไม่ใช่ปิดทิ้งแล้วโยน toast ทีเดียว
+    const closeOnSuccess = { onSuccess: () => setFormOpen(false) };
     if (editTarget) {
-      updateMut.mutate({ key: editTarget.key, body: form });
+      updateMut.mutate({ key: editTarget.key, body: form }, closeOnSuccess);
     } else {
-      createMut.mutate(form);
+      createMut.mutate(form, closeOnSuccess);
     }
   };
+
+  // ล้าง error ค้างจากครั้งก่อนทุกครั้งที่เปิดฟอร์ม
+  const openForm = (target: CronJob | null) => {
+    createMut.reset();
+    updateMut.reset();
+    setEditTarget(target);
+    setFormOpen(true);
+  };
+
+  const saveError   = (createMut.error ?? updateMut.error) as Error | null;
+  const savePending = createMut.isPending || updateMut.isPending;
+  const overdueJobs = jobs.filter(j => j.is_overdue);
 
   return (
     <div className="space-y-4">
@@ -344,7 +414,7 @@ export function CronJobsPanel() {
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" className="gap-1.5"
-            onClick={() => { setEditTarget(null); setFormOpen(true); }}>
+            onClick={() => openForm(null)}>
             <Plus className="h-3.5 w-3.5" />เพิ่ม Job
           </Button>
           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => refetch()} disabled={isFetching}>
@@ -354,6 +424,25 @@ export function CronJobsPanel() {
         </div>
       </div>
 
+      {/* ตารางเวลาในหน้านี้ทำงานได้เมื่อมีตัวตั้งเวลาระดับ OS เรียก tick.php เท่านั้น
+          ถ้ามีงานที่เลยกำหนดค้างอยู่ แปลว่าไม่มีใครเรียก — ต้องบอกให้เห็น
+          ไม่ใช่แสดงว่า "สำเร็จ" ตามผลการรันครั้งล่าสุดที่อาจเป็นการกดรันมือ */}
+      {overdueJobs.length > 0 && (
+        <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 space-y-1">
+          <p className="flex items-center gap-1.5 text-xs font-medium text-destructive">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            มี {overdueJobs.length} งานที่เลยกำหนดแล้วยังไม่ถูกเรียก
+          </p>
+          <p className="text-[11px] text-muted-foreground">
+            ตารางเวลาจะทำงานได้เมื่อมีตัวตั้งเวลาระดับ OS เรียก{' '}
+            <code className="font-mono">api/cron/tick.php</code> ทุก 1 นาที —
+            ถ้ายังไม่ได้ลงทะเบียน ให้รัน{' '}
+            <code className="font-mono">scripts/register-cron-task.bat</code>{' '}
+            ด้วยสิทธิ์ Administrator หนึ่งครั้ง
+          </p>
+        </div>
+      )}
+
       <div className="grid gap-3">
         {jobs.map((job) => {
           const isRunning   = running[job.key] || job.state === 'running';
@@ -362,6 +451,7 @@ export function CronJobsPanel() {
           const isExpanded  = expanded[job.key];
           const historyOpen = showHistory[job.key];
           const runBlocked  = isRunning && !isStuck;
+          const nextRun     = describeNextRun(job);
 
           return (
             <div key={job.key} className={`rounded-lg border bg-card p-4 space-y-3 ${!job.enabled ? 'opacity-60' : ''}`}>
@@ -370,6 +460,13 @@ export function CronJobsPanel() {
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-medium text-sm">{job.name}</span>
                     <StatusBadge job={job} />
+                    {/* แยกจาก StatusBadge โดยเจตนา — StatusBadge บอกผลการรันครั้งล่าสุด
+                        (ซึ่งอาจเป็นการกดรันมือ) ป้ายนี้บอกว่ายังถูกเรียกตามเวลาอยู่หรือไม่ */}
+                    {!!job.is_overdue && (
+                      <Badge variant="destructive" className="gap-1">
+                        <AlertTriangle className="h-3 w-3" />ไม่ถูกเรียกตามเวลา
+                      </Badge>
+                    )}
                     {!job.enabled && <Badge variant="secondary" className="text-[10px]">Disabled</Badge>}
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5">{job.description}</p>
@@ -382,7 +479,7 @@ export function CronJobsPanel() {
                     title={job.enabled ? 'ปิด job' : 'เปิด job'}
                   />
                   <Button variant="ghost" size="icon" className="h-7 w-7"
-                    onClick={() => { setEditTarget(job); setFormOpen(true); }}>
+                    onClick={() => openForm(job)}>
                     <Pencil className="h-3.5 w-3.5" />
                   </Button>
                   <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
@@ -410,10 +507,32 @@ export function CronJobsPanel() {
               </div>
 
               <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
+                {job.cron_expression && (
+                  <span className="flex items-center gap-1" title="ตารางเวลาที่ระบบใช้เรียกงานจริง">
+                    <CalendarClock className="h-3 w-3" />
+                    <code className="text-foreground font-mono text-[11px]">{job.cron_expression}</code>
+                  </span>
+                )}
                 {job.interval_label && (
-                  <span className="flex items-center gap-1">
+                  <span className="flex items-center gap-1" title="ข้อความอธิบายความถี่ ไม่มีผลกับการเรียกงาน">
                     <Clock className="h-3 w-3" />
-                    <span className="text-foreground font-medium">{job.interval_label}</span>
+                    <span>{job.interval_label}</span>
+                  </span>
+                )}
+                <span>
+                  รอบถัดไป:{' '}
+                  <span className={nextRun.overdue ? 'text-destructive font-medium' : 'text-foreground'}>
+                    {nextRun.text}
+                  </span>
+                </span>
+                {/* last_run_at = ตัวตั้งเวลาเรียก, last_started_at = การรันครั้งล่าสุดรวมกดรันมือ
+                    แสดงคู่กันเพราะถ้าต่างกันมากคือสัญญาณว่าตัวตั้งเวลาไม่ทำงาน */}
+                {!!job.enabled && (
+                  <span>
+                    ตัวตั้งเวลาเรียกล่าสุด:{' '}
+                    <span className={job.last_run_at ? 'text-foreground' : 'text-muted-foreground'}>
+                      {job.last_run_at ?? 'ยังไม่เคย'}
+                    </span>
                   </span>
                 )}
                 {job.last_started_at && (
@@ -478,6 +597,7 @@ export function CronJobsPanel() {
           name: editTarget.name,
           description: editTarget.description ?? '',
           interval_label: editTarget.interval_label ?? '',
+          cron_expression: editTarget.cron_expression ?? '',
           type: editTarget.type,
           endpoint: editTarget.endpoint ?? '',
           file_path: editTarget.file_path ?? '',
@@ -485,6 +605,8 @@ export function CronJobsPanel() {
           query_string: editTarget.query_string ?? '',
         } : null}
         onSave={handleSave}
+        error={saveError?.message ?? null}
+        pending={savePending}
       />
 
       <AlertDialog open={!!deleteTarget} onOpenChange={v => !v && setDeleteTarget(null)}>
