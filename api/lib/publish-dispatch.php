@@ -10,6 +10,65 @@
  * decryptApiKey() is provided by config.php (loaded before this file).
  */
 
+/**
+ * แปลง HTML บทความเป็นข้อความล้วน สำหรับปลายทางที่ไม่เรนเดอร์ HTML
+ *
+ * ใช้กับแพลตฟอร์มโซเชียลเท่านั้น (facebook, instagram, tiktok, lineoa, linkedin, twitter)
+ * ปลายทางเว็บ/CMS (wordpress, lotusdomino, custom) ต้องได้ HTML เดิม — ห้ามเรียกฟังก์ชันนี้กับเส้นนั้น
+ *
+ * ไม่ใช้ strip_tags() เปล่า ๆ เพราะจะยุบย่อหน้ากับรายการเป็นข้อความติดกันเป็นพืดอ่านไม่ออก
+ * (16 จาก 23 แถวใน content_items มี <li>) จึงแปลงแท็กเชิงโครงสร้างเป็นตัวคั่นข้อความก่อน
+ *
+ * ลำดับ strip ก่อน decode สลับกันไม่ได้: ถ้า decode ก่อน ข้อความที่ผู้เขียน escape ไว้
+ * อย่าง &lt;div&gt; จะกลายเป็นแท็กจริงแล้วถูก strip_tags() กินหายไป
+ * ลำดับนี้ตรงกับ seo_word_count() ใน api/lib/seo-checklist.php ที่ใช้อยู่แล้ว
+ *
+ * @param string $html     HTML จาก article_content.html
+ * @param string $dupTitle หัวเรื่องที่ผู้เรียกจะเติมไว้หน้าข้อความอยู่แล้ว — ใช้ตัด <h1> ที่ซ้ำ
+ *                         ต้องเป็นค่า $title ที่ dispatch_content() คำนวณแล้ว ไม่ใช่คอลัมน์ title ดิบ
+ *                         (5 แถวมี article_content.title ต่างจากคอลัมน์ และเป็นค่าที่โพสต์จริงใช้)
+ */
+function publish_html_to_text(string $html, string $dupTitle = ''): string {
+    if (trim($html) === '') {
+        return '';
+    }
+
+    // ── ตัด <h1> ตัวแรกเมื่อข้อความข้างในซ้ำกับหัวเรื่องที่จะถูกเติม ──────────────
+    // dispatcher โซเชียลทุกตัวประกอบข้อความเป็น "$title\n\n$body" ถ้าไม่ตัด หัวเรื่องจะขึ้นสองครั้งติดกัน
+    // ตัดเฉพาะตัวแรกและเฉพาะเมื่อตรงเป๊ะ — <h1> ที่ไม่ซ้ำเป็นเนื้อหาที่ผู้ใช้อนุมัติมา ห้ามลบ
+    // เทียบแบบ normalize ทั้งสองฝั่ง ไม่เทียบสตริงดิบ เพราะ <h1> มักมี attribute และ entity ข้างใน
+    $dupTitle = trim($dupTitle);
+    if ($dupTitle !== '' && preg_match('/<h1\b[^>]*>(.*?)<\/h1>/is', $html, $m)) {
+        $h1Text = trim(html_entity_decode(strip_tags($m[1]), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        if ($h1Text === $dupTitle) {
+            $html = preg_replace('/<h1\b[^>]*>.*?<\/h1>/is', '', $html, 1);
+        }
+    }
+
+    // ── ลบ <script>/<style> พร้อมเนื้อข้างใน ────────────────────────────────────
+    // ต้องอยู่ก่อน strip_tags() ซึ่งตัดแต่แท็กแล้วเก็บข้อความข้างในไว้
+    // ยังไม่พบในข้อมูลจริง (0 แถว) — เป็นการกัน CSS/JS ไหลไปโพสต์บนเพจสาธารณะ ไม่ใช่แก้อาการที่พบ
+    $html = preg_replace('#<(script|style)\b[^>]*>.*?</\1\s*>#is', '', $html);
+
+    // ── แท็กเชิงโครงสร้าง → ตัวคั่นข้อความ (ต้องก่อน strip_tags) ─────────────────
+    // <li> เปิดบรรทัดใหม่ให้เอง จึงไม่ต้องแปลง </li> เพิ่ม ไม่งั้นจะได้บรรทัดว่างคั่นทุกหัวข้อย่อย
+    $html = preg_replace('/<li\b[^>]*>/i', "\n• ", $html);
+    $html = preg_replace('#<br\s*/?>#i', "\n", $html);
+    $html = preg_replace('#</(p|h[1-6]|div|ul|ol|blockquote)\s*>#i', "\n\n", $html);
+
+    // ── ตัดแท็กที่เหลือ แล้วจึงถอดรหัส entity (ลำดับนี้สลับไม่ได้ ดู docblock) ────
+    $text = strip_tags($html);
+    $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+    // ── normalize ปิดท้าย ───────────────────────────────────────────────────────
+    $text = str_replace(["\r\n", "\r"], "\n", $text);
+    $text = preg_replace('/[ \t\x{00A0}]+/u', ' ', $text);  // ยุบช่องว่าง/แท็บ/nbsp ในบรรทัดเดียวกัน
+    $text = preg_replace('/ *\n */', "\n", $text);          // ตัดช่องว่างที่คร่อมการขึ้นบรรทัด
+    $text = preg_replace('/\n{3,}/', "\n\n", $text);        // บรรทัดว่างติดกันไม่เกินหนึ่งบรรทัด
+
+    return trim($text);
+}
+
 function dispatch_content(string $platform, array $channel, array $content): array {
     // Decrypt credentials once
     $creds = [];
@@ -31,6 +90,21 @@ function dispatch_content(string $platform, array $channel, array $content): arr
     $excerpt = $art['excerpt'] ?? '';
     $imgUrl  = $content['generated_image_url'] ?? '';
 
+    // เนื้อหาสำหรับแพลตฟอร์มโซเชียล — แยกจาก $body ข้างบนที่เป็น HTML สำหรับเว็บ/CMS
+    // โซเชียลไม่เรนเดอร์ HTML ส่ง $body เข้าไปตรง ๆ จะได้ <article>/<h1>/<p> ขึ้นเพจ
+    //
+    // caption มาก่อนเพราะเป็นข้อความล้วนที่เขียนไว้สำหรับโซเชียลโดยเฉพาะ (284–1,415 เฉลี่ย 749 อักษร)
+    // ขณะที่ article_content.html เป็นบทความ SEO (1,014–6,360 เฉลี่ย 3,615 อักษร) ที่แปลงเป็นข้อความ
+    // แล้วก็ยังยาวเกินเพดาน instagram/tiktok (2,200) และ twitter (280) ในหลายแถว
+    // — ลำดับเดิมที่ $body ใช้ทิ้ง caption เงียบ ๆ ทุกครั้งที่มีบทความ (20 จาก 34 แถว)
+    //
+    // trim() ก่อนเทียบ เพื่อไม่ให้ caption ที่มีแต่ช่องว่างชนะ HTML ที่มีเนื้อหาจริง
+    // caption ที่ถูกเลือกไม่ผ่านตัวแปลงเลย — ผู้ใช้พิมพ์อะไรได้อย่างนั้น รวมถึงเส้น
+    // channel_overrides ที่ api/content-publish.php:179 ซึ่งตั้ง caption เป็นข้อความที่ผู้ใช้พิมพ์
+    $socialBody = trim($content['caption'] ?? '') !== ''
+        ? trim($content['caption'])
+        : publish_html_to_text($art['html'] ?? '', $title);
+
     // ฟิลด์ SEO/AEO สำหรับ Lotus Domino — อ่านจาก article_content JSON ก่อน แล้ว fallback ไปคอลัมน์ content_items
     // (ลำดับ fallback ตรงกับ inline handler เดิมใน brand-content.php)
     $seo = [
@@ -44,12 +118,14 @@ function dispatch_content(string $platform, array $channel, array $content): arr
     ];
 
     return match($platform) {
-        'facebook'  => dispatch_facebook($channel, $creds, $title, $body, $imgUrl),
-        'instagram' => dispatch_instagram($channel, $creds, $title, $body, $imgUrl),
-        'tiktok'    => dispatch_tiktok($channel, $creds, $title, $body),
-        'lineoa'    => dispatch_lineoa($channel, $creds, $title, $body),
-        'linkedin'  => dispatch_linkedin($channel, $creds, $title, $body, $imgUrl),
-        'twitter'   => dispatch_twitter($channel, $creds, $title, $body),
+        // โซเชียล → $socialBody (ข้อความล้วน)
+        'facebook'  => dispatch_facebook($channel, $creds, $title, $socialBody, $imgUrl),
+        'instagram' => dispatch_instagram($channel, $creds, $title, $socialBody, $imgUrl),
+        'tiktok'    => dispatch_tiktok($channel, $creds, $title, $socialBody),
+        'lineoa'    => dispatch_lineoa($channel, $creds, $title, $socialBody),
+        'linkedin'  => dispatch_linkedin($channel, $creds, $title, $socialBody, $imgUrl),
+        'twitter'   => dispatch_twitter($channel, $creds, $title, $socialBody),
+        // เว็บ/CMS → $body (HTML เดิม) เพราะปลายทางเรนเดอร์ HTML เป็นบทความ
         'wordpress' => dispatch_wordpress($channel, $creds, $title, $body, $excerpt),
         'wix'       => dispatch_wix($channel, $creds, $title, $body),
         'lotusdomino' => dispatch_lotusdomino($channel, $creds, $title, $body, $excerpt, $imgUrl, $seo),
