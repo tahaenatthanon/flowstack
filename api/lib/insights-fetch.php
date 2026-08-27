@@ -66,6 +66,90 @@ function insights_channel_creds(array $channel): array {
     return is_array($decoded) ? $decoded : ['token' => $plain];
 }
 
+/**
+ * ตรวจอายุ credentials ของช่องทางหนึ่งด้วย Graph API debug_token
+ *
+ * คืนข้อเท็จจริงดิบเท่าที่ API บอก ไม่ตัดสินสถานะและไม่แตะฐานข้อมูล —
+ * การแปลงเป็น token_status และการเขียนลง publish_channels เป็นหน้าที่ของผู้เรียก
+ * (ไฟล์นี้เป็นชั้นเรียก Graph API ล้วน ไม่รับ PDO เลย จงใจรักษาไว้เช่นนั้น)
+ *
+ * ⚠️ expires_at ที่คืนเป็น Unix timestamp ดิบ ค่า 0 คงไว้เป็น 0 ไม่แปลงเป็น null ที่นี่
+ *    ผู้เรียกต้องรู้ว่า 0 = "ไม่มีวันหมดอายุ" ไม่ใช่ปี 1970 (Page token ที่ระบบใช้คืน 0)
+ *
+ * debug_token ปกติต้องใช้ app access token (`app_id|app_secret`) หรือ token ของ
+ * developer ของแอป — ระบบนี้ไม่ได้เก็บ app secret ไว้ที่ไหน จึงส่ง token ตัวเดียวกัน
+ * เป็นทั้ง input_token และ access_token ซึ่งทดสอบกับเพจจริงแล้วใช้ได้ (27 ส.ค. 2026)
+ *
+ * @return array {
+ *   unsupported:            bool    true = platform นี้ไม่มี API บอกอายุ (ไม่มี request ออกไป)
+ *   is_valid:               ?bool   null เมื่อไม่ได้ตรวจ
+ *   expires_at:             ?int    Unix ts ของวันหมดอายุ token (0 = ไม่มีวันหมดอายุ)
+ *   data_access_expires_at: ?int    Unix ts ของหน้าต่าง data access — เดดไลน์คนละตัว
+ *   error:                  ?string ข้อความจาก API เมื่อตรวจไม่ได้หรือ token ใช้ไม่ได้
+ *   raw:                    mixed
+ * }
+ */
+function fetch_channel_token_health(string $platform, array $channel): array {
+    if ($platform !== 'facebook' && $platform !== 'instagram') {
+        return _token_health_unsupported();
+    }
+
+    $creds = insights_channel_creds($channel);
+    $token = $creds['access_token'] ?? '';
+    if ($token === '') {
+        // ไม่ยิง request เมื่อ creds ไม่ครบ — คำขอที่ไม่มี token ตอบ error ที่ไม่มีความหมายอยู่แล้ว
+        return _token_health_fail("creds ของ {$platform} ไม่ครบ — ไม่มี access_token");
+    }
+
+    $res = _insights_get(GRAPH_API_BASE . '/debug_token?' . http_build_query([
+        'input_token'  => $token,
+        'access_token' => $token,
+    ]));
+    if (!$res['success']) {
+        return _token_health_fail((string) $res['error'], $res['data'] ?? null);
+    }
+
+    $d = $res['data']['data'] ?? null;
+    if (!is_array($d)) {
+        return _token_health_fail('debug_token ตอบในรูปแบบที่อ่านไม่ได้', $res['data']);
+    }
+
+    $isValid = !empty($d['is_valid']);
+    return [
+        'unsupported'            => false,
+        'is_valid'               => $isValid,
+        'expires_at'             => isset($d['expires_at'])             ? (int) $d['expires_at']             : null,
+        'data_access_expires_at' => isset($d['data_access_expires_at']) ? (int) $d['data_access_expires_at'] : null,
+        // is_valid = false มาพร้อม HTTP 200 ได้ จึงต้องแปลงเป็นข้อความเองไม่ใช่รอ error จาก HTTP
+        'error'                  => $isValid ? null : 'debug_token รายงานว่า token ใช้ไม่ได้แล้ว (is_valid = false)',
+        'raw'                    => $d,
+    ];
+}
+
+/** platform ที่ไม่มี API บอกอายุ credentials — ไม่ใช่ความล้มเหลว */
+function _token_health_unsupported(): array {
+    return [
+        'unsupported'            => true,
+        'is_valid'               => null,
+        'expires_at'             => null,
+        'data_access_expires_at' => null,
+        'error'                  => null,
+        'raw'                    => null,
+    ];
+}
+
+/** ตรวจไม่ได้หรือ token ใช้ไม่ได้ — platform รองรับแต่ผลออกมาไม่ดี */
+function _token_health_fail(string $error, $raw = null): array {
+    return [
+        'unsupported'            => false,
+        'is_valid'               => false,
+        'expires_at'             => null,
+        'data_access_expires_at' => null,
+        'error'                  => $error,
+        'raw'                    => $raw,
+    ];
+}
+
 // ─── Facebook ───────────────────────────────────────────────────────────────────
 // Creds: { "page_id": "...", "access_token": "..." } — ชุดเดียวกับ dispatch_facebook()
 // ⚠️ ต้องเป็น **Page** access token ไม่ใช่ User token: User token เรียก /{post_id}/insights

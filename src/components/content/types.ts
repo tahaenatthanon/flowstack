@@ -103,6 +103,13 @@ export interface PublishChannel {
   id: string; name: string;
   platform: 'wordpress' | 'wix' | 'custom' | 'facebook' | 'lineoa' | 'instagram' | 'tiktok' | 'linkedin' | 'twitter' | 'lotusdomino';
   endpoint_url: string; is_active: number; created_at: string;
+  // ผลตรวจอายุ credentials เขียนโดย api/cron/content-metrics-sync.php
+  // null = ยังไม่เคยตรวจ ซึ่งต่างจาก 'valid' (ตรวจแล้วปกติ) — ห้ามยุบสองกรณีนี้เข้าด้วยกัน
+  token_status?: 'valid' | 'expiring' | 'expired' | 'invalid' | 'unsupported' | null;
+  token_expires_at?: string | null;       // null = ไม่มีวันหมดอายุ (Page token คืน 0)
+  data_access_expires_at?: string | null; // เดดไลน์คนละตัวจาก token_expires_at
+  token_checked_at?: string | null;
+  token_error?: string | null;
 }
 
 export interface ContentSchedule {

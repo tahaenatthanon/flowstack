@@ -34,6 +34,12 @@ try {
 }
 unset($_hcTz);
 
+// ── ค่าคงที่เรื่องเวลาของ cron ────────────────────────────────────────────────
+// ไฟล์นี้ไม่มี require และไม่มี side effect (ดูหัวไฟล์ของมัน) จึงไม่ทำลาย
+// ความเป็นอิสระของ health.php — ต่างจาก api/lib/cron-runner.php ที่ require config.php
+// เพดาน "เลยกำหนด" ต้องเป็นค่าเดียวกับที่ tick.php/cron-manager.php ใช้ ไม่ใช่เลขที่คัดลอกมา
+require_once __DIR__ . '/lib/cron-constants.php';
+
 $checks = [];
 $overallOk = true;
 
@@ -73,6 +79,11 @@ if (isset($pdo)) {
         // ผลจะคลาดไปเท่ากับส่วนต่างเขตเวลาของสอง runtime และเคยติดลบคงที่ ~-300 นาที
         // ทำให้เพดาน STALE 120 นาทีไม่เคยถึงเลย (cron ตาย 15 ชม. คืน 24 ส.ค. 2026 ไม่มีเตือน)
         // ตัวตรวจสุขภาพต้องไม่พึ่งการตั้งค่าเขตเวลาของ PHP จึงเทียบสองค่าในนาฬิกาเดียวกัน
+        //
+        // ⚠️ เพดาน 120 ที่นี่เป็น "นาที" และไม่ใช่ตัวเดียวกับ CRON_OVERDUE_SECONDS (วินาที)
+        // ที่ใช้ในบล็อก cron_jobs ด้านล่าง — สองค่านี้วัดคนละเรื่อง: ที่นี่ถามว่า "มีงานใด
+        // รันจบเมื่อไม่นานนี้ไหม" (ตัว tick ยังมีชีวิตหรือเปล่า) ส่วนด้านล่างถามว่า
+        // "งานแต่ละงานถูกเรียกตามตารางของตัวเองหรือไม่"
         $row = $pdo->query(
             "SELECT job_name, finished_at, errors,
                     TIMESTAMPDIFF(MINUTE, finished_at, NOW()) AS minutes_ago
@@ -94,6 +105,79 @@ if (isset($pdo)) {
         }
     } catch (Throwable $e) {
         $checks['cron_last_run'] = 'cron_runs table not found';
+    }
+}
+
+/** วินาที → ระยะเวลาภาษาไทยแบบสั้น เช่น '2 วัน 5 ชั่วโมง' (หน่วยใหญ่สุด 2 หน่วย) */
+function _hcDuration(int $seconds): string {
+    if ($seconds < 60) return $seconds . ' วินาที';
+    $units = [['วัน', 86400], ['ชั่วโมง', 3600], ['นาที', 60]];
+    $parts = [];
+    foreach ($units as [$label, $size]) {
+        $n = intdiv($seconds, $size);
+        if ($n > 0) {
+            $parts[]  = $n . ' ' . $label;
+            $seconds -= $n * $size;
+        }
+        if (count($parts) === 2) break;
+    }
+    return implode(' ', $parts);
+}
+
+// ── ตารางเวลาของ cron แต่ละงาน (ต้องมีตาราง cron_jobs) ────────────────────────
+// แยกเรื่องจาก cron_last_run ด้านบนโดยเจตนา — งานหนึ่งรันจบเมื่อ 1 นาทีก่อนได้พร้อมกับ
+// ที่อีกงานไม่ถูกเรียกมา 3 วัน ถ้ารายงานเป็นค่าเดียวกันสองอาการนี้จะกลบกัน
+//
+// วัดด้วย next_run_at ซึ่ง tick.php เขียนหลังรันเสร็จทุกครั้ง: ถ้าเวลานั้นเลยมานานกว่า
+// CRON_OVERDUE_SECONDS แปลว่าไม่มีใครเรียก tick จริง (ตัวตั้งเวลาระดับ OS ไม่ได้ลงทะเบียน /
+// ถูกปิด / เครื่องหลับ) — เป็นอาการเดียวกับที่หน้าแอดมินใช้ที่ cron-manager.php:78
+// จึงใช้สูตรและเพดานตัวเดียวกันเพื่อให้สองที่ไม่ขัดกัน
+if (isset($pdo)) {
+    try {
+        // เทียบเวลาฝั่ง SQL ด้วยนาฬิกาเดียวกับที่เขียน next_run_at
+        // ค่าบวก = เลยกำหนดมาแล้วกี่วินาที, ค่าลบ = อีกกี่วินาทีจะถึงกำหนด
+        $jobs = $pdo->query(
+            "SELECT `key`, name, cron_expression, last_run_at, next_run_at,
+                    TIMESTAMPDIFF(SECOND, next_run_at, NOW()) AS overdue_seconds
+             FROM cron_jobs WHERE enabled = 1 ORDER BY created_at ASC"
+        )->fetchAll(PDO::FETCH_ASSOC);
+
+        $overdue = [];
+        $noSchedule = [];
+        foreach ($jobs as $j) {
+            // next_run_at เป็น NULL = ยังไม่เคยตั้งรอบ ซึ่ง tick.php initialize ให้เองในรอบถัดไป
+            // (tick.php:70-81) จึงเป็นสถานะชั่วคราวไม่ใช่ความผิดพลาด — รายงานแยกไว้ให้เห็น
+            // แต่ไม่ทำให้ทั้ง endpoint เป็น degraded เพราะจะกลายเป็น 503 ที่กระพริบ
+            // ทุกครั้งที่มีคนเปิดงานใหม่ ถ้า tick ตายจริง overdue/cron_last_run บอกอยู่แล้ว
+            if (empty($j['next_run_at'])) {
+                $noSchedule[] = $j['key'];
+                continue;
+            }
+            $sec = $j['overdue_seconds'] === null ? null : (int)$j['overdue_seconds'];
+            if ($sec !== null && $sec > CRON_OVERDUE_SECONDS) {
+                $overdue[] = [
+                    'job'             => $j['key'],
+                    'name'            => $j['name'],
+                    'cron_expression' => $j['cron_expression'],
+                    'next_run_at'     => $j['next_run_at'],
+                    'last_run_at'     => $j['last_run_at'],
+                    'overdue_seconds' => $sec,
+                    'overdue_human'   => _hcDuration($sec),
+                ];
+            }
+        }
+
+        $checks['cron_jobs'] = [
+            'status'                    => empty($overdue) ? 'ok' : 'OVERDUE',
+            'enabled_count'             => count($jobs),
+            'overdue_count'             => count($overdue),
+            'overdue_threshold_seconds' => CRON_OVERDUE_SECONDS,
+            'overdue'                   => $overdue,
+            'without_schedule'          => $noSchedule,
+        ];
+        if (!empty($overdue)) $overallOk = false;
+    } catch (Throwable $e) {
+        $checks['cron_jobs'] = 'cron_jobs table not found';
     }
 }
 

@@ -14,6 +14,49 @@ import { apiFetch } from '@/lib/api';
 import { PlatformIcon } from '@/components/content/PlatformIcon';
 import { getPlatformColors } from '@/lib/platformConfig';
 
+// ป้ายสถานะอายุ credentials — ค่ามาจาก pre-pass ใน api/cron/content-metrics-sync.php
+//
+// สามกรณีที่ห้ามยุบเข้าด้วยกัน เพราะสองกรณีหลังไม่ใช่การรับประกันว่าใช้งานได้:
+//   valid       = ตรวจแล้วปกติ
+//   unsupported = platform ไม่มี API บอกอายุ (lotusdomino/wix/…) → ระบบไม่ได้ตรวจอะไรเลย
+//   null        = ยังไม่เคยตรวจ (cron ยังไม่ได้รันหรือช่องทางถูกปิด)
+const TOKEN_STATUS_UI: Record<string, { label: string; color: string }> = {
+  valid:       { label: 'credentials ปกติ',      color: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300' },
+  expiring:    { label: 'ใกล้หมดอายุ',           color: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300' },
+  expired:     { label: 'หมดอายุแล้ว',            color: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300' },
+  invalid:     { label: 'credentials ใช้ไม่ได้',  color: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300' },
+  unsupported: { label: 'ตรวจสอบอายุไม่ได้',      color: 'bg-muted text-muted-foreground' },
+};
+const TOKEN_NEVER_CHECKED = { label: 'ยังไม่เคยตรวจ', color: 'bg-muted text-muted-foreground' };
+
+/** DATETIME ของ MySQL ('2026-11-24 14:23:26') → วันเวลาไทย · คืน null เมื่อไม่มีค่า */
+function formatTokenDate(value?: string | null): string | null {
+  if (!value) return null;
+  // แทน ' ' ด้วย 'T' ให้ทุกเบราว์เซอร์อ่านเป็นเวลาท้องถิ่นตามมาตรฐาน ไม่ใช่ UTC
+  const d = new Date(value.replace(' ', 'T'));
+  if (isNaN(d.getTime())) return null;
+  return d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })
+       + ' ' + d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+}
+
+/**
+ * บรรทัดวันหมดอายุที่ผู้ใช้อ่านได้
+ *
+ * token_expires_at และ data_access_expires_at เป็นเดดไลน์คนละตัว — Page token
+ * ที่ไม่มีวันหมดอายุ (ค่าเป็น null) ยังหยุดเข้าถึงข้อมูลได้เมื่อพ้นหน้าต่าง data access
+ * จึงต้องแสดงทั้งสองค่าไม่ใช่เลือกค่าเดียว
+ */
+function tokenExpiryText(ch: PublishChannel): string | null {
+  if (ch.token_status === 'unsupported' || !ch.token_status) return null;
+  const parts: string[] = [];
+  const tokenExp = formatTokenDate(ch.token_expires_at);
+  const dataExp  = formatTokenDate(ch.data_access_expires_at);
+  if (tokenExp) parts.push(`token หมดอายุ ${tokenExp}`);
+  if (dataExp)  parts.push(`การเข้าถึงข้อมูลหมด ${dataExp}`);
+  if (!parts.length && ch.token_status === 'valid') parts.push('ไม่มีวันหมดอายุ');
+  return parts.length ? parts.join(' · ') : null;
+}
+
 export default function ChannelManagementSection() {
   const { toast } = useToast();
   const { confirm } = useConfirm();
@@ -83,6 +126,9 @@ export default function ChannelManagementSection() {
           <div className="space-y-2">
             {channels.map(ch => {
               const pc = getPlatformColors(ch.platform);
+              const tokenUi   = ch.token_status ? (TOKEN_STATUS_UI[ch.token_status] ?? TOKEN_NEVER_CHECKED) : TOKEN_NEVER_CHECKED;
+              const expiry    = tokenExpiryText(ch);
+              const checkedAt = formatTokenDate(ch.token_checked_at);
               return (
                 <div key={ch.id} className="flex items-center gap-3 p-3 border rounded-lg bg-background">
                   <span
@@ -95,6 +141,21 @@ export default function ChannelManagementSection() {
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">{ch.name}</p>
                     {ch.endpoint_url && <p className="text-xs text-muted-foreground truncate">{ch.endpoint_url}</p>}
+                    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 mt-1">
+                      <span
+                        className={`text-[11px] px-1.5 py-0 rounded font-medium ${tokenUi.color}`}
+                        title={checkedAt ? `ตรวจล่าสุด ${checkedAt}` : 'ระบบยังไม่ได้ตรวจอายุ credentials ของช่องทางนี้'}
+                      >
+                        {tokenUi.label}
+                      </span>
+                      {expiry && <span className="text-[11px] text-muted-foreground">{expiry}</span>}
+                    </div>
+                    {/* token_error เก็บข้อความดิบจากปลายทาง — แสดงให้แอดมินเห็นเพื่อแก้ได้ตรงจุด */}
+                    {ch.token_error && (
+                      <p className="text-[11px] text-red-600 dark:text-red-400 mt-0.5 line-clamp-2" title={ch.token_error}>
+                        {ch.token_error}
+                      </p>
+                    )}
                   </div>
                   <div className="flex gap-1 shrink-0">
                     <Button size="sm" variant="ghost" className="h-7 px-2 gap-1 text-xs" onClick={() => testConnection(ch)} disabled={testing[ch.id]} title="ทดสอบการเชื่อมต่อ">

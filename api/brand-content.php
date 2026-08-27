@@ -1755,7 +1755,14 @@ if ($action === 'save-brief-package') {
 // โ”€โ”€โ”€ CHANNELS โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
 if ($action === 'channels') {
     if ($method === 'GET') {
-        $stmt = $db->prepare("SELECT id,name,platform,endpoint_url,is_active,created_at FROM publish_channels WHERE tenant_id=? ORDER BY created_at ASC");
+        // คอลัมน์ตระกูล token_* มาจาก pre-pass ของ api/cron/content-metrics-sync.php
+        // ต้องระบุชื่อตรง ๆ เพราะ SELECT นี้เจาะจงคอลัมน์ (ไม่ใช่ *) คอลัมน์ใหม่จึงไม่ถึง frontend เอง
+        // ไม่ส่ง credentials_encrypted ออกไปเหมือนเดิม
+        $stmt = $db->prepare(
+            "SELECT id,name,platform,endpoint_url,is_active,created_at,
+                    token_expires_at,data_access_expires_at,token_checked_at,token_status,token_error
+               FROM publish_channels WHERE tenant_id=? ORDER BY created_at ASC"
+        );
         $stmt->execute([$tenantId]);
         jsonResponse($stmt->fetchAll());
     }

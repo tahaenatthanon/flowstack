@@ -129,12 +129,16 @@ function _pushTelegram(string $token, string $chatId, string $text): void
     curl_close($ch);
 }
 
-function _sendEmailActivity(string $toEmail, string $toName, string $subject, string $htmlBody): void
+/**
+ * ส่งอีเมล HTML ผ่าน SMTP ที่ตั้งค่าไว้ใน settings
+ * คืน true เมื่อส่งสำเร็จ / false เมื่อล้มเหลว — ops-alert.php ใช้ค่านี้บันทึก notification_log
+ * ผู้เรียกเดิม (notifyAdminsTaskActivity) ไม่ได้ใช้ค่าที่คืน พฤติกรรมจึงไม่เปลี่ยน
+ */
+function _sendEmailActivity(string $toEmail, string $toName, string $subject, string $htmlBody): bool
 {
     $vendorAutoload = __DIR__ . '/../vendor/autoload.php';
     if (!file_exists($vendorAutoload)) {
-        @mail($toEmail, $subject, strip_tags($htmlBody), "Content-Type: text/html; charset=UTF-8\r\nFrom: FlowStack <noreply@flowstack.app>\r\n");
-        return;
+        return @mail($toEmail, $subject, strip_tags($htmlBody), "Content-Type: text/html; charset=UTF-8\r\nFrom: FlowStack <noreply@flowstack.app>\r\n");
     }
     require_once $vendorAutoload;
     $db = getDB();
@@ -157,7 +161,9 @@ function _sendEmailActivity(string $toEmail, string $toName, string $subject, st
         $mail->Body    = $htmlBody;
         $mail->AltBody = strip_tags($htmlBody);
         $mail->send();
+        return true;
     } catch (\Exception $e) {
         error_log('[notify-task] email failed: ' . $e->getMessage());
+        return false;
     }
 }

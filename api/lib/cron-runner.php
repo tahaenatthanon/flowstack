@@ -16,20 +16,15 @@
 //             sendReminderEmail (billing-reminders), ai-digest ไม่ประกาศฟังก์ชัน
 
 require_once __DIR__ . '/../config.php';
+// ops_alert() / ops_alert_resolve() — require_once จำเป็นจริง ไม่ใช่ความสวยงาม:
+// รอบ tick เดียว include ไฟล์งานหลายไฟล์เข้าโปรเซสเดียว ถ้าไฟล์นี้ถูกโหลดซ้ำแบบ include
+// จะ fatal "Cannot redeclare" ซึ่ง try/catch ดักไม่ได้
+require_once __DIR__ . '/ops-alert.php';
 
-// เพดานเวลาที่ถือว่างาน "ค้าง" — ใช้ค่าเดียวกันทั้งใน jobState() ของ cron-manager
-// และในตัวเลือกงานของ tick.php ถ้าใช้ค่าต่างกัน หน้าแอดมินจะบอกว่า "running"
-// ขณะที่ tick ยิงงานซ้อนไปแล้ว
-if (!defined('CRON_STUCK_SECONDS')) define('CRON_STUCK_SECONDS', 600);
-
-// เพดานการค้นหา next_run_at เป็นนาที (~366 วัน) กัน expression ที่ match ไม่ได้เลย
-// เช่น '0 0 30 2 *' (30 กุมภาพันธ์) ทำให้ลูปไม่จบ
-if (!defined('CRON_NEXT_RUN_MAX_MINUTES')) define('CRON_NEXT_RUN_MAX_MINUTES', 527040);
-
-// ความล่าช้าที่ยอมรับได้ก่อนถือว่างาน "เลยกำหนด" — tick ถูกเรียกทุก 1 นาที
-// จึงเผื่อไว้ 2 นาที ถ้า next_run_at เลยมานานกว่านี้แปลว่าไม่มีใครเรียก tick จริง
-// (ตัวตั้งเวลาระดับ OS ไม่ได้ลงทะเบียน / ถูกปิด / เครื่องหลับ) — หน้าแอดมินต้องบอกให้เห็น
-if (!defined('CRON_OVERDUE_SECONDS')) define('CRON_OVERDUE_SECONDS', 120);
+// CRON_STUCK_SECONDS / CRON_NEXT_RUN_MAX_MINUTES / CRON_OVERDUE_SECONDS
+// อยู่ในไฟล์แยกที่ไม่มี dependency เพื่อให้ api/health.php อ่านค่าเดียวกันได้
+// โดยไม่ต้องลากไฟล์นี้ (และ config.php) เข้าไปทั้งสาย — เหตุผลเต็มอยู่ในไฟล์นั้น
+require_once __DIR__ . '/cron-constants.php';
 
 /**
  * secret ที่ใช้ยืนยันการเรียก cron ผ่าน HTTP — จุดเดียวสำหรับทุกไฟล์
@@ -221,7 +216,22 @@ function runJob(PDO $db, array $def): array {
     // ประกาศตัวแปรที่ global scope ซึ่งอยู่ scope เดียวกันกับตัวแปรในฟังก์ชันนี้
     // (เช่น publish-scheduler.php ตั้ง $db = getDB(); → ทับ $db ของเรา)
     $cr_key    = $def['key'];
+    $cr_name   = (string)($def['name'] ?? $def['key']);
     $cr_secret = cron_secret();
+
+    // อายุของแถวที่ยังเปิดอยู่ ต้องวัด "ก่อน" ปิดมัน เพื่อแยกสองกรณีออกจากกัน:
+    //   - เกิน CRON_STUCK_SECONDS  → งานแขวนค้างจริง = ความล้มเหลวที่ต้องแจ้ง
+    //   - ยังไม่เกิน               → แอดมินกดปุ่มรันมือทับรอบที่กำลังรันอยู่ ไม่ใช่ความล้มเหลว
+    // (tick.php กันกรณีหลังไว้แล้วด้วยการ skip แต่ cron-manager.php เรียก runJob() ตรง ๆ)
+    // เทียบอายุด้วย TIMESTAMPDIFF ของฐานข้อมูลตามข้อตกลงเรื่องนาฬิกาของไฟล์นี้
+    $cr_ageStmt = $db->prepare(
+        "SELECT TIMESTAMPDIFF(SECOND, started_at, NOW())
+           FROM cron_runs WHERE job_name = ? AND finished_at IS NULL
+          ORDER BY id DESC LIMIT 1"
+    );
+    $cr_ageStmt->execute([$cr_key]);
+    $cr_openAge     = $cr_ageStmt->fetchColumn();
+    $cr_stuckClosed = $cr_openAge !== false && (int)$cr_openAge >= CRON_STUCK_SECONDS;
 
     // Close any stuck run first
     $db->prepare(
@@ -284,10 +294,97 @@ function runJob(PDO $db, array $def): array {
         "UPDATE cron_runs SET finished_at=NOW(), records_processed=?, errors=?, notes=? WHERE id=?"
     )->execute([$processed, $errors, mb_substr($output, 0, 500), $cr_runId]);
 
+    // ── แจ้งเตือน ─────────────────────────────────────────────────────────────
+    // อยู่ใน runJob() ไม่ใช่ใน tick.php ด้วยเหตุผลสองข้อ:
+    //   1) งานที่แอดมินกดปุ่ม "รันเดี๋ยวนี้" แล้วล้มเหลวต้องแจ้งเหมือนกัน
+    //   2) ไม่ให้มีตรรกะตัดสิน "ล้มเหลว" สองชุดที่แยกกันเพี้ยนได้
+    //
+    // "ล้มเหลว" ที่นี่ = $success เป็น false หรือมีแถวที่แขวนค้างเกินเพดานถูกปิด
+    // ไม่นับ $errors > 0 เพราะจำนวน error เป็นตัวเลขที่ preg_match เดาจาก output ของงาน
+    // งานที่รู้ความหมายของ error ตัวเอง (เช่น content-metrics-sync) แจ้งเรื่องนั้นเอง
+    //
+    // ห่อ try/catch อีกชั้นแม้ ops_alert() จะห่อในตัวอยู่แล้ว เพราะการนับรอบที่ล้มติดกัน
+    // เป็น SQL ของที่นี่ ถ้ามันพังต้องไม่ทำให้ runJob() โยน exception และฆ่า tick ทั้งรอบ
+    try {
+        if (!$success || $cr_stuckClosed) {
+            $cr_streak = cron_failure_streak($db, $cr_key);
+            if ($cr_stuckClosed) {
+                $cr_reason = $success
+                    ? 'รอบก่อนหน้าแขวนค้างเกินเพดานเวลาและถูกปิดโดยระบบ (รอบล่าสุดรันจบแล้ว)'
+                    : 'รอบก่อนหน้าแขวนค้างเกินเพดานเวลาและถูกปิดโดยระบบ และรอบล่าสุดก็รันไม่สำเร็จ';
+            } else {
+                $cr_reason = 'งานรันไม่สำเร็จ';
+            }
+            $cr_out  = trim($output) !== '' ? trim($output) : '(งานไม่ได้คืนข้อความอะไร)';
+            $cr_body = "งาน: {$cr_name} ({$cr_key})\n"
+                     . "อาการ: {$cr_reason}\n"
+                     . "ล้มเหลวติดกันล่าสุด: {$cr_streak} รอบ\n\n"
+                     . "ผลจากงาน:\n" . mb_substr($cr_out, 0, 800);
+
+            // ล้มติดกันตั้งแต่ 3 รอบ = ไม่หายเอง ต้องมีคนเข้าไปแก้ → ยกระดับเป็นอีเมล
+            ops_alert(
+                $db,
+                null,
+                'cron_fail:' . $cr_key,
+                "⚠️ งานตามเวลาล้มเหลว: {$cr_name}",
+                $cr_body,
+                $cr_streak >= 3
+            );
+        } else {
+            ops_alert_resolve(
+                $db,
+                null,
+                'cron_fail:' . $cr_key,
+                "✅ งานตามเวลากลับมาปกติ: {$cr_name}",
+                "งาน: {$cr_name} ({$cr_key})\nรอบล่าสุดรันสำเร็จแล้ว"
+            );
+        }
+    } catch (Throwable $e) {
+        error_log('[cron-runner] alerting failed for job ' . $cr_key . ': ' . $e->getMessage());
+    }
+
     return [
         'success'   => $success,
         'output'    => mb_substr($output ?: ($success ? 'Completed.' : 'Failed.'), 0, 2000),
         'processed' => $processed,
         'errors'    => $errors,
     ];
+}
+
+/**
+ * จำนวนรอบที่ล้มเหลว "ติดกัน" ล่าสุดของงานหนึ่ง — รวมรอบที่ runJob() เพิ่งปิดไป
+ * นับด้วย SQL: หา id ของรอบที่สำเร็จล่าสุด แล้วนับรอบที่ล้มเหลวหลังจากนั้น
+ *
+ * นิยาม "ล้มเหลว" ที่นี่ต้องตรงกับที่ runJob() ใช้ ($success เป็น false หรือถูกปิดเพราะค้าง)
+ * จึงดูเฉพาะร่องรอยที่ runJob() เขียนเองในเส้นทางล้มเหลว 3 แบบ:
+ *   notes 'Exception:'                      → เส้นทาง catch ของ type='include'
+ *   notes 'cURL error:'                     → cURL ล้มของ type='http'
+ *   notes 'Force-restarted after timeout'   → แถวที่แขวนค้างเกินเพดานถูกปิด
+ *
+ * ห้ามใช้ errors > 0 เป็นเงื่อนไข — คอลัมน์นั้นมาจาก preg_match ที่เดาจาก output ของงาน
+ * รอบที่งานรายงาน "N errors" ของตัวเอง (เช่น content-metrics-sync ที่โพสต์บางโพสต์ซิงก์ไม่ได้)
+ * ไม่ใช่ความล้มเหลวของตัวรันงาน ถ้านับรวมจะกลายเป็นนิยาม "ล้มเหลว" สองชุดที่ขัดกัน
+ * งานที่รู้ความหมายของ error ตัวเองแจ้งเรื่องนั้นเอง
+ *
+ * ⚠️ ขอบเขตที่รู้อยู่: cron_runs ไม่มีคอลัมน์ success งานแบบ type='http' ที่ตอบ HTTP >= 400
+ *    พร้อม body ปกติจะไม่ทิ้งร่องรอยทั้งสามแบบไว้ในแถว → การนับต่ำกว่าความจริงสำหรับงานแบบนั้น
+ *    (งานที่ enabled อยู่ทั้งหมดปัจจุบันเป็น type='include' ซึ่งลง notes 'Exception:' เสมอ)
+ *    การเพิ่มคอลัมน์ success ให้ cron_runs เป็นงานแยก ไม่ทำในนี้เพราะเปลี่ยนสัญญาของแถว
+ */
+function cron_failure_streak(PDO $db, string $jobKey): int {
+    // COALESCE กัน notes ที่เป็น NULL ทำให้นิพจน์กลายเป็น NULL แล้วแถวที่สำเร็จหลุดจากการนับ
+    $failed = "(COALESCE(notes,'') LIKE 'Force-restarted after timeout%'"
+            . " OR COALESCE(notes,'') LIKE 'Exception:%'"
+            . " OR COALESCE(notes,'') LIKE 'cURL error:%')";
+
+    $stmt = $db->prepare(
+        "SELECT COUNT(*) FROM cron_runs
+          WHERE job_name = ? AND finished_at IS NOT NULL AND {$failed}
+            AND id > COALESCE((
+                  SELECT MAX(id) FROM cron_runs
+                   WHERE job_name = ? AND finished_at IS NOT NULL AND NOT {$failed}
+                ), 0)"
+    );
+    $stmt->execute([$jobKey, $jobKey]);
+    return (int)$stmt->fetchColumn();
 }
