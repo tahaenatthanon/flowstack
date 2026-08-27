@@ -1,10 +1,23 @@
-# content-dashboard-social-placeholder Specification
+## MODIFIED Requirements
 
-## Purpose
+### Requirement: แท็บโซเชียลแสดง notice card
+sub-tab "โซเชียล" SHALL แสดง notice card ภาษาไทยที่อธิบายตรง ๆ ว่า (1) เมตริก engagement ที่แสดงมาจากตาราง time-series `content_post_metrics` และครอบคลุมเฉพาะ **แพลตฟอร์มที่มีข้อมูลจริงในช่วงที่เลือก** (อ่านจากฟิลด์ `platforms` ที่ backend คืนมา ไม่ hardcode) (2) `views`/`likes` แสดงแยกกันและกำกับที่มา (3) เมตริกระดับเพจ — ผู้ติดตาม (followers), Reach, Impressions, Engagement Rate — **ยังไม่แสดง** เพราะต้องเชื่อมต่อ OAuth page insights (Facebook Graph / Instagram) ซึ่งเป็นงาน integration เฟสถัดไป notice card SHALL ไม่กล่าวอ้างว่าเมตริกเหล่านั้น "กำลังจะมา" ในเฟสนี้
 
-กำหนด sub-tab "โซเชียล" ของแท็บ "วิเคราะห์" — แสดง engagement ระดับโพสต์จริงจากตาราง time-series `content_post_metrics` (Facebook/Instagram) ผ่าน stat card, กราฟแนวโน้มรายเดือน, breakdown รายแพลตฟอร์ม และตารางโพสต์เด่น พร้อม notice card ภาษาไทยอธิบายขอบเขต — เมตริกระดับเพจ (followers/reach/impressions/engagement rate) ยังไม่แสดงจนกว่าจะเชื่อมต่อ OAuth page insights ในเฟสถัดไป
+#### Scenario: แสดง notice card อธิบายขอบเขตจากข้อมูลจริง
+- **WHEN** ผู้ใช้เปิด sub-tab "โซเชียล"
+- **THEN** เห็น notice card ภาษาไทยที่ระบุแพลตฟอร์มที่ครอบคลุมจริงตาม `social.platforms` และเวลาซิงก์ล่าสุด (`social.last_fetched_at`) เมื่อมี
 
-## Requirements
+#### Scenario: notice card ไม่กล่าวถึงการ์ดที่ถูกถอดออกเป็นเมตริกที่กำลังจะมี
+- **WHEN** notice card ถูก render
+- **THEN** อธิบายว่าเมตริกระดับเพจต้องรอ OAuth page insights (integration เฟสถัดไป) โดยไม่สัญญาว่าจะมาในเฟสนี้
+
+## REMOVED Requirements
+
+### Requirement: แท็บโซเชียลแสดง stat card 4 ใบแบบ placeholder
+**Reason**: การ์ด em dash 3 ใบ (ผู้ติดตามรวม, Reach รวม, Engagement Rate) เป็นเมตริกระดับเพจที่ไม่มีแหล่งข้อมูลและต้องรอ Facebook app review + OAuth page insights ซึ่งยังไม่มีกำหนด — การคงการ์ดว่างไว้กินพื้นที่ครึ่งหน้าและสื่อผิดว่ากำลังจะมีข้อมูล แทนที่ด้วยชุด widget ที่คำนวณจากข้อมูลจริงใน `content_post_metrics`
+**Migration**: พฤติกรรมใหม่อยู่ในข้อกำหนดที่เพิ่มด้านล่าง — "แท็บโซเชียลแสดง stat card จากข้อมูลจริง", "แท็บโซเชียลแสดงกราฟแนวโน้ม engagement รายเดือน", "แท็บโซเชียลแสดง breakdown รายแพลตฟอร์ม", "แท็บโซเชียลแสดงตารางโพสต์เด่น" และ "backend social block คืน per-platform, time-series และ top posts" การ์ด "Engagement รวม" ที่แสดงข้อมูลจริงอยู่แล้วถูกยกไปเป็นส่วนหนึ่งของ stat card ชุดใหม่
+
+## ADDED Requirements
 
 ### Requirement: backend social block คืน per-platform, time-series และ top posts
 `api/content-analytics.php` action `?action=analytics` ส่วน `social` SHALL คืนข้อมูลที่คำนวณจากตาราง `content_post_metrics` (dedupe เอาแถว `fetched_at` ล่าสุดต่อ (content_item_id, channel_id/platform_post_id) ตาม cohort `content_items.published_at BETWEEN from AND to` ตามพฤติกรรมเดิม) โดยเพิ่มฟิลด์ต่อไปนี้ **โดยไม่ลบฟิลด์รวมเดิม** (`posts`, `views`, `likes`, `engagement`, `last_fetched_at`, `has_data`):
@@ -83,14 +96,3 @@ sub-tab "โซเชียล" SHALL แสดงตารางโพสต์
 #### Scenario: ไม่มีโพสต์แสดงข้อความว่าง
 - **WHEN** `social.top_posts` = []
 - **THEN** ตารางแสดงข้อความว่าง (ไม่มีแถวปลอม)
-
-### Requirement: แท็บโซเชียลแสดง notice card
-sub-tab "โซเชียล" SHALL แสดง notice card ภาษาไทยที่อธิบายตรง ๆ ว่า (1) เมตริก engagement ที่แสดงมาจากตาราง time-series `content_post_metrics` และครอบคลุมเฉพาะ **แพลตฟอร์มที่มีข้อมูลจริงในช่วงที่เลือก** (อ่านจากฟิลด์ `platforms` ที่ backend คืนมา ไม่ hardcode) (2) `views`/`likes` แสดงแยกกันและกำกับที่มา (3) เมตริกระดับเพจ — ผู้ติดตาม (followers), Reach, Impressions, Engagement Rate — **ยังไม่แสดง** เพราะต้องเชื่อมต่อ OAuth page insights (Facebook Graph / Instagram) ซึ่งเป็นงาน integration เฟสถัดไป notice card SHALL ไม่กล่าวอ้างว่าเมตริกเหล่านั้น "กำลังจะมา" ในเฟสนี้
-
-#### Scenario: แสดง notice card อธิบายขอบเขตจากข้อมูลจริง
-- **WHEN** ผู้ใช้เปิด sub-tab "โซเชียล"
-- **THEN** เห็น notice card ภาษาไทยที่ระบุแพลตฟอร์มที่ครอบคลุมจริงตาม `social.platforms` และเวลาซิงก์ล่าสุด (`social.last_fetched_at`) เมื่อมี
-
-#### Scenario: notice card ไม่กล่าวถึงการ์ดที่ถูกถอดออกเป็นเมตริกที่กำลังจะมี
-- **WHEN** notice card ถูก render
-- **THEN** อธิบายว่าเมตริกระดับเพจต้องรอ OAuth page insights (integration เฟสถัดไป) โดยไม่สัญญาว่าจะมาในเฟสนี้

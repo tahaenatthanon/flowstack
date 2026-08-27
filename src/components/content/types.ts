@@ -251,8 +251,44 @@ export interface ContentStatsSummary {
  * `content_post_metrics` (แถวล่าสุดต่อคอนเทนต์+ช่องทาง) ไม่ใช่ `content_items.views/likes`
  * ที่เป็นผลรวมทุกแพลตฟอร์ม
  */
+/** สถิติรวมต่อแพลตฟอร์ม (คำนวณจาก snapshot ล่าสุดต่อโพสต์ต่อช่องทาง) */
+export interface SocialPlatformStat {
+  platform: string;
+  posts: number;
+  views: number;
+  likes: number;
+  /** views + likes */
+  engagement: number;
+}
+
+/** จุดแนวโน้มรายเดือน — เดือนที่ไม่มีข้อมูลจะมีค่าเป็น 0 ทุกช่อง */
+export interface SocialMonthlyPoint {
+  /** 'YYYY-MM' */
+  month: string;
+  posts: number;
+  views: number;
+  likes: number;
+  /** views + likes */
+  engagement: number;
+}
+
+/** โพสต์เด่น เรียงตาม engagement มากไปน้อย */
+export interface SocialTopPost {
+  content_item_id: string;
+  title: string;
+  /** แพลตฟอร์มของโพสต์ (คั่นด้วย '/' เมื่อ cross-post) */
+  platform: string;
+  published_at: string;
+  views: number;
+  likes: number;
+  /** views + likes */
+  engagement: number;
+  /** permalink จริงจาก content_items.published_url; null = ไม่มี (ไม่เดา URL) */
+  published_url: string | null;
+}
+
 export interface SocialEngagementSummary {
-  /** แพลตฟอร์มที่ตัวเลขนี้ครอบคลุมจริง */
+  /** แพลตฟอร์มที่ตัวเลขนี้ครอบคลุมจริง (มาจาก DISTINCT ของ cohort — ไม่ hardcode) */
   platforms: string[];
   /** จำนวนโพสต์ที่มีข้อมูลซิงก์แล้วในช่วงที่เลือก */
   posts: number;
@@ -264,6 +300,12 @@ export interface SocialEngagementSummary {
   last_fetched_at: string | null;
   /** false = ยังไม่มีโพสต์ FB/IG ที่ซิงก์แล้ว → ต้องแสดง "—" ไม่ใช่ 0 */
   has_data: boolean;
+  /** breakdown ต่อแพลตฟอร์มที่มีข้อมูลจริงเท่านั้น */
+  by_platform: SocialPlatformStat[];
+  /** แนวโน้ม engagement รายเดือนตลอดช่วงที่เลือก (เดือนว่าง = 0) */
+  monthly: SocialMonthlyPoint[];
+  /** โพสต์เด่นสูงสุด 10 รายการ */
+  top_posts: SocialTopPost[];
 }
 
 export interface ContentAnalytics {

@@ -500,51 +500,171 @@ if ($action === 'analytics') {
     // channel_id would merge two different posts into one and under-count them.
     // Cohort = posts *published* inside the window (ci.published_at), not the round
     // the metrics were fetched in.
+    // Fetch the deduped per-(content, ช่องทาง) rows once, carrying the platform
+    // and item metadata, then reduce them in PHP. Every social widget below
+    // (stat-card totals, per-platform, monthly, top posts) is derived from this
+    // one base, so the totals can never disagree with the breakdowns.
     $socialStmt = $db->prepare(
-        "SELECT COALESCE(SUM(s.views), 0)          AS views,
-                COALESCE(SUM(s.likes), 0)          AS likes,
-                COUNT(DISTINCT s.content_item_id)  AS posts,
-                MAX(s.fetched_at)                  AS last_fetched_at
-         FROM (SELECT m.content_item_id,
-                      MAX(m.views) AS views, MAX(m.likes) AS likes, MAX(m.fetched_at) AS fetched_at
-                 FROM content_post_metrics m
-                 JOIN content_items ci ON ci.id = m.content_item_id
-                 JOIN (SELECT content_item_id,
-                              COALESCE(channel_id, CONCAT('#', platform_post_id)) AS series_key,
-                              MAX(fetched_at) AS mx
-                         FROM content_post_metrics
-                        WHERE tenant_id = ?
-                        GROUP BY content_item_id, series_key) t
-                   ON t.content_item_id = m.content_item_id
-                  AND t.series_key = COALESCE(m.channel_id, CONCAT('#', m.platform_post_id))
-                  AND t.mx = m.fetched_at
-                WHERE m.tenant_id = ?
-                  AND m.platform IN ('facebook', 'instagram')
-                  AND ci.published_at BETWEEN ? AND ?
-                GROUP BY m.content_item_id,
-                         COALESCE(m.channel_id, CONCAT('#', m.platform_post_id))) s"
+        "SELECT m.content_item_id,
+                m.platform,
+                ci.title,
+                ci.published_at,
+                ci.published_url,
+                MAX(m.views)      AS views,
+                MAX(m.likes)      AS likes,
+                MAX(m.fetched_at) AS fetched_at
+         FROM content_post_metrics m
+         JOIN content_items ci ON ci.id = m.content_item_id
+         JOIN (SELECT content_item_id,
+                      COALESCE(channel_id, CONCAT('#', platform_post_id)) AS series_key,
+                      MAX(fetched_at) AS mx
+                 FROM content_post_metrics
+                WHERE tenant_id = ?
+                GROUP BY content_item_id, series_key) t
+           ON t.content_item_id = m.content_item_id
+          AND t.series_key = COALESCE(m.channel_id, CONCAT('#', m.platform_post_id))
+          AND t.mx = m.fetched_at
+        WHERE m.tenant_id = ?
+          AND m.platform IN ('facebook', 'instagram')
+          AND ci.published_at BETWEEN ? AND ?
+        GROUP BY m.content_item_id,
+                 COALESCE(m.channel_id, CONCAT('#', m.platform_post_id)),
+                 m.platform, ci.title, ci.published_at, ci.published_url"
     );
     $socialStmt->execute([$tenantId, $tenantId, $fromDt, $toDt]);
-    $social      = $socialStmt->fetch(PDO::FETCH_ASSOC) ?: [];
-    $socialPosts = (int)($social['posts'] ?? 0);
-    $socialViews = (int)($social['views'] ?? 0);
-    $socialLikes = (int)($social['likes'] ?? 0);
+    $socialSeries = $socialStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $socialViews       = 0;
+    $socialLikes       = 0;
+    $socialLastFetched = null;
+    $socialItems       = [];  // content_item_id => true  (distinct-post count)
+    $socialPlatforms   = [];  // platform => true
+    $byPlatform        = [];  // platform => ['views','likes','items']
+    $monthlyRaw        = [];  // 'Y-m'    => ['views','likes','items']
+    $topRaw            = [];  // content_item_id => aggregated post
+
+    foreach ($socialSeries as $r) {
+        $v    = (int)$r['views'];
+        $l    = (int)$r['likes'];
+        $cid  = $r['content_item_id'];
+        $plat = $r['platform'];
+
+        $socialViews += $v;
+        $socialLikes += $l;
+        $socialItems[$cid]     = true;
+        $socialPlatforms[$plat] = true;
+        if ($r['fetched_at'] !== null
+            && ($socialLastFetched === null || $r['fetched_at'] > $socialLastFetched)) {
+            $socialLastFetched = $r['fetched_at'];
+        }
+
+        if (!isset($byPlatform[$plat])) $byPlatform[$plat] = ['views' => 0, 'likes' => 0, 'items' => []];
+        $byPlatform[$plat]['views'] += $v;
+        $byPlatform[$plat]['likes'] += $l;
+        $byPlatform[$plat]['items'][$cid] = true;
+
+        // Grouped by the month the post was *published* (ci.published_at), matching
+        // $throughput — not the round the metrics happened to be fetched in.
+        $mk = substr((string)$r['published_at'], 0, 7);
+        if (!isset($monthlyRaw[$mk])) $monthlyRaw[$mk] = ['views' => 0, 'likes' => 0, 'items' => []];
+        $monthlyRaw[$mk]['views'] += $v;
+        $monthlyRaw[$mk]['likes'] += $l;
+        $monthlyRaw[$mk]['items'][$cid] = true;
+
+        // One entry per content item, summed across its ช่องทาง.
+        if (!isset($topRaw[$cid])) {
+            $topRaw[$cid] = [
+                'content_item_id' => $cid,
+                'title'           => $r['title'],
+                'published_at'    => $r['published_at'],
+                'published_url'   => $r['published_url'],
+                'views'           => 0,
+                'likes'           => 0,
+                '_platforms'      => [],
+            ];
+        }
+        $topRaw[$cid]['views'] += $v;
+        $topRaw[$cid]['likes'] += $l;
+        $topRaw[$cid]['_platforms'][$plat] = true;
+    }
+    $socialPosts = count($socialItems);
+
+    // Platforms present in the cohort — derived, never hardcoded, so Instagram
+    // appears only once it actually has synced data.
+    $socialPlatformList = array_keys($socialPlatforms);
+    sort($socialPlatformList);
+
+    $socialByPlatform = [];
+    foreach ($byPlatform as $plat => $agg) {
+        $socialByPlatform[] = [
+            'platform'   => $plat,
+            'posts'      => count($agg['items']),
+            'views'      => $agg['views'],
+            'likes'      => $agg['likes'],
+            'engagement' => $agg['views'] + $agg['likes'],
+        ];
+    }
+    usort($socialByPlatform, static fn ($a, $b) => $b['engagement'] <=> $a['engagement']);
+
+    // Dense monthly axis across the selected range — same shape as $throughput so
+    // months with no measured posts plot as 0 instead of being skipped.
+    $socialMonthly = [];
+    for ($cursor = clone $fromMonth; $cursor <= $toMonth; $cursor->modify('+1 month')) {
+        $mk  = $cursor->format('Y-m');
+        $agg = $monthlyRaw[$mk] ?? null;
+        $mv  = $agg ? $agg['views'] : 0;
+        $ml  = $agg ? $agg['likes'] : 0;
+        $socialMonthly[] = [
+            'month'      => $mk,
+            'posts'      => $agg ? count($agg['items']) : 0,
+            'views'      => $mv,
+            'likes'      => $ml,
+            'engagement' => $mv + $ml,
+        ];
+    }
+
+    // Top posts by engagement, capped at 10.
+    $socialTopPosts = array_map(static function ($p) {
+        $plats = array_keys($p['_platforms']);
+        sort($plats);
+        return [
+            'content_item_id' => $p['content_item_id'],
+            'title'           => $p['title'],
+            // A content item almost always maps to one platform; join only in the
+            // rare cross-posted case so the UI badge stays honest.
+            'platform'        => implode('/', $plats),
+            'published_at'    => $p['published_at'],
+            'views'           => $p['views'],
+            'likes'           => $p['likes'],
+            'engagement'      => $p['views'] + $p['likes'],
+            'published_url'   => $p['published_url'],
+        ];
+    }, array_values($topRaw));
+    usort($socialTopPosts, static fn ($a, $b) => $b['engagement'] <=> $a['engagement']);
+    $socialTopPosts = array_slice($socialTopPosts, 0, 10);
 
     jsonResponse([
         // Echo the window actually applied, so the client can tell a default apart
         // from what it asked for.
         'range'      => ['from' => $from, 'to' => $to],
         'social'     => [
-            'platforms'       => ['facebook', 'instagram'],
+            // Derived from the cohort, never hardcoded — Instagram (or any platform)
+            // appears only once it actually has synced data inside the window.
+            'platforms'       => $socialPlatformList,
             'posts'           => $socialPosts,
             'views'           => $socialViews,
             'likes'           => $socialLikes,
             'engagement'      => $socialViews + $socialLikes,
-            'last_fetched_at' => $social['last_fetched_at'] ?? null,
+            'last_fetched_at' => $socialLastFetched,
             // false when no FB/IG post has ever been synced — the client must show
             // "—" then, not 0, because 0 would read as "no engagement" instead of
             // "not measured yet".
             'has_data'        => $socialPosts > 0,
+            // Derived widgets, all reduced from the same deduped base above so the
+            // totals can never disagree with the breakdowns.
+            'by_platform'     => $socialByPlatform,
+            'monthly'         => $socialMonthly,
+            'top_posts'       => $socialTopPosts,
         ],
         'stats'      => [
             'total'     => $statTotal,
