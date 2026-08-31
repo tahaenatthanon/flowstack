@@ -11,7 +11,8 @@
  * ระดับกฎ (level):
  *   pass = ผ่านเกณฑ์
  *   fail = ละเมิดเกณฑ์ → ใช้บล็อกได้เมื่อเปิดเกต
- *   warn = ควรปรับปรุงแต่ไม่บล็อก (เช่น og_image ว่าง, ยังไม่มีคีย์เวิร์ด)
+ *   pending = ยังไม่มีข้อมูลให้ตรวจ (ไม่หักคะแนนและไม่บล็อก)
+ *   warn = ควรปรับปรุงแต่ไม่บล็อก (เช่น og_image ว่าง)
  *   skip = ไม่ประเมิน (ไม่มีเนื้อหาบทความ — เช่น โพสต์โซเชียล caption ล้วน)
  */
 
@@ -28,12 +29,17 @@ const SEO_PENALTY_WARN = 4;
  */
 function seo_evaluate(array $item): array {
     $rules = [];
+    $type = strtolower(trim((string)($item['type'] ?? 'article')));
+    $isVideo = $type === 'video';
 
     $seoTitle   = trim((string)($item['seo_title'] ?? ''));
     $slug       = trim((string)($item['slug'] ?? ''));
     $metaDesc   = trim((string)($item['meta_description'] ?? ''));
     $ogImage    = trim((string)($item['og_image'] ?? ''));
-    $structured = trim((string)($item['structured_data'] ?? ''));
+    $structuredValue = $item['structured_data'] ?? '';
+    $structured = is_array($structuredValue)
+        ? json_encode($structuredValue, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+        : trim((string)$structuredValue);
     $fallbackTitle = trim((string)($item['title'] ?? ''));
 
     // คีย์เวิร์ดหลัก = token แรกของ meta_keywords
@@ -57,7 +63,7 @@ function seo_evaluate(array $item): array {
     // ── seo_title 1–60 ──────────────────────────────────────────────────────
     $len = mb_strlen($seoTitle);
     if ($seoTitle === '') {
-        $rules[] = ['key' => 'seo_title', 'level' => 'fail', 'message' => 'ยังไม่ได้กรอก SEO title'];
+        $rules[] = ['key' => 'seo_title', 'level' => 'pending', 'message' => 'ยังไม่ได้กรอก SEO title'];
     } elseif ($len > 60) {
         $rules[] = ['key' => 'seo_title', 'level' => 'fail', 'message' => "SEO title ยาวเกิน 60 ตัวอักษร (ปัจจุบัน {$len})"];
     } else {
@@ -67,7 +73,7 @@ function seo_evaluate(array $item): array {
     // ── meta_description 120–160 ────────────────────────────────────────────
     $dlen = mb_strlen($metaDesc);
     if ($metaDesc === '') {
-        $rules[] = ['key' => 'meta_description', 'level' => 'fail', 'message' => 'ยังไม่ได้กรอกคำอธิบาย meta'];
+        $rules[] = ['key' => 'meta_description', 'level' => 'pending', 'message' => 'ยังไม่ได้กรอกคำอธิบาย meta'];
     } elseif ($dlen < 120) {
         $rules[] = ['key' => 'meta_description', 'level' => 'fail', 'message' => "คำอธิบาย meta สั้นเกินไป ({$dlen} ตัวอักษร ควร 120–160)"];
     } elseif ($dlen > 160) {
@@ -78,7 +84,7 @@ function seo_evaluate(array $item): array {
 
     // ── slug ตัวพิมพ์เล็ก-ขีดคั่น ────────────────────────────────────────────
     if ($slug === '') {
-        $rules[] = ['key' => 'slug', 'level' => 'fail', 'message' => 'ยังไม่ได้กำหนด slug'];
+        $rules[] = ['key' => 'slug', 'level' => 'pending', 'message' => 'ยังไม่ได้กำหนด slug'];
     } elseif (!preg_match('/^[a-z0-9]+(-[a-z0-9]+)*$/', $slug)) {
         $rules[] = ['key' => 'slug', 'level' => 'fail', 'message' => 'slug ต้องเป็นตัวพิมพ์เล็กและคั่นด้วยขีด (a-z, 0-9, -)'];
     } else {
@@ -86,7 +92,9 @@ function seo_evaluate(array $item): array {
     }
 
     // ── has_h2 (body-dependent) ─────────────────────────────────────────────
-    if (!$hasBody) {
+    if ($isVideo) {
+        $rules[] = ['key' => 'has_h2', 'level' => 'skip', 'message' => 'วิดีโอไม่ใช้โครงสร้างหัวข้อ H2 จึงข้ามการตรวจ'];
+    } elseif (!$hasBody) {
         $rules[] = ['key' => 'has_h2', 'level' => 'skip', 'message' => 'ไม่มีเนื้อหาบทความ จึงข้ามการตรวจหัวข้อ H2'];
     } elseif (preg_match('/<h2[\s>]/i', $html)) {
         $rules[] = ['key' => 'has_h2', 'level' => 'pass', 'message' => 'มีหัวข้อ H2 ในเนื้อหา'];
@@ -95,16 +103,21 @@ function seo_evaluate(array $item): array {
     }
 
     // ── no_h1 (body-dependent) ──────────────────────────────────────────────
-    if (!$hasBody) {
+    if ($isVideo) {
+        $rules[] = ['key' => 'no_h1', 'level' => 'skip', 'message' => 'วิดีโอไม่มีเนื้อหาบทความ จึงข้ามการตรวจ H1'];
+    } elseif (!$hasBody) {
         $rules[] = ['key' => 'no_h1', 'level' => 'skip', 'message' => 'ไม่มีเนื้อหาบทความ จึงข้ามการตรวจ H1'];
-    } elseif (preg_match('/<h1[\s>]/i', $html)) {
-        $rules[] = ['key' => 'no_h1', 'level' => 'fail', 'message' => 'เนื้อหาไม่ควรมีแท็ก H1 (สงวนไว้สำหรับชื่อบทความ)'];
+    } elseif (preg_match_all('/<h1[\s>]/i', $html, $matches) > 1) {
+        $count = count($matches[0]);
+        $rules[] = ['key' => 'no_h1', 'level' => 'fail', 'message' => "เนื้อหามีแท็ก H1 ซ้ำ {$count} ตัว (อนุญาตเฉพาะ H1 ของชื่อบทความ 1 ตัวแรก)"];
     } else {
-        $rules[] = ['key' => 'no_h1', 'level' => 'pass', 'message' => 'ไม่มีแท็ก H1 ซ้ำในเนื้อหา'];
+        $rules[] = ['key' => 'no_h1', 'level' => 'pass', 'message' => 'มีแท็ก H1 ของชื่อบทความไม่เกิน 1 ตัว'];
     }
 
     // ── word_count ≥500 (body-dependent) ────────────────────────────────────
-    if (!$hasBody) {
+    if ($isVideo) {
+        $rules[] = ['key' => 'word_count', 'level' => 'skip', 'message' => 'วิดีโอไม่ใช้เกณฑ์จำนวนคำบทความ จึงข้ามการตรวจ'];
+    } elseif (!$hasBody) {
         $rules[] = ['key' => 'word_count', 'level' => 'skip', 'message' => 'ไม่มีเนื้อหาบทความ จึงข้ามการนับจำนวนคำ'];
     } else {
         $wc = seo_word_count($html);
@@ -117,7 +130,7 @@ function seo_evaluate(array $item): array {
 
     // ── keyword_in_title ────────────────────────────────────────────────────
     if ($primaryKw === '') {
-        $rules[] = ['key' => 'keyword_in_title', 'level' => 'warn', 'message' => 'ยังไม่ได้กำหนดคีย์เวิร์ดหลัก (meta_keywords ว่าง)'];
+        $rules[] = ['key' => 'keyword_in_title', 'level' => 'pending', 'message' => 'ยังไม่ได้กำหนดคีย์เวิร์ดหลัก (meta_keywords ว่าง)'];
     } elseif (seo_contains($seoTitle, $primaryKw) || seo_contains($fallbackTitle, $primaryKw)) {
         $rules[] = ['key' => 'keyword_in_title', 'level' => 'pass', 'message' => "คีย์เวิร์ดหลัก \"{$primaryKw}\" ปรากฏในชื่อ"];
     } else {
@@ -125,10 +138,12 @@ function seo_evaluate(array $item): array {
     }
 
     // ── keyword_in_first_para (body-dependent) ──────────────────────────────
-    if (!$hasBody) {
+    if ($isVideo) {
+        $rules[] = ['key' => 'keyword_in_first_para', 'level' => 'skip', 'message' => 'วิดีโอไม่มีโครงสร้างย่อหน้าบทความ จึงข้ามการตรวจ'];
+    } elseif (!$hasBody) {
         $rules[] = ['key' => 'keyword_in_first_para', 'level' => 'skip', 'message' => 'ไม่มีเนื้อหาบทความ จึงข้ามการตรวจคีย์เวิร์ดในย่อหน้าแรก'];
     } elseif ($primaryKw === '') {
-        $rules[] = ['key' => 'keyword_in_first_para', 'level' => 'warn', 'message' => 'ยังไม่ได้กำหนดคีย์เวิร์ดหลัก'];
+        $rules[] = ['key' => 'keyword_in_first_para', 'level' => 'pending', 'message' => 'ยังไม่ได้กำหนดคีย์เวิร์ดหลัก'];
     } elseif (seo_contains(seo_first_paragraph($html), $primaryKw)) {
         $rules[] = ['key' => 'keyword_in_first_para', 'level' => 'pass', 'message' => 'คีย์เวิร์ดหลักปรากฏในย่อหน้าแรก'];
     } else {
@@ -136,10 +151,12 @@ function seo_evaluate(array $item): array {
     }
 
     // ── keyword_in_headings (body-dependent) ────────────────────────────────
-    if (!$hasBody) {
+    if ($isVideo) {
+        $rules[] = ['key' => 'keyword_in_headings', 'level' => 'skip', 'message' => 'วิดีโอไม่มีโครงสร้างหัวข้อบทความ จึงข้ามการตรวจ'];
+    } elseif (!$hasBody) {
         $rules[] = ['key' => 'keyword_in_headings', 'level' => 'skip', 'message' => 'ไม่มีเนื้อหาบทความ จึงข้ามการตรวจคีย์เวิร์ดในหัวข้อ'];
     } elseif ($primaryKw === '') {
-        $rules[] = ['key' => 'keyword_in_headings', 'level' => 'warn', 'message' => 'ยังไม่ได้กำหนดคีย์เวิร์ดหลัก'];
+        $rules[] = ['key' => 'keyword_in_headings', 'level' => 'pending', 'message' => 'ยังไม่ได้กำหนดคีย์เวิร์ดหลัก'];
     } elseif (seo_contains(seo_headings_text($html), $primaryKw)) {
         $rules[] = ['key' => 'keyword_in_headings', 'level' => 'pass', 'message' => 'คีย์เวิร์ดหลักปรากฏในหัวข้อ'];
     } else {
@@ -148,7 +165,7 @@ function seo_evaluate(array $item): array {
 
     // ── structured_data (JSON + @context/@type) ─────────────────────────────
     if ($structured === '') {
-        $rules[] = ['key' => 'structured_data', 'level' => 'warn', 'message' => 'ยังไม่ได้ตั้งข้อมูลโครงสร้าง (structured data)'];
+        $rules[] = ['key' => 'structured_data', 'level' => 'pending', 'message' => 'ยังไม่ได้ตั้งข้อมูลโครงสร้าง (structured data)'];
     } else {
         $sd = json_decode($structured, true);
         if (!is_array($sd)) {
@@ -162,13 +179,15 @@ function seo_evaluate(array $item): array {
 
     // ── og_image (ว่าง = warn ไม่บล็อก) ─────────────────────────────────────
     if ($ogImage === '') {
-        $rules[] = ['key' => 'og_image', 'level' => 'warn', 'message' => 'ยังไม่ได้ตั้งรูป OG (og_image)'];
+        $rules[] = ['key' => 'og_image', 'level' => 'pending', 'message' => 'ยังไม่ได้ตั้งรูป OG (og_image)'];
     } else {
         $rules[] = ['key' => 'og_image', 'level' => 'pass', 'message' => 'ตั้งรูป OG แล้ว'];
     }
 
     // ── internal_link (body-dependent, best-effort ไม่บล็อก) ────────────────
-    if (!$hasBody) {
+    if ($isVideo) {
+        $rules[] = ['key' => 'internal_link', 'level' => 'skip', 'message' => 'วิดีโอไม่ใช้ลิงก์ภายในบทความ จึงข้ามการตรวจ'];
+    } elseif (!$hasBody) {
         $rules[] = ['key' => 'internal_link', 'level' => 'skip', 'message' => 'ไม่มีเนื้อหาบทความ จึงข้ามการตรวจลิงก์ภายใน'];
     } else {
         $n = seo_internal_link_count($html);
@@ -176,6 +195,19 @@ function seo_evaluate(array $item): array {
             $rules[] = ['key' => 'internal_link', 'level' => 'pass', 'message' => "มีลิงก์ภายใน {$n} รายการ"];
         } else {
             $rules[] = ['key' => 'internal_link', 'level' => 'warn', 'message' => 'ไม่พบลิงก์ภายในในเนื้อหา'];
+        }
+    }
+
+    // ── hashtags (วิดีโอต้องมีสำหรับการเผยแพร่บน social platform) ──────────
+    if ($isVideo) {
+        $hashtags = $art['hashtags'] ?? ($item['hashtags'] ?? []);
+        if (is_string($hashtags)) {
+            $hashtags = array_values(array_filter(array_map('trim', explode(',', $hashtags))));
+        }
+        if (empty($hashtags)) {
+            $rules[] = ['key' => 'hashtags', 'level' => 'fail', 'message' => 'วิดีโอต้องมี hashtag อย่างน้อย 1 รายการ'];
+        } else {
+            $rules[] = ['key' => 'hashtags', 'level' => 'pass', 'message' => 'มี hashtag สำหรับวิดีโอแล้ว'];
         }
     }
 

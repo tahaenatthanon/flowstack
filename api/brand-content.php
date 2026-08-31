@@ -1883,8 +1883,8 @@ if ($action === 'generate-article') {
     $kbArticleId = $body['kb_article_id'] ?? '';
     if (!$itemId) jsonError('item_id required', 400);
 
-    $item = $db->prepare("SELECT ci.*, ci.title AS topic, cp.trigger_command, cp.brand_context_ids, cpi.day_label, cpi.day_order FROM content_items ci LEFT JOIN content_plans cp ON cp.id = ci.plan_id LEFT JOIN content_plan_items cpi ON cpi.id = ci.plan_item_id WHERE ci.id = ?");
-    $item->execute([$itemId]);
+    $item = $db->prepare("SELECT ci.*, ci.title AS topic, cp.trigger_command, cp.brand_context_ids, cpi.day_label, cpi.day_order FROM content_items ci LEFT JOIN content_plans cp ON cp.id = ci.plan_id LEFT JOIN content_plan_items cpi ON cpi.id = ci.plan_item_id WHERE ci.id = ? AND ci.tenant_id = ?");
+    $item->execute([$itemId, $tenantId]);
     $item = $item->fetch();
     if (!$item) jsonError('Item not found', 404);
 
@@ -2015,7 +2015,7 @@ if ($action === 'generate-article') {
     };
 
     $itemPlatform = $item['platform'] ?? 'facebook';
-    $isVideo = in_array(strtolower($itemPlatform), ['tiktok', 'youtube', 'reels', 'shorts']);
+    $isVideo = strtolower((string)($item['type'] ?? 'article')) === 'video';
     $itemCtx = "หัวข้อ: {$item['topic']}\nแพลตฟอร์ม: {$itemPlatform}\nแคปชั่น:\n{$item['caption']}";
 
     // โ”€โ”€ Step 1: Generate full structured content in one call โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
@@ -2024,7 +2024,7 @@ if ($action === 'generate-article') {
         $mainSys = "CRITICAL: ตอบเป็นภาษาไทยเท่านั้น ห้ามใช้ภาษาจีน เกาหลี ญี่ปุ่น (CJK). English OK for technical terms only.\n" .
                    "คุณเป็น Video Content Creator ผู้เชี่ยวชาญ ตอบกลับเป็น JSON เท่านั้น ไม่มี markdown fence\n" .
                    "โครงสร้าง JSON สำหรับวิดีโอ:\n" .
-                   '{"title":"ชื่อวิดีโอ","excerpt":"สรุปเนื้อหาวิดีโอ 1-2 ประโยค",' .
+                   '{"title":"ชื่อวิดีโอ","excerpt":"สรุปเนื้อหาวิดีโอ 1-2 ประโยค","seo_title":"SEO title สำหรับวิดีโอ","slug":"url-friendly-slug","meta_description":"คำอธิบายสำหรับการค้นหา 120-160 ตัวอักษร",' .
                    '"headlines":{"viral_clickbait":[{"title":"หัวข้อ hook","hook":"ประโยคเปิด"}],"storytelling":[{"title":"หัวข้อ","hook":"hook"}],"educational":[{"title":"หัวข้อ","hook":"hook"}]},' .
                    '"scripts":{"tiktok":"Hook 3 วิ: ...\nScene 1 (0:00-0:15): ...\nScene 2 (0:15-0:35): ...\nScene 3 (0:35-0:55): ...\nCTA: ...","youtube":"Intro (0:00-0:30): ...\nSection 1 (0:30-2:00): ...\nSection 2 (2:00-4:00): ...\nOutro (4:00-4:30): ...","facebook":"ประกาศวิดีโอ + caption สำหรับ Facebook","instagram":"caption สำหรับ Reels/Instagram"},' .
                    '"script_sections":{"opening":"Hook 3 วินาทีแรก","bridge":"เนื้อหาหลัก","twist":"จุดพลิกหรือข้อมูลสำคัญ","ending":"CTA + Subscribe/Follow"},' .
@@ -2159,14 +2159,14 @@ if ($action === 'generate-article') {
         'seo_title'        => $mainData['seo_title'] ?? $artTitle,
         'slug'             => $mainData['slug'] ?? '',
         'meta_description' => $mainData['meta_description'] ?? $artExcerpt,
-        'meta_keywords'    => $mainData['meta_keywords'] ?? '',
+        // meta_keywords ต้องมาจาก Research เท่านั้น; รอบนี้ยังไม่มี research_job จึงปล่อยว่าง
+        'meta_keywords'    => '',
         'structured_data'  => $structuredData,
         'og_image'         => $mainData['og_image'] ?? '',
     ];
 
-    // Determine content type from platform
-    $videoPlatforms = ['tiktok', 'youtube', 'reels', 'shorts'];
-    $ciType = in_array(strtolower($item['platform'] ?? ''), $videoPlatforms) ? 'video' : 'article';
+    // Determine content type from the content item, independent of publish platform.
+    $ciType = $isVideo ? 'video' : 'article';
 
     // Update content_items with article content + SEO columns
     $newCaption = $mainData['caption'] ?? null;
@@ -2228,6 +2228,12 @@ if ($action === 'publish') {
     $content  = $artData['html']    ?? $item['caption'];
     $excerpt  = $artData['excerpt'] ?? '';
     $imageUrl = $item['generated_image_url'] ?? '';
+    $publishCaption = $item['caption'] ?? '';
+    $publishScripts = is_array($artData['scripts'] ?? null) ? $artData['scripts'] : [];
+    if (in_array($platform, ['facebook', 'instagram', 'tiktok', 'lineoa', 'linkedin', 'twitter'], true)
+        && !empty($publishScripts[$platform])) {
+        $publishCaption = trim((string)$publishScripts[$platform]);
+    }
     $result   = [];
 
     if ($platform === 'wordpress') {
@@ -2251,7 +2257,7 @@ if ($action === 'publish') {
         $pageId = $creds['page_id'] ?? '';
         $token  = $creds['access_token'] ?? '';
         if (!$pageId || !$token) jsonError('Facebook credentials incomplete', 400);
-        $msg    = $title."\n\n".$item['caption'];
+        $msg    = $title."\n\n".$publishCaption;
         $params = ['message' => $msg, 'access_token' => $token];
         if ($imageUrl) { $params['link'] = $imageUrl; }
         $curl   = curl_init("https://graph.facebook.com/v19.0/$pageId/feed");
@@ -2266,7 +2272,7 @@ if ($action === 'publish') {
     } elseif ($platform === 'lineoa') {
         $token = $creds['channel_access_token'] ?? '';
         if (!$token) jsonError('Line OA access token missing', 400);
-        $msg  = $title."\n\n".$item['caption'];
+        $msg  = $title."\n\n".$publishCaption;
         $body2 = ['messages' => [['type' => 'text', 'text' => substr($msg, 0, 5000)]]];
         $curl = curl_init('https://api.line.me/v2/bot/message/broadcast');
         curl_setopt_array($curl, [
@@ -2354,7 +2360,7 @@ if ($action === 'publish') {
             'lifecycleState' => 'PUBLISHED',
             'specificContent' => [
                 'com.linkedin.ugc.ShareContent' => [
-                    'shareCommentary' => ['text' => $title . "\n\n" . $item['caption']],
+                    'shareCommentary' => ['text' => $title . "\n\n" . $publishCaption],
                     'shareMediaCategory' => 'NONE',
                 ],
             ],
@@ -2379,7 +2385,7 @@ if ($action === 'publish') {
         $postBody = [
             'platform'  => $platform,
             'title'     => $title,
-            'caption'   => $item['caption'],
+            'caption'   => $publishCaption,
             'content'   => $content,
             'image_url' => $imageUrl,
         ];
@@ -2425,8 +2431,8 @@ if ($action === 'publish') {
     // แก้บั๊กคีย์: ใช้ WHERE id=? (คีย์เดียวกับที่โหลด $itemId มา) แทน plan_item_id ที่อาจไม่ตรง/เป็น NULL
     // platform: เขียนตาม channel ที่โพสต์จริง — analytics-recalculate group by คอลัมน์นี้
     if (isset($ok) && $ok) {
-        $db->prepare("UPDATE content_items SET status='published', published_at=NOW(), published_url=?, external_post_id=?, platform=?, updated_at=NOW() WHERE id=? AND tenant_id=?")
-           ->execute([$publishedUrl, $postId, $platform, $itemId, $tenantId]);
+        $db->prepare("UPDATE content_items SET status='published', published_at=NOW(), published_url=?, external_post_id=?, updated_at=NOW() WHERE id=? AND tenant_id=?")
+           ->execute([$publishedUrl, $postId, $itemId, $tenantId]);
     }
 
     jsonResponse(['ok' => isset($ok) ? $ok : true, 'result' => $result]);
@@ -2662,9 +2668,9 @@ if ($action === 'cron-publish') {
         // platform: เขียนตาม channel ของ schedule ที่โพสต์จริง — analytics-recalculate group by คอลัมน์นี้
         if ($ok) {
             $db->prepare(
-                "UPDATE content_items SET status='published', published_at=NOW(), platform=?, updated_at=NOW()
+                "UPDATE content_items SET status='published', published_at=NOW(), updated_at=NOW()
                  WHERE id=(SELECT id FROM (SELECT id FROM content_items WHERE plan_item_id=? AND tenant_id=? LIMIT 1) AS ci_match)"
-            )->execute([$sc['platform'], $sc['plan_item_id'], $tenantId]);
+            )->execute([$sc['plan_item_id'], $tenantId]);
         }
 
         $processed[] = ['id' => $sc['id'], 'status' => $status, 'topic' => $sc['topic']];

@@ -115,12 +115,18 @@ if ($method === 'PUT') {
             }
         }
     }
-    $allowed = ['title', 'type', 'status', 'views', 'likes', 'caption', 'platform', 'scheduled_date', 'image_brief', 'article_content', 'reject_reason'];
+    $allowed = ['title', 'type', 'status', 'views', 'likes', 'caption', 'platform', 'scheduled_date', 'image_brief', 'article_content', 'reject_reason', 'seo_title', 'slug', 'meta_description', 'meta_keywords', 'structured_data', 'og_image'];
     $fields  = []; $values = [];
     foreach ($allowed as $f) {
         if (array_key_exists($f, $body)) {
             $fields[] = "`$f` = ?";
-            $values[] = ($f === 'platform') ? strtolower(trim($body[$f])) : $body[$f];
+            if ($f === 'platform') {
+                $values[] = strtolower(trim((string)$body[$f]));
+            } elseif ($f === 'structured_data' && is_array($body[$f])) {
+                $values[] = json_encode($body[$f], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            } else {
+                $values[] = $body[$f];
+            }
         }
     }
     // Record the moment a request for approval enters the queue
@@ -134,8 +140,8 @@ if ($method === 'PUT') {
     if (empty($fields)) jsonError('ไม่มีข้อมูลที่จะอัปเดต');
     $values[] = $id; $values[] = $tenantId;
     $db->prepare('UPDATE content_items SET ' . implode(', ', $fields) . ', updated_at=NOW() WHERE id = ? AND tenant_id = ?')->execute($values);
-    $stmt = $db->prepare('SELECT ci.*, cpi.day_label, cp.title AS plan_title, cp.id AS plan_id, cp.week_start FROM content_items ci LEFT JOIN content_plan_items cpi ON cpi.id=ci.plan_item_id LEFT JOIN content_plans cp ON cp.id=COALESCE(ci.plan_id, cpi.plan_id) WHERE ci.id=?');
-    $stmt->execute([$id]);
+    $stmt = $db->prepare('SELECT ci.*, cpi.day_label, cp.title AS plan_title, cp.id AS plan_id, cp.week_start FROM content_items ci LEFT JOIN content_plan_items cpi ON cpi.id=ci.plan_item_id LEFT JOIN content_plans cp ON cp.id=COALESCE(ci.plan_id, cpi.plan_id) WHERE ci.id=? AND ci.tenant_id=?');
+    $stmt->execute([$id, $tenantId]);
     jsonResponse($stmt->fetch());
 }
 

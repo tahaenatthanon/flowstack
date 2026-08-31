@@ -57,7 +57,7 @@ function publishSchedulerIsAuthError(string $msg): bool {
 // pc.is_active = 1: ข้าม channel ที่ถูกปิด — การปิด channel จึงกัน cron ได้จริง
 // (ก่อนหน้านี้ไม่กรอง ทำให้ channel ที่ปิดยังถูกหยิบมา dispatch แล้ว fail ซ้ำ ๆ)
 $stmt = $db->prepare(
-    "SELECT q.*, ci.title, ci.caption, ci.article_content, ci.generated_image_url,
+    "SELECT q.*, ci.title, ci.type, ci.caption, ci.article_content, ci.generated_image_url,
             ci.platform AS content_platform,
             pc.platform, pc.endpoint_url, pc.credentials_encrypted, pc.name AS channel_name
      FROM content_publish_queue q
@@ -110,6 +110,7 @@ foreach ($entries as $entry) {
         'caption'             => $entry['caption'],
         'article_content'     => $entry['article_content'],
         'generated_image_url' => $entry['generated_image_url'],
+        'type'                => $entry['type'],
     ];
 
     // Apply content_override saved at schedule time
@@ -117,6 +118,14 @@ foreach ($entries as $entry) {
         $ov = $entry['content_override'];
         $content['caption']         = $ov;
         $content['article_content'] = json_encode(['html' => $ov, 'title' => $content['title'], 'excerpt' => '']);
+    } else {
+        $articleContent = json_decode($content['article_content'] ?? '', true);
+        $scripts = is_array($articleContent['scripts'] ?? null) ? $articleContent['scripts'] : [];
+        $platform = strtolower((string)$entry['platform']);
+        $socialPlatforms = ['facebook', 'instagram', 'tiktok', 'lineoa', 'linkedin', 'twitter'];
+        if (in_array($platform, $socialPlatforms, true) && !empty($scripts[$platform])) {
+            $content['caption'] = trim((string)$scripts[$platform]);
+        }
     }
 
     // เกต SEO — โหลด content_items เต็ม (มีฟิลด์ SEO) แล้วตรวจก่อน dispatch
@@ -153,8 +162,8 @@ foreach ($entries as $entry) {
         // บันทึกผลเผยแพร่กลับ content_items (content_id คือ content_items.id)
         // platform: เขียนตาม channel ที่โพสต์จริง — analytics-recalculate group by คอลัมน์นี้
         $db->prepare(
-            "UPDATE content_items SET status='published', published_at=NOW(), published_url=?, external_post_id=?, platform=? WHERE id=? AND tenant_id=?"
-        )->execute([$meta['published_url'], $meta['platform_post_id'], $entry['platform'], $entry['content_id'], $entry['tenant_id']]);
+            "UPDATE content_items SET status='published', published_at=NOW(), published_url=?, external_post_id=? WHERE id=? AND tenant_id=?"
+        )->execute([$meta['published_url'], $meta['platform_post_id'], $entry['content_id'], $entry['tenant_id']]);
         echo "  [{$queueId}] sent via {$entry['platform']}\n";
     } else {
         $retryCount = (int)$entry['retry_count'] + 1;

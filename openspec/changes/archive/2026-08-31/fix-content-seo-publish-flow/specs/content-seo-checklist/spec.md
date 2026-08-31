@@ -1,10 +1,4 @@
-# content-seo-checklist Specification
-
-## Purpose
-
-กำหนดการประเมิน SEO ของคอนเทนต์ก่อนเผยแพร่ — ฟังก์ชัน `seo_evaluate()` ที่คืนคะแนนและผลตรวจแต่ละกฎ, การตั้งค่าเกตใน `content_global_settings`, endpoint `seo-checklist` สำหรับ UI, และเกตบล็อกการเผยแพร่เมื่อเปิดใช้งาน
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: seo_evaluate เป็นฟังก์ชันบริสุทธิ์ที่คืนคะแนนและกฎ
 ระบบ SHALL มีฟังก์ชัน `seo_evaluate(array $item): array` ใน `api/lib/seo-checklist.php` ที่ไม่พึ่ง I/O ภายนอก และคืนผลลัพธ์รูป `['score' => int, 'rules' => array<array{key:string, level:string, message:string}>]` โดยรับชนิดคอนเทนต์จาก `$item['type']` และใช้เลือก ruleset
@@ -54,7 +48,7 @@
 - **THEN** กฎ `has_h2` มี `level = 'fail'`
 
 #### Scenario: structured_data ที่มีค่าแต่รูปแบบผิดเป็น fail
-- **WHEN** `structured_data` ไม่ว่างแต่ไม่ใช่ JSON ที่ parse ได้ หรือไม่มี `@context`/`@type`
+- **WHEN** `structured_data` ไม่ว่างแต่ parse JSON ไม่ได้ หรือไม่มี `@context`/`@type`
 - **THEN** กฎ `structured_data` มี `level = 'fail'`
 
 #### Scenario: กฎที่ขึ้นกับเนื้อหาถูกข้ามเมื่อไม่มี HTML
@@ -71,13 +65,6 @@
 - **WHEN** `type = 'video'`
 - **THEN** กฎ `has_h2`, `word_count` และ `internal_link` มี `level = 'skip'`
 - **AND** ระบบยังตรวจ metadata และ hashtags ตามข้อมูลที่เกี่ยวข้องกับวิดีโอ
-
-### Requirement: ตั้งค่าเกตใน content_global_settings
-ฐานข้อมูล SHALL มีคอลัมน์ `seo_gate_enabled TINYINT(1) DEFAULT 0` และ `seo_gate_min_score TINYINT UNSIGNED DEFAULT 0` ในตาราง `content_global_settings` โดยค่า default ปิดเกต
-
-#### Scenario: default ปิดเกต
-- **WHEN** แถว `content_global_settings` ถูกสร้างใหม่โดยไม่ระบุค่า
-- **THEN** `seo_gate_enabled = 0` และ `seo_gate_min_score = 0`
 
 ### Requirement: endpoint seo-checklist
 ระบบ SHALL มี endpoint `GET /brand-content.php?action=seo-checklist&item_id={id}` ที่คืนผลการประเมิน SEO ของคอนเทนต์นั้น โดยส่ง `content_items.type` ให้ `seo_evaluate()` และคืนสถานะ `pending` ได้
