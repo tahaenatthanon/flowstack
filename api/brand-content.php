@@ -5,6 +5,8 @@ set_time_limit(0); // AI calls can take several minutes
 require_once 'config.php';
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/lib/seo-checklist.php';
+require_once __DIR__ . '/lib/ai-creds.php';
+require_once __DIR__ . '/lib/ai-research.php';
 
 /**
  * Whitelist-based sanitizer: keep ONLY printable ASCII + Thai script.
@@ -64,70 +66,6 @@ bcMigrate($db);
  *   'ai_content_image_model_id' (image)
  *   'ai_content_video_model_id' (video)
  */
-function resolveAICreds(PDO $db, string $modelColumn = 'ai_content_text_model_id', string $tenantId = ''): array {
-    $fallbackBase = 'https://api.kilo.ai/api/gateway';
-    $allowed = ['ai_content_text_model_id', 'ai_content_image_model_id',
-                'ai_content_video_model_id', 'ai_default_model_id'];
-    if (!in_array($modelColumn, $allowed, true)) {
-        $modelColumn = 'ai_default_model_id';
-    }
-
-    try {
-        $whereClause = $tenantId ? 'cs.tenant_id = ' . $db->quote($tenantId) : 'cs.id = 1';
-        $sql = "
-            SELECT ap.api_base_url, ap.api_key_encrypted,
-                   COALESCE(am_c.model_id, am_d.model_id) AS model_id,
-                   cs.ai_content_timeout, cs.ai_content_max_tokens
-            FROM company_settings cs
-            LEFT JOIN ai_models am_c ON am_c.id = cs.`{$modelColumn}`
-            LEFT JOIN ai_models am_d ON am_d.id = cs.ai_default_model_id
-            JOIN ai_providers ap ON ap.id = COALESCE(am_c.provider_id, am_d.provider_id, cs.ai_active_provider_id)
-            WHERE $whereClause
-              AND ap.api_key_encrypted IS NOT NULL AND ap.api_key_encrypted != ''
-            LIMIT 1
-        ";
-        $row = $db->query($sql)->fetch();
-        if ($row && !empty($row['api_key_encrypted'])) {
-            $plain = decryptApiKey($row['api_key_encrypted']);
-            if (!empty(trim($plain))) {
-                $baseUrl = rtrim($row['api_base_url'] ?: $fallbackBase, '/');
-                $timeout = (int)($row['ai_content_timeout'] ?? 0);
-                $maxTokens = (int)($row['ai_content_max_tokens'] ?? 0);
-                return [
-                    'api_key'    => trim($plain),
-                    'base_url'   => $baseUrl,
-                    'model'      => $row['model_id'] ?: 'openai/gpt-4o-mini',
-                    'timeout'    => ($timeout >= 30) ? $timeout : 300,
-                    'max_tokens' => ($maxTokens >= 256) ? $maxTokens : 8192,
-                ];
-            }
-        }
-    } catch (\Exception $e) {
-        error_log('[resolveAICreds] ' . $e->getMessage());
-    }
-
-    if (!empty(KILO_API_TOKEN)) {
-        $baseUrl = rtrim(KILO_API_BASE_URL ?: $fallbackBase, '/');
-        return ['api_key' => KILO_API_TOKEN, 'base_url' => $baseUrl, 'model' => 'openai/gpt-4o-mini', 'timeout' => 300, 'max_tokens' => 8192];
-    }
-    return ['api_key' => '', 'base_url' => $fallbackBase, 'model' => 'openai/gpt-4o-mini', 'timeout' => 300, 'max_tokens' => 8192];
-}
-
-/**
- * Load AI content generation parameters (timeout, max_tokens) from company_settings.
- * Returns [timeout: int, max_tokens: int]. Safe defaults if DB row is missing.
- */
-function getAIContentParams(PDO $db, string $tenantId = ''): array {
-    $where = $tenantId ? 'tenant_id = ' . $db->quote($tenantId) : 'id = 1';
-    $row = $db->query("SELECT ai_content_timeout, ai_content_max_tokens FROM company_settings WHERE $where LIMIT 1")->fetch();
-    $timeout   = (int)($row['ai_content_timeout'] ?? 0);
-    $maxTokens = (int)($row['ai_content_max_tokens'] ?? 0);
-    return [
-        'timeout'    => ($timeout >= 30) ? $timeout : 300,
-        'max_tokens' => ($maxTokens >= 256) ? $maxTokens : 8192,
-    ];
-}
-
 function encryptValue(string $value): string {
     $key = _getEncryptionKey();
     $iv  = random_bytes(16);
@@ -1897,6 +1835,7 @@ if ($action === 'generate-article') {
     $body        = getRequestBody();
     $itemId      = $body['item_id']      ?? '';
     $kbArticleId = $body['kb_article_id'] ?? '';
+    $researchJobId = trim((string)($body['research_job_id'] ?? ''));
     if (!$itemId) jsonError('item_id required', 400);
 
     $item = $db->prepare("SELECT ci.*, ci.title AS topic, cp.trigger_command, cp.brand_context_ids, cpi.day_label, cpi.day_order FROM content_items ci LEFT JOIN content_plans cp ON cp.id = ci.plan_id LEFT JOIN content_plan_items cpi ON cpi.id = ci.plan_item_id WHERE ci.id = ? AND ci.tenant_id = ?");
@@ -1904,8 +1843,31 @@ if ($action === 'generate-article') {
     $item = $item->fetch();
     if (!$item) jsonError('Item not found', 404);
 
+    $researchJob = null;
+    $researchBrief = null;
+    $researchKeywords = [];
+    if ($researchJobId !== '') {
+        $researchStmt = $db->prepare("SELECT * FROM content_research_jobs WHERE id=? AND tenant_id=? AND status='done'");
+        $researchStmt->execute([$researchJobId, $tenantId]);
+        $researchJob = $researchStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$researchJob || empty($researchJob['analysis'])) {
+            jsonError('ไม่พบ Research job ที่วิเคราะห์เสร็จแล้วใน tenant นี้', 422);
+        }
+        $researchKeywordsStmt = $db->prepare('SELECT keyword, search_volume, difficulty, intent, source, is_selected FROM content_research_keywords WHERE job_id=? AND tenant_id=? ORDER BY is_selected DESC, search_volume DESC, keyword ASC');
+        $researchKeywordsStmt->execute([$researchJobId, $tenantId]);
+        $researchKeywords = $researchKeywordsStmt->fetchAll(PDO::FETCH_ASSOC);
+        $researchBrief = ai_research_validate_brief(
+            json_decode((string)$researchJob['analysis'], true) ?: [],
+            $researchKeywords
+        );
+    }
+
     // Load brand contexts
-    $contextIds = json_decode($item['brand_context_ids'] ?? '[]', true);
+    $requestedContextIds = $body['brand_context_ids'] ?? null;
+    $contextIds = is_array($requestedContextIds)
+        ? array_values(array_filter(array_map('strval', $requestedContextIds)))
+        : json_decode($item['brand_context_ids'] ?? '[]', true);
+    if (!is_array($contextIds)) $contextIds = [];
     $brandText  = '';
     if (!empty($contextIds)) {
         $in    = implode(',', array_fill(0, count($contextIds), '?'));
@@ -1964,7 +1926,7 @@ if ($action === 'generate-article') {
     $headers = ['Content-Type: application/json', "Authorization: Bearer {$creds['api_key']}"];
     $baseCtx = ($globalInstr ? $globalInstr."\n\n" : '') . ($brandText ? "Brand Context:{$brandText}\n\n" : '') . ($kbContext ? "Knowledge Base Reference:{$kbContext}\n\n" : '');
 
-    $aiCall = function(string $sysPart, string $userMsg) use ($apiUrl, $headers, $modelName, $baseCtx, $contentTimeout, $contentMaxTokens): string {
+    $aiCall = function(string $sysPart, string $userMsg) use ($apiUrl, $headers, $modelName, &$baseCtx, $contentTimeout, $contentMaxTokens): string {
         $ch = curl_init($apiUrl);
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
@@ -2033,6 +1995,20 @@ if ($action === 'generate-article') {
     $itemPlatform = $item['platform'] ?? 'facebook';
     $isVideo = strtolower((string)($item['type'] ?? 'article')) === 'video';
     $itemCtx = "หัวข้อ: {$item['topic']}\nแพลตฟอร์ม: {$itemPlatform}\nแคปชั่น:\n{$item['caption']}";
+    if ($researchBrief && $researchJob) {
+        $selectedKeywords = array_values(array_filter($researchKeywords, static fn(array $row): bool => (int)($row['is_selected'] ?? 0) === 1));
+        if (!$selectedKeywords) $selectedKeywords = $researchKeywords;
+        $researchContext = "\n\nRESEARCH BRIEF (ใช้เป็น source of truth):\n" . json_encode($researchBrief, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) .
+            "\n\nRESEARCH SOURCE METADATA:\n" . json_encode([
+                'provider' => $researchJob['provider'],
+                'location_code' => (int)$researchJob['location_code'],
+                'language_code' => $researchJob['language_code'],
+                'fetched_at' => $researchJob['fetched_at'],
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) .
+            "\n\nSELECTED RESEARCH KEYWORDS:\n" . json_encode($selectedKeywords, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $baseCtx .= $researchContext;
+        $itemCtx .= "\nคำหลักหลักจาก Research: {$researchBrief['primary_keyword']}";
+    }
 
     // โ”€โ”€ Step 1: Generate full structured content in one call โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
     if ($isVideo) {
@@ -2059,6 +2035,10 @@ if ($action === 'generate-article') {
                    "- ความยาว article_content >=500 คำ\n" .
                    "- Answer Engine Optimization: ใช้โครงสร้างคำถาม-คำตอบชัดเจน ย่อหน้าแรกตอบคำถามหลักทันที\n" .
                    "- HTML ต้อง valid — ปิด tag ครบ, attributes ในเครื่องหมายคำพูดคู่";
+        if ($researchBrief) {
+            $mainSys .= "\n- ใช้ primary keyword จาก Research ใน seo_title, slug, meta_description, ย่อหน้าแรก และ headings\n" .
+                "- meta_keywords ต้องเป็น keyword ที่มาจาก Research เท่านั้น ห้ามคิด keyword ใหม่";
+        }
     }
     try {
         $mainRaw = $aiCall($mainSys, "สร้าง content ครบทุกส่วนสำหรับ: $itemCtx");
@@ -2162,6 +2142,15 @@ if ($action === 'generate-article') {
         }
     }
 
+    $researchMetaKeywords = '';
+    if ($researchBrief) {
+        $selectedForMeta = array_values(array_filter($researchKeywords, static fn(array $row): bool => (int)($row['is_selected'] ?? 0) === 1));
+        if (!$selectedForMeta) $selectedForMeta = $researchKeywords;
+        $researchMetaKeywords = implode(', ', array_values(array_unique(array_filter(array_map(
+            static fn(array $row): string => trim((string)($row['keyword'] ?? '')),
+            array_slice($selectedForMeta, 0, 10)
+        )))));
+    }
     $art = [
         'title'           => $artTitle,
         'excerpt'         => $artExcerpt,
@@ -2176,7 +2165,7 @@ if ($action === 'generate-article') {
         'slug'             => $mainData['slug'] ?? '',
         'meta_description' => $mainData['meta_description'] ?? $artExcerpt,
         // meta_keywords ต้องมาจาก Research เท่านั้น; รอบนี้ยังไม่มี research_job จึงปล่อยว่าง
-        'meta_keywords'    => '',
+        'meta_keywords'    => $researchMetaKeywords,
         'structured_data'  => $structuredData,
         'og_image'         => $mainData['og_image'] ?? '',
     ];
@@ -2196,6 +2185,11 @@ if ($action === 'generate-article') {
 
     // Also update content_plan_items for backward compat
     $db->prepare("UPDATE content_plan_items SET article_content=? WHERE id=(SELECT plan_item_id FROM content_items WHERE id=?)")->execute([json_encode($art), $itemId]);
+
+    if ($researchJobId !== '') {
+        $db->prepare('UPDATE content_research_jobs SET content_item_id=?, updated_at=NOW() WHERE id=? AND tenant_id=? AND status=\'done\'')
+            ->execute([$itemId, $researchJobId, $tenantId]);
+    }
 
     jsonResponse(['article' => $art]);
     } catch (Throwable $e) {

@@ -4,6 +4,8 @@ set_time_limit(0);
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/lib/keyword-research.php';
+require_once __DIR__ . '/lib/ai-creds.php';
+require_once __DIR__ . '/lib/ai-research.php';
 
 $db = getDB();
 $auth = requireAuth();
@@ -55,9 +57,86 @@ function research_job_response(PDO $db, array $job, string $tenantId, bool $cach
         'fetched_at' => $job['fetched_at'],
         'cached' => $cached,
         'cost_usd' => $job['cost_usd'] === null ? null : (float)$job['cost_usd'],
+        'analyzed_at' => $job['analyzed_at'],
+        'analysis' => $job['analysis'] ? json_decode((string)$job['analysis'], true) : null,
         'serp' => $serp,
         'keywords' => research_keyword_rows($db, (string)$job['id'], $tenantId),
     ];
+}
+
+function research_analysis_prompt(array $job, array $keywords, array $serp): array {
+    $sourceKeywords = [];
+    foreach (array_slice($keywords, 0, 80) as $keyword) {
+        $sourceKeywords[] = [
+            'keyword' => $keyword['keyword'],
+            'search_volume' => $keyword['search_volume'],
+            'difficulty' => $keyword['difficulty'],
+            'competition' => $keyword['competition'],
+            'cpc' => $keyword['cpc'],
+            'intent' => $keyword['intent'],
+            'source' => $keyword['source'],
+            'is_selected' => $keyword['is_selected'],
+        ];
+    }
+    $source = [
+        'seed_keyword' => $job['seed_keyword'],
+        'provider' => $job['provider'],
+        'location_code' => (int)$job['location_code'],
+        'language_code' => $job['language_code'],
+        'fetched_at' => $job['fetched_at'],
+        'keywords' => $sourceKeywords,
+        'serp' => [
+            'organic' => array_slice($serp['organic'] ?? [], 0, 10),
+            'people_also_ask' => array_slice($serp['people_also_ask'] ?? [], 0, 20),
+            'related_searches' => array_slice($serp['related_searches'] ?? [], 0, 20),
+        ],
+    ];
+    $schema = '{"primary_keyword":"ต้องเป็น keyword จาก source","secondary_keywords":[{"keyword":"ต้องเป็น keyword จาก source","search_volume":null,"difficulty":null,"intent":null}],"intent":"informational|commercial|transactional|navigational","paa":["คำถามจาก source"],"content_gaps":["ช่องว่างเนื้อหา"],"competitor_angles":["มุมที่คู่แข่งใช้"],"outline":[{"heading":"หัวข้อ H2","purpose":"เป้าหมายของหัวข้อนี้"}],"target_word_count":500,"aeo_notes":["คำแนะนำ AEO"]}';
+    $system = "คุณเป็นนักวิเคราะห์ SEO/AEO ภาษาไทย ตอบเป็น JSON object เท่านั้น ไม่มี markdown fence\n" .
+        "ใช้ข้อมูล Research ที่ให้เท่านั้น ห้ามแต่ง search_volume, difficulty, competition, cpc หรือ metric ใด ๆ เอง\n" .
+        "ถ้าข้อมูล metric ไม่มี ให้ใช้ null ห้ามเดาหรือใส่ 0\n" .
+        "primary_keyword และ secondary_keywords.keyword ต้องเลือกจากรายการ keywords ใน source เท่านั้น\n" .
+        "โครงสร้าง JSON ที่ต้องการ: {$schema}";
+    $user = "วิเคราะห์ Research เพื่อวางแผนสร้าง content โดยคง source metadata ให้ตรวจสอบย้อนหลังได้:\n" .
+        json_encode($source, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    return [$system, $user, $sourceKeywords];
+}
+
+if ($action === 'analyze') {
+    if ($method !== 'POST') jsonError('วิธีการเรียกไม่ถูกต้อง', 405);
+    $body = getRequestBody();
+    $jobId = trim((string)($body['job_id'] ?? ''));
+    if ($jobId === '') jsonError('ต้องระบุ job id', 422);
+    $stmt = $db->prepare("SELECT * FROM content_research_jobs WHERE id=? AND tenant_id=? AND status='done'");
+    $stmt->execute([$jobId, $tenantId]);
+    $job = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$job) jsonError('ไม่พบ Research job หรือ job ยังไม่พร้อมวิเคราะห์', 404);
+    $keywords = research_keyword_rows($db, $jobId, $tenantId);
+    $rawSerp = json_decode((string)($job['raw_serp'] ?? ''), true);
+    $serp = is_array($rawSerp['normalized'] ?? null) ? $rawSerp['normalized'] : ['organic' => [], 'people_also_ask' => [], 'related_searches' => []];
+    [$systemPrompt, $userPrompt, $sourceKeywords] = research_analysis_prompt($job, $keywords, $serp);
+    $db->prepare("UPDATE content_research_jobs SET status='analyzing', error_msg=NULL, updated_at=NOW() WHERE id=? AND tenant_id=? AND status='done'")->execute([$jobId, $tenantId]);
+    try {
+        $rawBrief = ai_research_chat($db, $tenantId, $systemPrompt, $userPrompt);
+        $brief = ai_research_validate_brief(ai_research_parse_json($rawBrief), $sourceKeywords);
+        $brief['source'] = [
+            'provider' => $job['provider'],
+            'location_code' => (int)$job['location_code'],
+            'language_code' => $job['language_code'],
+            'fetched_at' => $job['fetched_at'],
+        ];
+        $encoded = json_encode($brief, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        $update = $db->prepare("UPDATE content_research_jobs SET status='done', analysis=?, analyzed_at=NOW(), updated_at=NOW() WHERE id=? AND tenant_id=? AND status='analyzing'");
+        $update->execute([$encoded, $jobId, $tenantId]);
+        $job['status'] = 'done';
+        $job['analysis'] = $encoded;
+        $job['analyzed_at'] = date('Y-m-d H:i:s');
+        jsonResponse(research_job_response($db, $job, $tenantId));
+    } catch (Throwable $e) {
+        $message = mb_substr($e->getMessage(), 0, 500);
+        $db->prepare("UPDATE content_research_jobs SET status='failed', error_msg=?, updated_at=NOW() WHERE id=? AND tenant_id=? AND status='analyzing'")->execute([$message, $jobId, $tenantId]);
+        jsonError('วิเคราะห์ Research ไม่สำเร็จ: ' . $message, 502);
+    }
 }
 
 if ($action === 'settings-status') {
