@@ -393,7 +393,7 @@ export const emptySeoFields = (): SeoFields => ({
 
 // ─── SEO checklist (Phase 4 publish gate) ───────────────────────────
 // ตรงกับผลลัพธ์จาก api/lib/seo-checklist.php ผ่าน ?action=seo-checklist
-export type SeoRuleLevel = 'pass' | 'warn' | 'fail' | 'skip';
+export type SeoRuleLevel = 'pass' | 'warn' | 'fail' | 'pending' | 'skip';
 
 export interface SeoRule {
   key: string;

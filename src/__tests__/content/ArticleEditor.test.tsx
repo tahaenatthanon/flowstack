@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import ArticleEditor from '@/components/content/ArticleEditor';
 import { emptySeoFields } from '@/components/content/types';
+import { apiFetch } from '@/lib/api';
 
 // Mock apiFetch for AI tests
 vi.mock('@/lib/api', () => ({
@@ -96,6 +97,34 @@ describe('ArticleEditor', () => {
     fireEvent.click(screen.getByText('SEO / AEO Metadata'));
     await waitFor(() => {
       expect(screen.getByText('65/60')).toBeTruthy();
+    });
+  });
+
+  it('renders pending SEO rules without crashing the page', async () => {
+    vi.mocked(apiFetch).mockResolvedValue({
+      score: 100,
+      rules: [{ key: 'seo_title', level: 'pending', message: 'ยังไม่ได้กรอก SEO title' }],
+      seo_gate_enabled: 1,
+      seo_gate_min_score: 0,
+    } as any);
+    render(<ArticleEditor {...defaultProps} contentItemId="item-1" />);
+    fireEvent.click(await screen.findByText('SEO / AEO Metadata'));
+    await waitFor(() => {
+      expect(screen.getByText('ยังไม่ได้กรอก SEO title')).toBeTruthy();
+    });
+  });
+
+  it('uses a safe fallback for an unknown SEO rule level', async () => {
+    vi.mocked(apiFetch).mockResolvedValue({
+      score: 100,
+      rules: [{ key: 'future_rule', level: 'future_level', message: 'กฎใหม่จากระบบ' }],
+      seo_gate_enabled: 0,
+      seo_gate_min_score: 0,
+    } as any);
+    render(<ArticleEditor {...defaultProps} contentItemId="item-2" />);
+    fireEvent.click(await screen.findByText('SEO / AEO Metadata'));
+    await waitFor(() => {
+      expect(screen.getByText('กฎใหม่จากระบบ')).toBeTruthy();
     });
   });
 });

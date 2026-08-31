@@ -57,7 +57,7 @@ import {
   Table as TableIcon, Link as LinkIcon, Image as ImageIcon,
   Undo2, Redo2, Code, ChevronDown, Sparkles, Loader2,
   Search, AlignLeft, Plus, Eye, EyeOff, MousePointer,
-  CheckCircle2, AlertTriangle, XCircle, MinusCircle, RefreshCw,
+  CheckCircle2, AlertTriangle, XCircle, MinusCircle, Clock, RefreshCw,
 } from 'lucide-react';
 
 export interface ArticleEditorProps {
@@ -710,6 +710,7 @@ const SEO_LEVEL_META: Record<SeoRuleLevel, { icon: React.ElementType; className:
   pass: { icon: CheckCircle2,  className: 'text-green-600' },
   warn: { icon: AlertTriangle, className: 'text-amber-500' },
   fail: { icon: XCircle,       className: 'text-destructive' },
+  pending: { icon: Clock,      className: 'text-muted-foreground' },
   skip: { icon: MinusCircle,   className: 'text-muted-foreground/50' },
 };
 
@@ -779,12 +780,14 @@ function SeoChecklistPanel({ result, loading, error, onRecheck }: {
       {result && (
         <ul className="space-y-1">
           {result.rules.map(rule => {
-            const meta = SEO_LEVEL_META[rule.level];
+            const meta = SEO_LEVEL_META[rule.level] ?? SEO_LEVEL_META.pending;
             const Icon = meta.icon;
             return (
               <li key={rule.key} className="flex items-start gap-1.5 text-[11px] leading-relaxed">
                 <Icon className={cn('h-3.5 w-3.5 mt-px shrink-0', meta.className)} />
-                <span className={cn(rule.level === 'skip' && 'text-muted-foreground/70')}>{rule.message}</span>
+                <span className={cn(
+                  (rule.level === 'skip' || rule.level === 'pending') && 'text-muted-foreground/70',
+                )}>{rule.message}</span>
               </li>
             );
           })}
