@@ -306,11 +306,17 @@ if ($action === 'global-settings') {
         if (!$row) {
             jsonResponse(['tenant_id' => $tenantId, 'global_instruction' => '', 'image_gen_provider' => 'none',
                           'image_gen_model' => '', 'image_gen_base_url' => '', 'product_ref_image_url' => '', 'has_image_gen_key' => false,
+                          'research_provider' => 'none', 'research_api_login' => '', 'has_research_key' => false,
+                          'research_location_code' => 2764, 'research_language_code' => 'th', 'research_cache_hours' => 168,
                           'weekly_posts_target' => 0]);
         }
         $row['has_image_gen_key'] = !empty($row['image_gen_api_key_encrypted']);
+        $row['has_research_key'] = !empty($row['research_api_key_encrypted']);
         $row['weekly_posts_target'] = (int)($row['weekly_posts_target'] ?? 0);
+        $row['research_location_code'] = (int)($row['research_location_code'] ?? 2764);
+        $row['research_cache_hours'] = (int)($row['research_cache_hours'] ?? 168);
         unset($row['image_gen_api_key_encrypted']);
+        unset($row['research_api_key_encrypted']);
         jsonResponse($row);
     }
     if ($method === 'POST') {
@@ -318,6 +324,10 @@ if ($action === 'global-settings') {
         $encKey = null;
         if (!empty($body['image_gen_api_key'])) {
             $encKey = encryptValue($body['image_gen_api_key']);
+        }
+        $researchEncKey = null;
+        if (!empty($body['research_api_key'])) {
+            $researchEncKey = encryptValue($body['research_api_key']);
         }
         $stmt = $db->prepare('SELECT tenant_id FROM content_global_settings WHERE tenant_id=?');
         $stmt->execute([$tenantId]);
@@ -334,13 +344,19 @@ if ($action === 'global-settings') {
             if (array_key_exists('product_refs', $body))          { $sets[] = 'product_refs=?';          $vals[] = $body['product_refs'] ?? '[]'; }
             if (array_key_exists('weekly_posts_target', $body))   { $sets[] = 'weekly_posts_target=?';   $vals[] = max(0, (int)($body['weekly_posts_target'] ?? 0)); }
             if ($encKey !== null) { $sets[] = 'image_gen_api_key_encrypted=?'; $vals[] = $encKey; }
+            if (array_key_exists('research_provider', $body))      { $sets[] = 'research_provider=?';      $vals[] = $body['research_provider'] ?? 'none'; }
+            if (array_key_exists('research_api_login', $body))     { $sets[] = 'research_api_login=?';     $vals[] = trim((string)($body['research_api_login'] ?? '')); }
+            if (array_key_exists('research_location_code', $body)){ $sets[] = 'research_location_code=?'; $vals[] = max(1, (int)($body['research_location_code'] ?? 2764)); }
+            if (array_key_exists('research_language_code', $body)){ $sets[] = 'research_language_code=?'; $vals[] = trim((string)($body['research_language_code'] ?? 'th')); }
+            if (array_key_exists('research_cache_hours', $body))  { $sets[] = 'research_cache_hours=?';  $vals[] = min(8760, max(0, (int)($body['research_cache_hours'] ?? 168))); }
+            if ($researchEncKey !== null) { $sets[] = 'research_api_key_encrypted=?'; $vals[] = $researchEncKey; }
             if (count($sets) > 1) {
                 $vals[] = $tenantId;
                 $db->prepare('UPDATE content_global_settings SET ' . implode(',', $sets) . ' WHERE tenant_id=?')->execute($vals);
             }
         } else {
-            $db->prepare('INSERT INTO content_global_settings (tenant_id,global_instruction,image_gen_provider,image_gen_api_key_encrypted,image_gen_model,image_gen_base_url,product_ref_image_url,product_refs,weekly_posts_target) VALUES (?,?,?,?,?,?,?,?,?)')
-               ->execute([$tenantId, $body['global_instruction'] ?? '', $body['image_gen_provider'] ?? 'none', $encKey, $body['image_gen_model'] ?? '', $body['image_gen_base_url'] ?? '', $body['product_ref_image_url'] ?? '', $body['product_refs'] ?? '[]', max(0, (int)($body['weekly_posts_target'] ?? 0))]);
+            $db->prepare('INSERT INTO content_global_settings (tenant_id,global_instruction,image_gen_provider,image_gen_api_key_encrypted,image_gen_model,image_gen_base_url,product_ref_image_url,product_refs,weekly_posts_target,research_provider,research_api_login,research_api_key_encrypted,research_location_code,research_language_code,research_cache_hours) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+               ->execute([$tenantId, $body['global_instruction'] ?? '', $body['image_gen_provider'] ?? 'none', $encKey, $body['image_gen_model'] ?? '', $body['image_gen_base_url'] ?? '', $body['product_ref_image_url'] ?? '', $body['product_refs'] ?? '[]', max(0, (int)($body['weekly_posts_target'] ?? 0)), $body['research_provider'] ?? 'none', trim((string)($body['research_api_login'] ?? '')), $researchEncKey, max(1, (int)($body['research_location_code'] ?? 2764)), trim((string)($body['research_language_code'] ?? 'th')), min(8760, max(0, (int)($body['research_cache_hours'] ?? 168))) ]);
         }
         jsonResponse(['saved' => true]);
     }

@@ -3,6 +3,7 @@ import BrandContextTab from '@/components/content/tabs/BrandContextTab';
 import BrandInstructionForm from '@/components/brand/BrandInstructionForm';
 import BrandProductRefsForm from '@/components/brand/BrandProductRefsForm';
 import ContentGoalForm from '@/components/brand/ContentGoalForm';
+import ResearchProviderForm from '@/components/brand/ResearchProviderForm';
 
 export default function BrandSettingPage() {
   return (
@@ -16,6 +17,7 @@ export default function BrandSettingPage() {
         <BrandInstructionForm />
         <ContentGoalForm />
         <BrandProductRefsForm />
+        <ResearchProviderForm />
       </div>
     </PageShell>
   );

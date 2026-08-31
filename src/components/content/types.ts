@@ -130,6 +130,8 @@ export interface GlobalSettings {
   global_instruction: string; image_gen_provider: string; image_gen_model: string;
   image_gen_base_url: string; product_ref_image_url: string; product_refs?: string;
   has_image_gen_key: boolean;
+  research_provider?: string; research_api_login?: string; has_research_key?: boolean;
+  research_location_code?: number; research_language_code?: string; research_cache_hours?: number;
   weekly_posts_target?: number;
 }
 
