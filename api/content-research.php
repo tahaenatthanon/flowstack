@@ -153,11 +153,15 @@ if ($action === 'settings-status') {
 
 if ($action === 'test') {
     if ($method !== 'POST') jsonError('วิธีการเรียกไม่ถูกต้อง', 405);
+    $body = getRequestBody();
     $settings = research_settings($db, $tenantId);
-    if ($settings['provider'] !== 'dataforseo') jsonError('ยังไม่ได้ตั้งค่า DataForSEO', 400);
-    if ($settings['login'] === '' || $settings['password'] === '') jsonError('กรุณาตั้งค่า DataForSEO login และ password', 400);
+    $provider = trim((string)($body['provider'] ?? $settings['provider']));
+    $login = trim((string)($body['login'] ?? $settings['login']));
+    $password = trim((string)($body['password'] ?? '')) ?: $settings['password'];
+    if ($provider !== 'dataforseo') jsonError('ยังไม่ได้ตั้งค่า DataForSEO', 400);
+    if ($login === '' || $password === '') jsonError('กรุณาตั้งค่า DataForSEO login และ password', 400);
     try {
-        $result = research_test_dataforseo($settings['login'], $settings['password']);
+        $result = research_test_dataforseo($login, $password);
         jsonResponse(['ok' => true, 'message' => 'เชื่อมต่อ DataForSEO สำเร็จ', 'balance_usd' => $result['balance_usd']]);
     } catch (Throwable $e) {
         jsonResponse(['ok' => false, 'message' => 'เชื่อมต่อ DataForSEO ไม่สำเร็จ'], 502);

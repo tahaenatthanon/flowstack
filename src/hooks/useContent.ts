@@ -370,6 +370,28 @@ export function useSaveGlobalSettings() {
   });
 }
 
+export interface ResearchProviderTestResponse {
+  ok: boolean;
+  message: string;
+  balance_usd?: number | null;
+}
+
+export interface ResearchProviderTestPayload {
+  provider?: string;
+  login?: string;
+  password?: string;
+}
+
+export function useTestResearchProvider() {
+  return useMutation<ResearchProviderTestResponse, Error, ResearchProviderTestPayload | undefined>({
+    mutationFn: (payload) =>
+      apiFetch('/content-research.php?action=test', {
+        method: 'POST',
+        body: JSON.stringify(payload ?? {}),
+      }),
+  });
+}
+
 export function useScheduleContent() {
   const qc = useQueryClient();
   return useMutation({

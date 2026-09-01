@@ -4,12 +4,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { useContentGlobalSettings, useSaveGlobalSettings } from '@/hooks/useContent';
+import { useContentGlobalSettings, useSaveGlobalSettings, useTestResearchProvider } from '@/hooks/useContent';
 
 export default function ResearchProviderForm() {
   const { toast } = useToast();
   const { data: settings } = useContentGlobalSettings();
   const saveMut = useSaveGlobalSettings();
+  const testMut = useTestResearchProvider();
   const [provider, setProvider] = useState('none');
   const [login, setLogin] = useState('');
   const [password, setPassword] = useState('');
@@ -45,6 +46,39 @@ export default function ResearchProviderForm() {
     });
   };
 
+  const hasStoredCredential = Boolean(settings?.has_research_key);
+  const hasEnteredCredential = Boolean(login.trim() && password.trim());
+  const canTestConnection = provider === 'dataforseo' && login.trim() !== '' && (hasStoredCredential || hasEnteredCredential);
+
+  const handleTestConnection = () => {
+    testMut.mutate({
+      provider,
+      login: login.trim(),
+      ...(password.trim() ? { password: password.trim() } : {}),
+    }, {
+      onSuccess: (result) => {
+        if (result.ok) {
+          toast({
+            title: 'เชื่อมต่อ DataForSEO สำเร็จ',
+            description: typeof result.balance_usd === 'number' ? `ยอดคงเหลือ ${result.balance_usd.toFixed(2)} USD` : result.message,
+          });
+          return;
+        }
+
+        toast({
+          title: 'เชื่อมต่อ DataForSEO ไม่สำเร็จ',
+          description: result.message,
+          variant: 'destructive',
+        });
+      },
+      onError: (error: any) => toast({
+        title: 'เชื่อมต่อ DataForSEO ไม่สำเร็จ',
+        description: error.message,
+        variant: 'destructive',
+      }),
+    });
+  };
+
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -54,7 +88,7 @@ export default function ResearchProviderForm() {
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-xs text-muted-foreground">
-          ตั้งค่าแหล่งข้อมูลคำค้นหาและผลการค้นหาเพื่อใช้ใน Content Pipeline
+          ตั้งค่าแหล่งข้อมูลคำค้นหาและผลการค้นหาเพื่อใช้ใน flow คอนเทนต์เดิม
         </p>
 
         <div className="grid gap-3 sm:grid-cols-2">
@@ -92,8 +126,14 @@ export default function ResearchProviderForm() {
             {saveMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             บันทึกการตั้งค่า
           </Button>
-          <Button variant="outline" className="gap-2" disabled>
-            <FlaskConical className="h-4 w-4" /> ทดสอบการเชื่อมต่อ (Phase ถัดไป)
+          <Button
+            variant="outline"
+            className="gap-2"
+            disabled={!canTestConnection || saveMut.isPending || testMut.isPending}
+            onClick={handleTestConnection}
+          >
+            {testMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FlaskConical className="h-4 w-4" />}
+            ทดสอบการเชื่อมต่อ
           </Button>
         </div>
       </CardContent>
