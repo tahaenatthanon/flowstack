@@ -194,6 +194,16 @@ function parseBrandMd(string $content): array {
     return $parsed;
 }
 
+/**
+ * Normalize a content type from request input to a valid content_items.type value.
+ * Only 'video' is treated specially; anything else (article, image, unknown, empty)
+ * falls back to 'article' so the DB enum never receives an invalid value.
+ */
+function normalizeContentType(mixed $raw): string {
+    $type = strtolower(trim((string)($raw ?? 'article')));
+    return $type === 'video' ? 'video' : 'article';
+}
+
 // โ”€โ”€โ”€ CONTEXTS โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
 if ($action === 'contexts') {
     if ($method === 'GET') {
@@ -498,6 +508,10 @@ if ($action === 'generate-plan' && $method === 'POST') {
     $platforms       = $body['platforms'] ?? []; // optional: force specific platforms
     // Backward compat: accept single platform string
     if (empty($platforms) && !empty($body['platform'])) $platforms = [$body['platform']];
+    // Normalize platform list to a clean array of strings
+    $platforms = array_values(array_filter(array_map('strval', $platforms), fn($p) => $p !== ''));
+    // Content type chosen by the user (article/video) — drives AI prompt flow later
+    $type = normalizeContentType($body['type'] ?? null);
     if (empty($triggerCommand)) jsonError('กรุณาระบุ Trigger Command');
 
     // Load global settings
@@ -540,7 +554,7 @@ if ($action === 'generate-plan' && $method === 'POST') {
     if ($skillSystemPrompt) $sysParts[] = "## Skill Instructions\n{$skillSystemPrompt}";
     if (!empty($platforms)) {
         $pList = implode(', ', $platforms);
-        $sysParts[] = "## Platform Constraint\nYou MUST only use these platforms: {$pList}. Each post must pick one of these.";
+        $sysParts[] = "## Platform Constraint\nTarget publish platforms (list of channels for this content): {$pList}. Write content suitable to be published across these platforms. Set the \"platform\" field to the primary platform from this list.";
     }
     $sysParts[] = <<<'PROMPT'
 ## CRITICAL LANGUAGE RULE
@@ -748,51 +762,37 @@ PROMPT;
     }
     $planItems = [];
     $allRaw    = [];
-    if (!empty($platforms)) {
-        // Multi-platform mode: iterate day × platform, one article per pair
-        foreach ($days as [$dayLabel, $dayOrder]) {
-            $scheduledDate = date('Y-m-d', strtotime($weekStart . ' + ' . ($dayOrder - 1) . ' days'));
-            foreach ($platforms as $plt) {
-                $userMsg = "{$triggerCommand}\nสัปดาห์เริ่มต้น: {$weekStart}\nสร้างโพสต์สำหรับวัน{$dayLabel} (วันที่ {$dayOrder} ของสัปดาห์)\nPlatform ที่ต้องใช้: {$plt}\nREMINDER: Output ONLY the JSON object. Start with { and end with }. No other text.";
-                $result  = $callAI($userMsg);
-                if (isset($result['__error']) && str_starts_with($result['__error'], 'parse_failed')) {
-                    $result = $callAI($userMsg . "\n[RETRY] Output ONLY JSON. Do not explain. Begin with {");
-                }
-                if (isset($result['__error'])) {
-                    if ($result['__error'] === 'token_limit') {
-                        jsonError("โมเดล {$modelName} ตอบถูกตัดสั้น (token limit) — กรุณาเปลี่ยนเป็นโมเดลที่มี output token สูงกว่าใน Admin > AI Settings", 500);
-                    }
-                    jsonError("AI error (�ѹ{$dayLabel} {$plt}): " . $result['__error'], 500);
-                }
-                $result['day_label']      = $dayLabel;
-                $result['day_order']      = $dayOrder;
-                $result['platform']       = $plt;
-                $result['scheduled_date'] = $scheduledDate;
-                $planItems[] = $result;
-                $allRaw[]    = json_encode($result);
-            }
-        }
-    } else {
-        // No platform constraint: AI chooses platform per day
-        foreach ($days as [$dayLabel, $dayOrder]) {
-            $scheduledDate = date('Y-m-d', strtotime($weekStart . ' + ' . ($dayOrder - 1) . ' days'));
+    $platformsStr = implode(', ', $platforms);
+    // One AI call per day. Platforms are publish channels (not a multiplier),
+    // so selecting multiple platforms produces a single content item per day.
+    foreach ($days as [$dayLabel, $dayOrder]) {
+        $scheduledDate = date('Y-m-d', strtotime($weekStart . ' + ' . ($dayOrder - 1) . ' days'));
+        if (!empty($platforms)) {
+            $userMsg = "{$triggerCommand}\nสัปดาห์เริ่มต้น: {$weekStart}\nสร้างโพสต์สำหรับวัน{$dayLabel} (วันที่ {$dayOrder} ของสัปดาห์)\nPlatform เป้าหมาย (ช่องทางเผยแพร่): {$platformsStr}\nREMINDER: Output ONLY the JSON object. Start with { and end with }. No other text.";
+        } else {
             $userMsg = "{$triggerCommand}\nสัปดาห์เริ่มต้น: {$weekStart}\nสร้างโพสต์สำหรับวัน{$dayLabel} (วันที่ {$dayOrder} ของสัปดาห์)\nREMINDER: Output ONLY the JSON object. Start with { and end with }. No other text.";
-            $result  = $callAI($userMsg);
-            if (isset($result['__error']) && str_starts_with($result['__error'], 'parse_failed')) {
-                $result = $callAI($userMsg . "\n[RETRY] Output ONLY JSON. Do not explain. Begin with {");
-            }
-            if (isset($result['__error'])) {
-                if ($result['__error'] === 'token_limit') {
-                    jsonError("โมเดล {$modelName} ตอบถูกตัดสั้น (token limit) — กรุณาเปลี่ยนเป็นโมเดลที่มี output token สูงกว่าใน Admin > AI Settings", 500);
-                }
-                jsonError("AI error (�ѹ{$dayLabel}): " . $result['__error'], 500);
-            }
-            $result['day_label']      = $dayLabel;
-            $result['day_order']      = $dayOrder;
-            $result['scheduled_date'] = $scheduledDate;
-            $planItems[] = $result;
-            $allRaw[]    = json_encode($result);
         }
+        $result  = $callAI($userMsg);
+        if (isset($result['__error']) && str_starts_with($result['__error'], 'parse_failed')) {
+            $result = $callAI($userMsg . "\n[RETRY] Output ONLY JSON. Do not explain. Begin with {");
+        }
+        if (isset($result['__error'])) {
+            if ($result['__error'] === 'token_limit') {
+                jsonError("โมเดล {$modelName} ตอบถูกตัดสั้น (token limit) — กรุณาเปลี่ยนเป็นโมเดลที่มี output token สูงกว่าใน Admin > AI Settings", 500);
+            }
+            jsonError("AI error (วันที่ {$dayLabel}): " . $result['__error'], 500);
+        }
+        $result['day_label']      = $dayLabel;
+        $result['day_order']      = $dayOrder;
+        $result['scheduled_date'] = $scheduledDate;
+        if (!empty($platforms)) {
+            // Store the full selected platform list as publish channels; keep the
+            // first one in 'platform' for backward compatibility.
+            $result['platform']  = $platforms[0];
+            $result['platforms'] = $platforms;
+        }
+        $planItems[] = $result;
+        $allRaw[]    = json_encode($result);
     }
 
     // Save plan + items
@@ -807,8 +807,9 @@ PROMPT;
 
         // Also create content_items row as primary content store
         $ciId = generateUUID();
-        $db->prepare('INSERT INTO content_items (id, tenant_id, title, type, status, created_by, plan_item_id, plan_id, platform, scheduled_date, caption, image_brief) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
-           ->execute([$ciId, $tenantId, $item['topic'] ?? '', 'article', 'draft', $userId, $itemId, $planId, $item['platform'] ?? '', $item['scheduled_date'] ?? null, $item['caption'] ?? '', $item['image_brief'] ?? '']);
+        $platformsJson = !empty($item['platforms']) && is_array($item['platforms']) ? json_encode($item['platforms']) : null;
+        $db->prepare('INSERT INTO content_items (id, tenant_id, title, type, status, created_by, plan_item_id, plan_id, platform, platforms, scheduled_date, caption, image_brief) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+           ->execute([$ciId, $tenantId, $item['topic'] ?? '', $type, 'draft', $userId, $itemId, $planId, $item['platform'] ?? '', $platformsJson, $item['scheduled_date'] ?? null, $item['caption'] ?? '', $item['image_brief'] ?? '']);
     }
 
     $stmt = $db->prepare('SELECT * FROM content_plans WHERE id=? AND tenant_id=?');
@@ -2722,12 +2723,13 @@ if ($action === 'plan-items') {
         $dayOrders = [7, 1, 2, 3, 4, 5, 6];
         $id = generateUUID();
         $platform = isset($body['platform']) ? strtolower(trim($body['platform'])) : 'facebook';
+        $type = normalizeContentType($body['type'] ?? null);
         $db->prepare('INSERT INTO content_plan_items (id, plan_id, day_label, day_order, scheduled_date, platform, topic, caption) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
            ->execute([$id, $planId, $dayLabels[(int)date('w', $ts)], $dayOrders[(int)date('w', $ts)], $scheduledDate, $platform, $topic, $body['caption'] ?? '']);
         // Also create content_items row as primary store
         $ciId = generateUUID();
-        $db->prepare('INSERT INTO content_items (id, tenant_id, title, type, status, created_by, plan_item_id, plan_id, platform, scheduled_date, caption) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
-           ->execute([$ciId, $tenantId, $topic, 'article', 'draft', $userId, $id, $planId, $platform, $scheduledDate, $body['caption'] ?? '']);
+        $db->prepare('INSERT INTO content_items (id, tenant_id, title, type, status, created_by, plan_item_id, plan_id, platform, platforms, scheduled_date, caption) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
+           ->execute([$ciId, $tenantId, $topic, $type, 'draft', $userId, $id, $planId, $platform, json_encode([$platform]), $scheduledDate, $body['caption'] ?? '']);
         jsonResponse(['id' => $ciId, 'plan_item_id' => $id, 'created' => true], 201);
     }
     if ($method === 'DELETE') {

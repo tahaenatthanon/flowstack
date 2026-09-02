@@ -76,6 +76,7 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
           brand_context_ids: selContextIds,
           week_start: new Date().toISOString().split('T')[0],
           platforms: platList,
+          type: contentType,
           days: 1,
         }),
       });
