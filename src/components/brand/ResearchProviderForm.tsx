@@ -48,31 +48,34 @@ export default function ResearchProviderForm() {
 
   const hasStoredCredential = Boolean(settings?.has_research_key);
   const hasEnteredCredential = Boolean(login.trim() && password.trim());
-  const canTestConnection = provider === 'dataforseo' && login.trim() !== '' && (hasStoredCredential || hasEnteredCredential);
+  const canTestConnection = provider === 'ai' || (provider === 'dataforseo' && login.trim() !== '' && (hasStoredCredential || hasEnteredCredential));
 
   const handleTestConnection = () => {
+    const isAi = provider === 'ai';
     testMut.mutate({
       provider,
-      login: login.trim(),
-      ...(password.trim() ? { password: password.trim() } : {}),
+      ...(isAi ? {} : { login: login.trim() }),
+      ...(!isAi && password.trim() ? { password: password.trim() } : {}),
     }, {
       onSuccess: (result) => {
         if (result.ok) {
           toast({
-            title: 'เชื่อมต่อ DataForSEO สำเร็จ',
-            description: typeof result.balance_usd === 'number' ? `ยอดคงเหลือ ${result.balance_usd.toFixed(2)} USD` : result.message,
+            title: isAi ? 'เชื่อมต่อ AI Research สำเร็จ' : 'เชื่อมต่อ DataForSEO สำเร็จ',
+            description: isAi
+              ? (result.message || 'Research AI พร้อมใช้งาน')
+              : (typeof result.balance_usd === 'number' ? `ยอดคงเหลือ ${result.balance_usd.toFixed(2)} USD` : result.message),
           });
           return;
         }
 
         toast({
-          title: 'เชื่อมต่อ DataForSEO ไม่สำเร็จ',
+          title: isAi ? 'เชื่อมต่อ AI Research ไม่สำเร็จ' : 'เชื่อมต่อ DataForSEO ไม่สำเร็จ',
           description: result.message,
           variant: 'destructive',
         });
       },
       onError: (error: any) => toast({
-        title: 'เชื่อมต่อ DataForSEO ไม่สำเร็จ',
+        title: isAi ? 'เชื่อมต่อ AI Research ไม่สำเร็จ' : 'เชื่อมต่อ DataForSEO ไม่สำเร็จ',
         description: error.message,
         variant: 'destructive',
       }),
@@ -97,20 +100,25 @@ export default function ResearchProviderForm() {
             <select value={provider} onChange={e => setProvider(e.target.value)} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
               <option value="none">ยังไม่ตั้งค่า</option>
               <option value="dataforseo">DataForSEO</option>
+              <option value="ai">AI (Perplexity/Sonar)</option>
             </select>
           </label>
-          <label className="space-y-1.5 text-sm">
-            <span>DataForSEO Login</span>
-            <Input value={login} onChange={e => setLogin(e.target.value)} placeholder="อีเมลสำหรับ DataForSEO" />
-          </label>
-          <label className="space-y-1.5 text-sm">
-            <span>Password {settings?.has_research_key ? '(ตั้งค่าแล้ว เว้นว่างเพื่อใช้ค่าเดิม)' : ''}</span>
-            <Input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="กรอก password ใหม่" autoComplete="new-password" />
-          </label>
-          <label className="space-y-1.5 text-sm">
-            <span>รหัสพื้นที่ค้นหา</span>
-            <Input type="number" min={1} value={locationCode} onChange={e => setLocationCode(e.target.value)} />
-          </label>
+          {provider !== 'ai' && (
+            <>
+              <label className="space-y-1.5 text-sm">
+                <span>DataForSEO Login</span>
+                <Input value={login} onChange={e => setLogin(e.target.value)} placeholder="อีเมลสำหรับ DataForSEO" />
+              </label>
+              <label className="space-y-1.5 text-sm">
+                <span>Password {settings?.has_research_key ? '(ตั้งค่าแล้ว เว้นว่างเพื่อใช้ค่าเดิม)' : ''}</span>
+                <Input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="กรอก password ใหม่" autoComplete="new-password" />
+              </label>
+              <label className="space-y-1.5 text-sm">
+                <span>รหัสพื้นที่ค้นหา</span>
+                <Input type="number" min={1} value={locationCode} onChange={e => setLocationCode(e.target.value)} />
+              </label>
+            </>
+          )}
           <label className="space-y-1.5 text-sm">
             <span>รหัสภาษา</span>
             <Input value={languageCode} onChange={e => setLanguageCode(e.target.value)} placeholder="th" />

@@ -100,6 +100,58 @@ describe('ResearchProviderForm', () => {
     });
   });
 
+  it('shows AI option and hides non-AI fields when AI provider is selected', async () => {
+    mockSettings({ research_provider: 'ai' });
+    renderForm();
+
+    // wait for settings to load and AI provider to be applied
+    await waitFor(() => {
+      expect(screen.queryByPlaceholderText('อีเมลสำหรับ DataForSEO')).toBeNull();
+    });
+
+    // login / password / location fields are hidden for AI
+    expect(screen.queryByPlaceholderText('กรอก password ใหม่')).toBeNull();
+    // language + cache still visible
+    expect(screen.getByPlaceholderText('th')).toBeTruthy();
+
+    const button = screen.getByRole('button', { name: /ทดสอบการเชื่อมต่อ/ });
+    await waitFor(() => expect(button).toHaveProperty('disabled', false));
+  });
+
+  it('sends only provider for AI test and shows AI success toast without balance', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url: string, options?: RequestInit) => {
+      if (url === '/brand-content.php?action=global-settings' && !options?.method) {
+        return {
+          research_provider: 'ai',
+          research_api_login: '',
+          has_research_key: false,
+          research_location_code: 2764,
+          research_language_code: 'th',
+          research_cache_hours: 168,
+        };
+      }
+      if (url === '/content-research.php?action=test' && options?.method === 'POST') {
+        return { ok: true, message: 'Research AI พร้อมใช้งาน' };
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    renderForm();
+
+    const button = await screen.findByRole('button', { name: /ทดสอบการเชื่อมต่อ/ });
+    await waitFor(() => expect(button).toHaveProperty('disabled', false));
+    fireEvent.click(button);
+
+    await waitFor(() => {
+      expect(apiFetch).toHaveBeenCalledWith('/content-research.php?action=test', expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ provider: 'ai' }),
+      }));
+      expect(toast).toHaveBeenCalledWith(expect.objectContaining({
+        title: 'เชื่อมต่อ AI Research สำเร็จ',
+      }));
+    });
+  });
+
   it('shows error toast when connection test fails without clearing password field', async () => {
     vi.mocked(apiFetch).mockImplementation(async (url: string, options?: RequestInit) => {
       if (url === '/brand-content.php?action=global-settings' && !options?.method) {
