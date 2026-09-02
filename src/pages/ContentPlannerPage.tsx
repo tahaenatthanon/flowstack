@@ -9,6 +9,7 @@ import {
   useBrandContexts, usePublishChannels, useAIGatewaySettings,
   useDeleteContentPlan, usePostingAnalytics, useUpdatePlanItemDate,
 } from '@/hooks/useContent';
+import { useResearchRun } from '@/hooks/useResearchRun';
 import type { ContentPlan, PlanItem, CalendarView } from '@/components/content/types';
 import { TYPE_MAP, PLATFORM_MAP } from '@/components/content/types';
 import { ContentPlannerCalendar } from '@/components/content/ContentPlannerCalendar';
@@ -61,6 +62,7 @@ export default function ContentPlannerPage() {
 
   const delPlanMut = useDeleteContentPlan();
   const updateItemDateMut = useUpdatePlanItemDate();
+  const { run: runResearch } = useResearchRun();
 
   const gwModelName = gwSettings?.content_text_model_name ?? gwSettings?.model_name;
 
@@ -165,17 +167,14 @@ export default function ContentPlannerPage() {
     }
     toast({ title: 'AI กำลังเขียนบทความ...', description: 'โปรดรอสักครู่ (อาจใช้เวลา 30-60 วินาที)' });
     try {
-      const res = await apiFetch('/brand-content.php?action=generate-article', {
-        method: 'POST',
-        body: JSON.stringify({ item_id: item.id }),
-      });
+      await runResearch({ topic: data.topic, itemId: item.id });
       qc.invalidateQueries({ queryKey: ['content', 'plans'] });
       qc.invalidateQueries({ queryKey: ['content', 'items'] });
       toast({ title: 'AI เขียนบทความสำเร็จ!', description: 'ไปที่หน้า "บทความทั้งหมด" เพื่อดูผลลัพธ์' });
     } catch (e: any) {
       toast({ title: 'สร้างบทความไม่สำเร็จ', description: e.message, variant: 'destructive' });
     }
-  }, [editingItem, qc, toast]);
+  }, [editingItem, qc, toast, runResearch]);
 
   const handleGenerateImage = useCallback(async (itemId: string, imageBrief: string) => {
     setGeneratingImage(true);

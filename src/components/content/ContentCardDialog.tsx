@@ -19,6 +19,8 @@ import { apiFetch } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
 import { useContentGlobalSettings } from '@/hooks/useContent';
+import { useResearchRun, RESEARCH_STEP_LABELS } from '@/hooks/useResearchRun';
+import { Switch } from '@/components/ui/switch';
 import ArticleEditor from '@/components/content/ArticleEditor';
 import ImageViewer from '@/components/content/ImageViewer';
 import type { SeoFields } from '@/components/content/types';
@@ -77,6 +79,8 @@ export function ContentCardDialog({
   const [imageBrief, setImageBrief] = useState('');
   const [scheduledDate, setScheduledDate] = useState('');
   const [aiGenerating, setAiGenerating] = useState(false);
+  const [researchEnabled, setResearchEnabled] = useState(false);
+  const { run: runResearch, step: researchStep } = useResearchRun();
   const [articleHtml, setArticleHtml] = useState('');
   const [seoFields, setSeoFields] = useState<SeoFields>(emptySeoFields());
   const [saving, setSaving] = useState(false);
@@ -262,10 +266,12 @@ export function ContentCardDialog({
     setAiGenerating(true);
     toast({ title: 'AI กำลังเขียนเนื้อหา...', description: 'โปรดรอสักครู่' });
     try {
-      const res: any = await apiFetch('/brand-content.php?action=generate-article', {
-        method: 'POST',
-        body: JSON.stringify({ item_id: existingItem.id, ...(selectedKbId && { kb_article_id: selectedKbId }) }),
-      });
+      const res: any = researchEnabled
+        ? await runResearch({ topic: topic.trim(), itemId: existingItem.id })
+        : await apiFetch('/brand-content.php?action=generate-article', {
+            method: 'POST',
+            body: JSON.stringify({ item_id: existingItem.id, ...(selectedKbId && { kb_article_id: selectedKbId }) }),
+          });
       const art = res?.article;
       if (art) {
         setArticleHtml(art.html || '');
@@ -762,9 +768,19 @@ export function ContentCardDialog({
             </Button>
           )}
           <Button variant="outline" onClick={() => onOpenChange(false)}>ยกเลิก</Button>
+          {existingItem && (
+            <label className="flex items-center gap-2 text-xs text-muted-foreground mr-1">
+              <Switch checked={researchEnabled} onCheckedChange={setResearchEnabled} />
+              Research
+            </label>
+          )}
           <Button variant="outline" className="gap-1.5" onClick={handleAI} disabled={!topic.trim() || aiGenerating}>
             {aiGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-            {aiGenerating ? 'กำลังสร้าง...' : 'AI เขียนให้'}
+            {aiGenerating
+              ? (researchEnabled && researchStep !== 'idle' && researchStep !== 'failed' && researchStep !== 'done'
+                  ? `${RESEARCH_STEP_LABELS[researchStep]}...`
+                  : 'กำลังสร้าง...')
+              : 'AI เขียนให้'}
           </Button>
           <Button onClick={handleSave} disabled={saving || !topic.trim()} className="gap-1.5">
             <Save className="h-3.5 w-3.5" />{saving ? 'กำลังบันทึก...' : 'บันทึก'}
