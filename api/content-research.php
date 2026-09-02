@@ -156,9 +156,12 @@ if ($action === 'test') {
     $body = getRequestBody();
     $settings = research_settings($db, $tenantId);
     $provider = trim((string)($body['provider'] ?? $settings['provider']));
+    if ($provider === 'ai') {
+        jsonResponse(research_test_ai($db));
+    }
+    if ($provider !== 'dataforseo') jsonError('ยังไม่ได้ตั้งค่า provider', 400);
     $login = trim((string)($body['login'] ?? $settings['login']));
     $password = trim((string)($body['password'] ?? '')) ?: $settings['password'];
-    if ($provider !== 'dataforseo') jsonError('ยังไม่ได้ตั้งค่า DataForSEO', 400);
     if ($login === '' || $password === '') jsonError('กรุณาตั้งค่า DataForSEO login และ password', 400);
     try {
         $result = research_test_dataforseo($login, $password);
@@ -174,8 +177,9 @@ if ($action === 'fetch') {
     $seed = trim((string)($body['seed_keyword'] ?? ''));
     if ($seed === '' || strlen($seed) > 255) jsonError('seed keyword ต้องมีความยาว 1-255 ตัวอักษร', 422);
     $settings = research_settings($db, $tenantId);
-    if ($settings['provider'] !== 'dataforseo') jsonError('ยังไม่ได้ตั้งค่า DataForSEO', 400);
-    if ($settings['login'] === '' || $settings['password'] === '') jsonError('กรุณาตั้งค่า DataForSEO login และ password', 400);
+    $provider = $settings['provider'];
+    if ($provider !== 'ai' && $provider !== 'dataforseo') jsonError('ยังไม่ได้ตั้งค่า provider', 400);
+    if ($provider === 'dataforseo' && ($settings['login'] === '' || $settings['password'] === '')) jsonError('กรุณาตั้งค่า DataForSEO login และ password', 400);
     $contentItemId = trim((string)($body['content_item_id'] ?? '')) ?: null;
     if ($contentItemId !== null) {
         $itemStmt = $db->prepare('SELECT id FROM content_items WHERE id=? AND tenant_id=?');
@@ -193,11 +197,17 @@ if ($action === 'fetch') {
     }
     $jobId = generateUUID();
     $insert = $db->prepare("INSERT INTO content_research_jobs (id, tenant_id, content_item_id, seed_keyword, provider, location_code, language_code, status, created_by) VALUES (?,?,?,?,?,?,?,'fetching',?)");
-    $insert->execute([$jobId, $tenantId, $contentItemId, $seed, $settings['provider'], $settings['location_code'], $settings['language_code'], $userId]);
+    $insert->execute([$jobId, $tenantId, $contentItemId, $seed, $provider, $settings['location_code'], $settings['language_code'], $userId]);
     try {
-        $result = research_fetch_dataforseo($settings['login'], $settings['password'], $seed, $settings['location_code'], $settings['language_code']);
-        $rawSerp = json_encode(['normalized' => $result['serp'], 'provider' => $result['raw']['serp']], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        $rawKeywords = json_encode(['provider' => ['suggestions' => $result['raw']['suggestions'], 'volume' => $result['raw']['volume']]], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($provider === 'ai') {
+            $result = research_fetch_ai($db, $seed, $settings['location_code'], $settings['language_code']);
+            $rawSerp = json_encode(['normalized' => $result['serp'], 'provider' => $result['raw']['serp']], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $rawKeywords = json_encode(['provider' => ['ai' => $result['raw']['serp']]], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        } else {
+            $result = research_fetch_dataforseo($settings['login'], $settings['password'], $seed, $settings['location_code'], $settings['language_code']);
+            $rawSerp = json_encode(['normalized' => $result['serp'], 'provider' => $result['raw']['serp']], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $rawKeywords = json_encode(['provider' => ['suggestions' => $result['raw']['suggestions'], 'volume' => $result['raw']['volume']]], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
         $db->beginTransaction();
         $update = $db->prepare("UPDATE content_research_jobs SET status='done', raw_serp=?, raw_keywords=?, cost_usd=?, fetched_at=NOW(), updated_at=NOW() WHERE id=? AND tenant_id=?");
         $update->execute([$rawSerp, $rawKeywords, $result['cost_usd'], $jobId, $tenantId]);
