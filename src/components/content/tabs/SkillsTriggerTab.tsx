@@ -7,6 +7,7 @@ import {
   useSaveContentTrigger, useDeleteContentTrigger,
 } from '@/hooks/useContent';
 import type { ContentSkill, ContentTrigger } from '@/components/content/types';
+import { getTriggerDisplayLabel } from '@/components/content/types';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -569,7 +570,7 @@ export default function SkillsTriggerTab() {
                         <Zap className="h-4 w-4 text-amber-600" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="font-mono text-sm font-semibold text-amber-700 dark:text-amber-400">"{tr.command}"</p>
+                        <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">{getTriggerDisplayLabel(tr.command.replace(/^\"|\"$/g, ''))}</p>
                         {tr.skill_name && (
                           <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
                             <Bot className="h-3 w-3" />→ {tr.skill_name}

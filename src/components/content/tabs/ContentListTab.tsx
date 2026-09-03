@@ -2,7 +2,6 @@ import { Play, FileText, Image, Search, Trash2, Loader2, ImageIcon, Send, Calend
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useState, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
@@ -160,44 +159,66 @@ export default function ContentListTab() {
   return (
     <>
       <div className="space-y-4">
-        {/* Status filter tabs */}
-        <Tabs value={statusFilter} onValueChange={v => setStatusFilter(v as 'all' | 'draft' | 'revision' | 'pending_approval' | 'approved' | 'published')}>
-          <TabsList className="h-auto p-1 flex flex-wrap gap-0.5">
-            <TabsTrigger value="all" className="gap-1.5 text-xs sm:text-sm">
-              <Layers className="h-3.5 w-3.5" />ทั้งหมด<span className="ml-1 text-[10px] px-1.5 py-0 rounded-full bg-muted font-semibold">{statusCounts.all}</span>
-            </TabsTrigger>
-            <TabsTrigger value="draft" className="gap-1.5 text-xs sm:text-sm">
-              <Edit3 className="h-3.5 w-3.5" />ฉบับร่าง<span className="ml-1 text-[10px] px-1.5 py-0 rounded-full bg-muted font-semibold">{statusCounts.draft}</span>
-            </TabsTrigger>
-            <TabsTrigger value="revision" className="gap-1.5 text-xs sm:text-sm">
-              <RotateCcw className="h-3.5 w-3.5" />รอแก้ไข<span className="ml-1 text-[10px] px-1.5 py-0 rounded-full bg-muted font-semibold">{statusCounts.revision}</span>
-            </TabsTrigger>
-            <TabsTrigger value="approved" className="gap-1.5 text-xs sm:text-sm">
-              <Stamp className="h-3.5 w-3.5" />รอเผยแพร่<span className="ml-1 text-[10px] px-1.5 py-0 rounded-full bg-muted font-semibold">{statusCounts.approved}</span>
-            </TabsTrigger>
-            <TabsTrigger value="published" className="gap-1.5 text-xs sm:text-sm">
-              <CheckCircle2 className="h-3.5 w-3.5" />เผยแพร่แล้ว<span className="ml-1 text-[10px] px-1.5 py-0 rounded-full bg-muted font-semibold">{statusCounts.published}</span>
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+        {/* Status filter */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-[11px] text-muted-foreground shrink-0">สถานะ:</span>
+          {([
+            ['all', 'ทั้งหมด', Layers],
+            ['draft', 'ฉบับร่าง', Edit3],
+            ['revision', 'รอแก้ไข', RotateCcw],
+            ['approved', 'รอเผยแพร่', Stamp],
+            ['published', 'เผยแพร่แล้ว', CheckCircle2],
+          ] as const).map(([key, label, Icon]) => {
+            const isActive = statusFilter === key;
+            const count = statusCounts[key];
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setStatusFilter(key)}
+                className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border transition-colors ${
+                  isActive
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'border-border hover:bg-muted'
+                }`}
+              >
+                <Icon className="h-3 w-3" />
+                <span>{label}</span>
+                <span>{count}</span>
+              </button>
+            );
+          })}
+        </div>
 
-        {/* Type filter tabs */}
-        <Tabs value={typeFilter} onValueChange={v => setTypeFilter(v as 'all' | 'article' | 'video' | 'image')}>
-          <TabsList className="h-auto p-1 flex flex-wrap gap-0.5">
-            <TabsTrigger value="all" className="gap-1.5 text-xs sm:text-sm">
-              <Layers className="h-3.5 w-3.5" />ทั้งหมด<span className="ml-1 text-[10px] px-1.5 py-0 rounded-full bg-muted font-semibold">{counts.all}</span>
-            </TabsTrigger>
-            <TabsTrigger value="article" className="gap-1.5 text-xs sm:text-sm">
-              <FileText className="h-3.5 w-3.5" />บทความ<span className="ml-1 text-[10px] px-1.5 py-0 rounded-full bg-muted font-semibold">{counts.article}</span>
-            </TabsTrigger>
-            <TabsTrigger value="video" className="gap-1.5 text-xs sm:text-sm">
-              <Play className="h-3.5 w-3.5" />วีดีโอ<span className="ml-1 text-[10px] px-1.5 py-0 rounded-full bg-muted font-semibold">{counts.video}</span>
-            </TabsTrigger>
-            <TabsTrigger value="image" className="gap-1.5 text-xs sm:text-sm">
-              <Image className="h-3.5 w-3.5" />รูปภาพ<span className="ml-1 text-[10px] px-1.5 py-0 rounded-full bg-muted font-semibold">{counts.image}</span>
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+        {/* Type filter */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-[11px] text-muted-foreground shrink-0">ประเภท:</span>
+          {([
+            ['all', 'ทั้งหมด', Layers],
+            ['article', 'บทความ', FileText],
+            ['video', 'วีดีโอ', Play],
+            ['image', 'รูปภาพ', Image],
+          ] as const).map(([key, label, Icon]) => {
+            const isActive = typeFilter === key;
+            const count = counts[key];
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setTypeFilter(key)}
+                className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border transition-colors ${
+                  isActive
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'border-border hover:bg-muted'
+                }`}
+              >
+                <Icon className="h-3 w-3" />
+                <span>{label}</span>
+                <span>{count}</span>
+              </button>
+            );
+          })}
+        </div>
 
         {/* Platform filter */}
         <div className="flex items-center gap-1.5 flex-wrap">
@@ -233,6 +254,7 @@ export default function ContentListTab() {
                   title={PLATFORM_MAP[key]?.label ?? key}
                 >
                   <PlatformIcon platform={key} size={12} />
+                  <span>{PLATFORM_MAP[key]?.label ?? key}</span>
                   <span>{count}</span>
                 </button>
               );

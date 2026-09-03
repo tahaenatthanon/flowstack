@@ -52,6 +52,20 @@ export interface ContentTrigger {
   is_active: number; created_at: string;
 }
 
+export const TRIGGER_DISPLAY_LABELS: Record<string, string> = {
+  '/write_domino': 'เขียนคอนเทนต์สำหรับ Domino',
+  '/brief_factory_img': 'สร้าง Brief สำหรับภาพ Factory',
+  '/write_duckkit': 'เขียนคอนเทนต์สำหรับ DuckKit',
+  '/write_doctracking': 'เขียนคอนเทนต์สำหรับ DocTracking',
+  '/brief_ai_security_img': 'สร้าง Brief สำหรับภาพ AI Security',
+  '/weekly_plan': 'สร้างแผนคอนเทนต์รายสัปดาห์',
+};
+
+export function getTriggerDisplayLabel(command: string): string {
+  const normalized = command.trim().replace(/^"|"$/g, '');
+  return TRIGGER_DISPLAY_LABELS[normalized] ?? normalized;
+}
+
 export interface ContentPlan {
   id: string; title: string; week_start: string; status: string;
   plan_type?: 'weekly' | 'monthly' | 'quarterly' | 'yearly';

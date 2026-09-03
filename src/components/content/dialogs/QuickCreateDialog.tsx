@@ -6,7 +6,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useContentSkills, useBrandContexts, useContentTriggers } from '@/hooks/useContent';
 import { useResearchRun, RESEARCH_STEP_LABELS } from '@/hooks/useResearchRun';
 import type { ContentPlan } from '@/components/content/types';
-import { PLATFORM_MAP } from '@/components/content/types';
+import { getTriggerDisplayLabel, PLATFORM_MAP } from '@/components/content/types';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -188,7 +188,7 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
                     <button key={tr.id} type="button"
                       onClick={() => { setTopic(tr.command); if (tr.skill_id) setSelSkillId(tr.skill_id); }}
                       className="text-[11px] px-2 py-1 rounded border hover:bg-muted font-mono flex items-center gap-1">
-                      <Zap className="h-3 w-3 text-amber-500" />"{tr.command}"
+                      <Zap className="h-3 w-3 text-amber-500" />{getTriggerDisplayLabel(tr.command)}
                     </button>
                   ))}
                 </div>
