@@ -5,17 +5,16 @@
 ## Requirements
 
 ### Requirement: กฎ SEO ใน prompt มาจาก source of truth เดียวกับ seo_evaluate
-ระบบ SHALL มีฟังก์ชัน `seo_generation_requirements(string $type): array` ใน `api/lib/seo-checklist.php` ที่คืนรายการข้อกำหนดภาษาไทยสำหรับฉีดเข้า AI prompt โดยอ่าน threshold เดียวกับ `seo_evaluate()` (ผ่าน named constants) และ SHALL ใช้ข้อกำหนดนี้แทนกฎ SEO ที่ hardcode ไว้เดิมใน `generate-article`
+ระบบ SHALL มีฟังก์ชัน `seo_generation_requirements(string $type): array` ใน `api/lib/seo-checklist.php` ที่คืนข้อกำหนดภาษาไทยที่ AI ต้องปฏิบัติตามครบ (generation contract) โดยแต่ละข้อระบุ `key`, `tier`, `requirement` (สิ่งที่ต้องมี), `min`/`max` (ค่าเกณฑ์), และ `pass_condition` (เงื่อนไขที่ถือว่าผ่าน) โดยอ่าน threshold เดียวกับ `seo_evaluate()` (ผ่าน named constants) และ SHALL ใช้ข้อกำหนดนี้แทนกฎ SEO ที่ hardcode ไว้เดิมใน `generate-article`
 
 #### Scenario: prompt บทความมีข้อกำหนดครบชุด
 - **WHEN** `seo_generation_requirements('article')` ถูกเรียก
-- **THEN** ผลลัพธ์มีข้อกำหนดครอบคลุมอย่างน้อย seo_title (1–60), meta_description (120–160), slug (lowercase + ขีด), H2 อย่างน้อย 1, h1 ไม่เกิน 1, จำนวนคำ ≥ 500, คีย์เวิร์ดใน title/ย่อหน้าแรก/หัวข้อ, structured_data (@context/@type), และ internal_link
+- **THEN** ผลลัพธ์แต่ละข้อมี `key`, `tier`, `requirement` และ `pass_condition` (และ `min`/`max` เมื่อเกี่ยวข้อง)
 - **AND** ข้อกำหนดภาษาไทยอ้างอิงค่า threshold เดียวกับที่ `seo_evaluate()` ใช้ตรวจ
 
-#### Scenario: prompt วิดีโอไม่บังคับโครงสร้างบทความ
-- **WHEN** `seo_generation_requirements('video')` ถูกเรียก
-- **THEN** ผลลัพธ์ไม่บังคับ H2, จำนวนคำ, และ internal_link
-- **AND** ผลลัพธ์บังคับ hashtag อย่างน้อย 1 รายการ
+#### Scenario: requirement กับ evaluator ใช้เกณฑ์เดียวกัน
+- **WHEN** rule `content_length` มี `min = 500` ใน requirements
+- **THEN** `seo_evaluate()` ตรวจ `content_length` ด้วย threshold 500 เดียวกัน
 
 #### Scenario: ใช้ข้อกำหนดร่วมแทนการ hardcode
 - **WHEN** `generate-article` สร้าง system prompt สำหรับบทความ
@@ -32,17 +31,17 @@
 - **WHEN** รายการมี `type = 'video'`
 - **THEN** ระบบส่ง `type = 'video'` ให้ `seo_evaluate()` เพื่อเลือก ruleset วิดีโอ
 
-### Requirement: สร้างใหม่พร้อม feedback จนกว่า SEO Quality Gate ผ่าน
-เมื่อผล `seo_evaluate()` มี gate status ไม่ใช่ `passed` (มีกฎ `failed`/`needs_improvement` หรือ critical rule ล้ม) ระบบ SHALL สร้างเนื้อหาใหม่อีกครั้งโดยเพิ่ม feedback (ข้อความภาษาไทยของกฎที่ติด เรียงตามน้ำหนักมากไปน้อย) เข้าในคำขอ AI และ SHALL ประเมินใหม่ครบทั้ง 15 ข้อทุกครั้ง แล้วทำซ้ำจน gate status เป็น `passed` หรือถึงเพดานที่กำหนด
+### Requirement: สร้างใหม่พร้อม feedback จนกว่า Required Rules ผ่าน
+เมื่อผล `seo_evaluate()` มี required rule ที่ `failed` ระบบ SHALL ส่ง feedback (รายละเอียดของ rule ที่ไม่ผ่าน เรียงตามน้ำหนัก) กลับให้ AI repair แล้ว SHALL ประเมินใหม่ครบทั้ง 15 ข้อทุกครั้ง และทำซ้ำจนกว่า required rules ผ่าน (gate `passed`) หรือถึงจำนวน attempt สูงสุด
 
-#### Scenario: meta_description นอกช่วงถูกสร้างใหม่
-- **WHEN** ผลประเมินมีกฎ `meta_description` เป็น `failed`
-- **THEN** ระบบสร้างเนื้อหาใหม่อีกครั้งพร้อม feedback ที่ระบุว่าคำอธิบาย meta ต้องยาว 120–160 ตัวอักษร
+#### Scenario: required rule ล้มถูก repair
+- **WHEN** ผลประเมินมี required rule `structured_data` เป็น `failed`
+- **THEN** ระบบส่ง feedback ระบุ structured_data ต้องมี @context และ @type ให้ AI repair
 - **AND** รอบถัดไปประเมินใหม่ครบทั้ง 15 ข้อ
 
-#### Scenario: critical rule ล้มถูกสร้างใหม่แม้คะแนนถึงเกณฑ์
-- **WHEN** คะแนน ≥ 90 แต่ critical rule `structured_data` เป็น `failed`
-- **THEN** ระบบสร้างใหม่อีกครั้งพร้อม feedback ระบุ structured_data ต้องมี @context และ @type
+#### Scenario: optional rule ไม่กระตุ้น repair
+- **WHEN** ผลประเมินมี optional rule `internal_linking` เป็น `needs_improvement` แต่ไม่มี required rule `failed`
+- **THEN** ระบบไม่ถือว่า generation ล้มเหลวเพียงเพราะ optional rule (เตือนเท่านั้น)
 
 ### Requirement: pending ไม่กระตุ้นการสร้างใหม่
 กฎ `pending` SHALL ไม่กระตุ้นการสร้างเนื้อหาใหม่ และ SHALL ไม่ถูกนับเป็นเหตุให้ `seo_passed = false` ส่วน `needs_improvement` และ `failed` SHALL กระตุ้นการสร้างใหม่เมื่อ gate status ยังไม่ใช่ `passed`
@@ -90,6 +89,13 @@
 #### Scenario: มี research ใช้ keyword จาก research
 - **WHEN** generate-article ถูกเรียกพร้อม research_job_id
 - **THEN** `content_items.meta_keywords` ใช้ keywords จาก research เป็น override (ตามพฤติกรรมเดิม)
+
+### Requirement: Model ไม่ใช่ตัวรับประกัน SEO
+ระบบ SHALL ให้ผู้ใช้เปลี่ยน model ตาม AI Settings ได้ แต่ gate SHALL ตัดสินโดย Evaluator ของระบบเท่านั้น — การเปลี่ยน model SHALL ไม่ถือเป็นการรับประกันว่า content ผ่าน SEO
+
+#### Scenario: เปลี่ยน model ไม่กระทบ gate
+- **WHEN** ผู้ใช้เปลี่ยน writing model ใน AI Settings
+- **THEN** เกณฑ์ gate และการตรวจของ Evaluator ยังคงเหมือนเดิม และ model มีหน้าที่เพียง generate/repair content ตาม requirements
 
 ### Requirement: "ตรวจ SEO ใหม่" ตรวจด้วยกฎ 15 ข้อชุดเดียวกับ Generation
 ปุ่ม/ฟังก์ชัน "ตรวจ SEO ใหม่" SHALL เรียกใช้ SEO Evaluator ชุดเดียวกับ Generation (ครบ 15 ข้อ) และ SHALL เป็น re-check อย่างเดียวโดยไม่เปลี่ยน content อัตโนมัติ

@@ -30,19 +30,39 @@ check(empty(array_diff(array_keys(SEO_WEIGHTS), $articleKeys)), 'all 15 keys pre
 
 echo "== 2. rule object shape ==\n";
 $first = $article['rules'][0];
-foreach (['key', 'level', 'status', 'weight', 'score', 'critical', 'message'] as $field) {
+foreach (['key', 'level', 'status', 'tier', 'weight', 'score', 'critical', 'message'] as $field) {
     check(array_key_exists($field, $first), "rule has field '{$field}'");
 }
+check($first['tier'] !== null && $first['tier'] !== '', 'rule has non-empty tier');
 
 echo "== 3. normalized score ==\n";
 check($article['score'] >= 0 && $article['score'] <= 100, 'score in 0..100 (got ' . $article['score'] . ')');
 
-echo "== 4. research rules pending without brief ==\n";
+echo "== 4. research rules n/a without brief ==\n";
 $researchKeys = ['search_intent', 'related_keywords', 'topic_coverage', 'paa_questions', 'content_gap'];
 foreach ($article['rules'] as $r) {
     if (in_array($r['key'], $researchKeys, true)) {
-        check($r['status'] === 'pending', $r['key'] . ' is pending without brief (got ' . $r['status'] . ')');
+        check($r['status'] === 'n/a', $r['key'] . ' is n/a without brief (got ' . $r['status'] . ')');
     }
+}
+
+echo "== 4b. required data missing => failed ==\n";
+$missing = seo_evaluate([
+    'type' => 'article',
+    'title' => '',
+    'seo_title' => '',
+    'slug' => '',
+    'meta_description' => '',
+    'meta_keywords' => '',
+    'structured_data' => '',
+    'article_content' => ['html' => ''],
+]);
+foreach ($missing['rules'] as $r) {
+    if ($r['key'] === 'seo_title') check($r['status'] === 'failed', 'seo_title empty => failed (got ' . $r['status'] . ')');
+    if ($r['key'] === 'meta_description') check($r['status'] === 'failed', 'meta_description empty => failed (got ' . $r['status'] . ')');
+    if ($r['key'] === 'slug') check($r['status'] === 'failed', 'slug empty => failed (got ' . $r['status'] . ')');
+    if ($r['key'] === 'structured_data') check($r['status'] === 'failed', 'structured_data empty => failed (got ' . $r['status'] . ')');
+    if ($r['key'] === 'primary_keyword_placement') check($r['status'] === 'failed', 'no primary keyword => failed (got ' . $r['status'] . ')');
 }
 
 echo "== 5. gate status thresholds ==\n";
@@ -134,5 +154,23 @@ $informational = seo_evaluate([
 $si = null;
 foreach ($informational['rules'] as $r) if ($r['key'] === 'search_intent') $si = $r;
 check($si !== null && $si['status'] === 'passed', 'informational intent matches => passed (got ' . ($si['status'] ?? '?') . ')');
+
+echo "== 10. gate ตัดสินจาก required rules (ไม่ใช่ score) ==\n";
+check(seo_gate_status([
+    'score' => 95,
+    'rules' => [['key' => 'structured_data', 'status' => 'failed', 'tier' => 'required']],
+]) === 'failed', 'required failed => failed even at score 95');
+check(seo_gate_status([
+    'score' => 95,
+    'rules' => [['key' => 'internal_linking', 'status' => 'needs_improvement', 'tier' => 'optional']],
+]) === 'passed', 'optional needs_improvement => not failed');
+
+echo "== 11. generation requirements is a contract (has pass_condition) ==\n";
+$reqs = seo_generation_requirements('article');
+foreach ($reqs as $req) {
+    check(array_key_exists('key', $req), 'req has key');
+    check(array_key_exists('tier', $req), 'req ' . $req['key'] . ' has tier');
+    check(array_key_exists('pass_condition', $req), 'req ' . $req['key'] . ' has pass_condition');
+}
 
 fwrite(STDOUT, "\nAll SEO quality gate tests passed.\n");

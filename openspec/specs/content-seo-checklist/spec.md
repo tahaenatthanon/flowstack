@@ -7,17 +7,17 @@
 ## Requirements
 
 ### Requirement: seo_evaluate เป็นฟังก์ชันบริสุทธิ์ที่คืนคะแนนและกฎ
-ระบบ SHALL มีฟังก์ชัน `seo_evaluate(array $item): array` ใน `api/lib/seo-checklist.php` ที่ไม่พึ่ง I/O ภายนอก และคืนผลลัพธ์รูป `['score' => int, 'rules' => array<array{key:string, level:string, status:string, weight:int, score:int, message:string}>]` โดยรับชนิดคอนเทนต์จาก `$item['type']` และใช้เลือก ruleset โดย `score` (รวม) คำนวณแบบ weighted จากน้ำหนักจริงของแต่ละกฎ (0–100) แทน penalty คงที่
+ระบบ SHALL มีฟังก์ชัน `seo_evaluate(array $item): array` ใน `api/lib/seo-checklist.php` ที่ไม่พึ่ง I/O ภายนอก และคืนผลลัพธ์รูป `['score' => int, 'rules' => array<array{key:string, level:string, status:string, tier:string, weight:int, score:int, critical:bool, message:string}>]` โดยรับชนิดคอนเทนต์จาก `$item['type']` และใช้เลือก ruleset โดย `score` (รวม) คำนวณแบบ weighted (0–100)
 
-#### Scenario: ผลลัพธ์มี score และ rules พร้อมน้ำหนัก
+#### Scenario: ผลลัพธ์มี score และ rules พร้อม tier
 - **WHEN** `seo_evaluate()` ถูกเรียกด้วย array ของฟิลด์คอนเทนต์
 - **THEN** ผลลัพธ์มีคีย์ `score` (จำนวนเต็ม 0–100) และ `rules` (array ของ rule object)
-- **AND** แต่ละ rule object มี `key`, `level`, `status`, `weight`, `score`, `critical`, และ `message`
-- **AND** `status` มีค่าใน `passed`, `needs_improvement`, `failed`, `pending` หรือ `skip`
-- **AND** `level` (alias) มีค่าใน `pass`, `warn`, `fail`, `pending` หรือ `skip`
+- **AND** แต่ละ rule object มี `key`, `level`, `status`, `tier`, `weight`, `score`, `critical`, และ `message`
+- **AND** `tier` มีค่าใน `required`, `optional` หรือ `informational`
+- **AND** `status` มีค่าใน `passed`, `needs_improvement`, `failed`, `n/a`, `pending` หรือ `skip`
 
 #### Scenario: คะแนนรวมสะท้อนน้ำหนักจริง
-- **WHEN** กฎที่มีน้ำหนักสูง (เช่น primary_keyword_placement = 10) เป็น `failed`
+- **WHEN** กฎที่มีน้ำหนักสูง (เช่น primary_keyword_placement = 8) เป็น `failed`
 - **THEN** คะแนนรวมลดลงตามน้ำหนักของกฎนั้น ไม่ใช่ค่าคงที่เท่ากันทุกกฎ
 
 #### Scenario: คะแนนรายข้ออยู่ในช่วง 0 ถึงน้ำหนัก
@@ -27,6 +27,34 @@
 #### Scenario: ไม่ระบุชนิดให้ใช้ article เป็นค่าเริ่มต้น
 - **WHEN** `seo_evaluate()` ถูกเรียกโดยไม่มี `type`
 - **THEN** ระบบใช้ ruleset ของ article เพื่อรักษาความเข้ากันได้กับผู้เรียกเดิม
+
+### Requirement: Required rule ที่ข้อมูลจำเป็นหายไปต้องเป็น failed
+Required rule ที่ข้อมูลจำเป็นหายไป (เช่น `seo_title` ว่าง, `meta_description` ว่าง, `structured_data` ว่าง, `primary_keyword_placement` ไม่มี keyword, `content_length`/`heading_structure` ไม่มีเนื้อหา) SHALL มี `status = 'failed'` และ SHALL ไม่ใช้ `pending` เพื่อเลี่ยงการ block
+
+#### Scenario: structured_data ว่างเป็น failed
+- **WHEN** content เป็น article และ `structured_data` ว่าง
+- **THEN** กฎ `structured_data` มี `status = 'failed'` (ไม่ใช่ `pending`)
+
+#### Scenario: seo_title ว่างเป็น failed
+- **WHEN** content เป็น article และ `seo_title` ว่าง
+- **THEN** กฎ `seo_title` มี `status = 'failed'`
+
+#### Scenario: ไม่มี primary keyword เป็น failed
+- **WHEN** content เป็น article และไม่มี primary keyword (meta_keywords ว่าง)
+- **THEN** กฎ `primary_keyword_placement` มี `status = 'failed'`
+
+### Requirement: Research rules เป็น n/a เมื่อปิด research และตรวจจริงเมื่อเปิด
+Research rules (`search_intent`, `related_keywords`, `topic_coverage`, `paa_questions`, `content_gap`) SHALL มี `status = 'n/a'` (not applicable, ไม่นับเป็น failure) เมื่อไม่ใช้ research และ SHALL ถูกตรวจกับข้อมูล research จริง (ไม่ใช่ `pending`) เมื่อใช้ research
+
+#### Scenario: ปิด research เป็น n/a
+- **WHEN** content ถูกสร้างโดยไม่ใช้ research
+- **THEN** กฎ research ทั้ง 5 ข้อมี `status = 'n/a'`
+- **AND** กฎ `n/a` ไม่ถูกนับเป็น failure และไม่หักคะแนน
+
+#### Scenario: เปิด research แล้วตรวจจริง
+- **WHEN** content ถูกสร้างโดยใช้ research และ brief มีข้อมูลครบ
+- **THEN** กฎ research ทั้ง 5 ข้อถูกประเมินกับข้อมูล research จริง (passed/needs_improvement/failed)
+- **AND** ไม่มี rule ใดใช้ `pending` เพื่อหลีกเลี่ยงการตรวจ
 
 ### Requirement: กฎ SEO ครบชุด 15 ข้อ น้ำหนักรวม 100 ไม่ Skip ตาม Content Type
 ระบบ SHALL ประเมินกฎ SEO ครบ 15 ข้อดังนี้ โดย `status` เป็น `failed` เมื่อละเมิดเกณฑ์, `passed` เมื่อผ่าน, `needs_improvement` เมื่อผ่านบางส่วน/ควรปรับปรุง, `pending` เมื่อข้อมูลที่ต้องใช้ยังว่าง (เช่น ไม่มี research brief หรือ video ไม่มี source นั้น) และ SHALL ไม่ตั้งกฎใดเป็น `skip` เพียงเพราะเป็น Article หรือ Video — ทุก content type ต้องมีผลตรวจครบทั้ง 15 ข้อ โดยใช้วิธีวัดผลต่างกันตามลักษณะ content

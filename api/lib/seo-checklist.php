@@ -37,22 +37,24 @@ const SEO_GAP_MIN      = 0.5; // content_gap: ≥0.5 passed, =0 failed
 
 // Weight catalog for the 15-rule SEO checklist. Total weight = 100.
 // `critical` rules block the publish gate even when total score meets threshold.
+// `tier` กำหนดว่า rule ใด block generation: required (ไม่ผ่าน → generation ล้ม),
+// optional (เตือนเท่านั้น), informational (แสดงคุณภาพเท่านั้น).
 const SEO_WEIGHTS = [
-    'seo_title'                 => ['weight' => 8,  'critical' => true],
-    'meta_description'          => ['weight' => 8,  'critical' => true],
-    'slug'                      => ['weight' => 6,  'critical' => false],
-    'h1'                        => ['weight' => 6,  'critical' => true],
-    'heading_structure'         => ['weight' => 7,  'critical' => false],
-    'content_length'            => ['weight' => 8,  'critical' => true],
-    'search_intent'             => ['weight' => 8,  'critical' => false],
-    'primary_keyword_placement' => ['weight' => 8,  'critical' => true],
-    'keyword_stuffing'          => ['weight' => 7,  'critical' => false],
-    'related_keywords'          => ['weight' => 6,  'critical' => false],
-    'topic_coverage'            => ['weight' => 8,  'critical' => false],
-    'paa_questions'             => ['weight' => 6,  'critical' => false],
-    'content_gap'               => ['weight' => 6,  'critical' => false],
-    'structured_data'           => ['weight' => 5,  'critical' => true],
-    'internal_linking'          => ['weight' => 3,  'critical' => false],
+    'seo_title'                 => ['weight' => 8,  'critical' => true,  'tier' => 'required'],
+    'meta_description'          => ['weight' => 8,  'critical' => true,  'tier' => 'required'],
+    'slug'                      => ['weight' => 6,  'critical' => false, 'tier' => 'required'],
+    'h1'                        => ['weight' => 6,  'critical' => true,  'tier' => 'required'],
+    'heading_structure'         => ['weight' => 7,  'critical' => false, 'tier' => 'required'],
+    'content_length'            => ['weight' => 8,  'critical' => true,  'tier' => 'required'],
+    'search_intent'             => ['weight' => 8,  'critical' => false, 'tier' => 'required'],
+    'primary_keyword_placement' => ['weight' => 8,  'critical' => true,  'tier' => 'required'],
+    'keyword_stuffing'          => ['weight' => 7,  'critical' => false, 'tier' => 'required'],
+    'related_keywords'          => ['weight' => 6,  'critical' => false, 'tier' => 'required'],
+    'topic_coverage'            => ['weight' => 8,  'critical' => false, 'tier' => 'required'],
+    'paa_questions'             => ['weight' => 6,  'critical' => false, 'tier' => 'required'],
+    'content_gap'               => ['weight' => 6,  'critical' => false, 'tier' => 'required'],
+    'structured_data'           => ['weight' => 5,  'critical' => true,  'tier' => 'required'],
+    'internal_linking'          => ['weight' => 3,  'critical' => false, 'tier' => 'optional'],
 ];
 
 // Video-only rule (not part of the 15-article weight sum).
@@ -64,23 +66,25 @@ const SEO_CRITICAL_RULES = ['seo_title', 'meta_description', 'h1', 'content_leng
 /**
  * สร้าง rule object ด้วยโครงสร้างผลลัพธ์ใหม่ (additive: level ยังคงอยู่เป็น alias)
  *
- * @return array{key:string, level:string, status:string, weight:int, score:int, critical:bool, message:string}
+ * @return array{key:string, level:string, status:string, tier:string, weight:int, score:int, critical:bool, message:string}
  */
 function seo_make_rule(string $key, string $status, string $message, ?int $weightOverride = null): array {
     $meta     = SEO_WEIGHTS[$key] ?? null;
     $weight   = $weightOverride ?? ($meta['weight'] ?? 0);
     $critical = ($meta['critical'] ?? false) || in_array($key, SEO_CRITICAL_RULES, true);
-    $levelMap = ['passed' => 'pass', 'needs_improvement' => 'warn', 'failed' => 'fail', 'pending' => 'pending', 'skip' => 'skip'];
+    $tier     = $meta['tier'] ?? 'required';
+    $levelMap = ['passed' => 'pass', 'needs_improvement' => 'warn', 'failed' => 'fail', 'n/a' => 'skip', 'pending' => 'pending', 'skip' => 'skip'];
     $level    = $levelMap[$status] ?? 'pending';
     $score    = match ($status) {
         'passed'            => $weight,
         'needs_improvement' => (int) round($weight / 2),
-        default             => 0, // failed / pending / skip
+        default             => 0, // failed / n/a / pending / skip
     };
     return [
         'key'      => $key,
         'level'    => $level,
         'status'   => $status,
+        'tier'     => $tier,
         'weight'   => $weight,
         'score'    => $score,
         'critical' => $critical,
@@ -89,14 +93,14 @@ function seo_make_rule(string $key, string $status, string $message, ?int $weigh
 }
 
 /**
- * คำนวณคะแนนรวมแบบ normalized: ตัด pending/skip ออกจากทั้งเศษและส่วน แล้ว normalize กลับเป็น 100
+ * คำนวณคะแนนรวมแบบ normalized: ตัด pending/n/a/skip ออกจากทั้งเศษและส่วน แล้ว normalize กลับเป็น 100
  */
 function seo_normalized_score(array $rules): int {
     $earned = 0;
     $possible = 0;
     foreach ($rules as $r) {
         $status = $r['status'] ?? $r['level'] ?? 'skip';
-        if ($status === 'pending' || $status === 'skip') continue;
+        if (in_array($status, ['pending', 'n/a', 'skip'], true)) continue;
         $earned   += (int)($r['score'] ?? 0);
         $possible += (int)($r['weight'] ?? 0);
     }
@@ -105,7 +109,7 @@ function seo_normalized_score(array $rules): int {
 }
 
 /**
- * กำหนดสถานะ SEO Quality Gate จากคะแนนรวม + critical rules
+ * กำหนดสถานะ SEO Generation Gate จาก required rules + คะแนนรวม
  *
  * @param array $eval ผลลัพธ์จาก seo_evaluate() รูป ['score' => int, 'rules' => array]
  * @return string 'passed' | 'needs_improvement' | 'failed'
@@ -115,6 +119,10 @@ function seo_gate_status(array $eval): string {
     $rules = $eval['rules'] ?? [];
     foreach ($rules as $r) {
         $status = $r['status'] ?? $r['level'] ?? '';
+        $tier   = $r['tier'] ?? 'required';
+        // required rule ที่ failed → gate failed (ไม่ว่า score สูงแค่ไหน)
+        if ($tier === 'required' && $status === 'failed') return 'failed';
+        // กันถอยหลัง: critical flag เดิมที่ failed → failed
         if (!empty($r['critical']) && $status === 'failed') return 'failed';
     }
     if ($score < SEO_GATE_WARN_SCORE) return 'failed';
@@ -212,30 +220,102 @@ function seo_intent_match(string $text, string $intent): array {
 }
 
 /**
- * Return generation requirements derived from the same thresholds/rules used by
- * seo_evaluate(). This keeps the AI prompt and evaluator in sync.
+ * Return generation requirements (generation contract) derived from the same
+ * thresholds/rules used by seo_evaluate(). This keeps the AI prompt and evaluator in sync.
  *
- * @return array<int,array{key:string,requirement:string}>
+ * @return array<int,array{key:string,tier:string,requirement:string,min?:int|float,max?:int|float,pass_condition:string}>
  */
 function seo_generation_requirements(string $type): array {
     $isVideo = strtolower(trim($type)) === 'video';
 
-    $text = [
-        'seo_title'                 => "SEO title ต้องไม่เกิน " . SEO_TITLE_MAX . " ตัวอักษร",
-        'meta_description'          => "meta description ต้องยาว " . META_DESC_MIN . "–" . META_DESC_MAX . " ตัวอักษร",
-        'slug'                      => 'slug ต้องเป็นตัวพิมพ์เล็ก ใช้เฉพาะ a-z, 0-9 และขีด (-) และห้ามมีขีดติดกัน/ขึ้นต้น/ลงท้าย',
-        'h1'                        => 'ห้ามใส่ H1 ซ้ำเกิน 1 ตัวในเนื้อหา (สงวนให้ชื่อบทความ)',
-        'heading_structure'         => 'ต้องมีหัวข้อ H2 อย่างน้อย ' . H2_MIN . ' หัวข้อ และจัดลำดับ H2/H3 อย่างเป็นเหตุเป็นผล',
-        'content_length'            => 'เนื้อหาต้องมีอย่างน้อย ' . WORD_COUNT_MIN . ' คำตามตัวนับของระบบ',
-        'search_intent'             => 'เนื้อหาต้องสอดคล้องกับ search intent จาก research brief (เมื่อมี)',
-        'primary_keyword_placement' => 'ใส่คีย์เวิร์ดหลักใน title, ย่อหน้าแรก และหัวข้อ อย่างเป็นธรรมชาติ',
-        'keyword_stuffing'          => 'อย่าใส่คีย์เวิร์ดหนาแน่นเกิน (keyword stuffing) — ใช้อย่างเป็นธรรมชาติ ไม่เกิน ' . (int)(SEO_KEYWORD_DENSITY_MAX * 100) . '% ของจำนวนคำ',
-        'related_keywords'          => 'ใส่คีย์เวิร์ดรองจาก research ให้ครบถ้วน (เมื่อมี)',
-        'topic_coverage'            => 'ครอบคลุมหัวข้อตาม outline จาก research (เมื่อมี)',
-        'paa_questions'             => 'ตอบคำถาม People Also Ask จาก research (เมื่อมี)',
-        'content_gap'               => 'เติมช่องว่างเนื้อหา (content gaps) จาก research (เมื่อมี)',
-        'structured_data'           => 'structured data ต้องเป็น JSON ที่ถูกต้องและมี @context กับ @type',
-        'internal_linking'          => 'ใส่ internal link อย่างน้อย 1 ลิงก์ (เป็นคำแนะนำ ไม่ใช่ fail)',
+    $contract = [
+        'seo_title'                 => [
+            'tier' => 'required',
+            'requirement' => "เขียน SEO title กระชับ",
+            'max' => SEO_TITLE_MAX,
+            'pass_condition' => "SEO title ไม่ว่างและยาวไม่เกิน " . SEO_TITLE_MAX . " ตัวอักษร",
+        ],
+        'meta_description'          => [
+            'tier' => 'required',
+            'requirement' => "เขียนคำอธิบาย meta",
+            'min' => META_DESC_MIN,
+            'max' => META_DESC_MAX,
+            'pass_condition' => "ยาว " . META_DESC_MIN . "–" . META_DESC_MAX . " ตัวอักษร",
+        ],
+        'slug'                      => [
+            'tier' => 'required',
+            'requirement' => "กำหนด slug ตัวพิมพ์เล็ก คั่นด้วยขีด (a-z, 0-9, -)",
+            'pass_condition' => "slug ไม่ว่างและตรง pattern ^[a-z0-9]+(-[a-z0-9]+)*$",
+        ],
+        'h1'                        => [
+            'tier' => 'required',
+            'requirement' => "ห้ามใส่ H1 ซ้ำเกิน 1 ตัวในเนื้อหา (สงวนให้ชื่อบทความ)",
+            'max' => H1_MAX,
+            'pass_condition' => "มี H1 ไม่เกิน " . H1_MAX . " ตัว",
+        ],
+        'heading_structure'         => [
+            'tier' => 'required',
+            'requirement' => "ใช้หัวข้อ H2/H3 อย่างเป็นเหตุเป็นผล",
+            'min' => H2_MIN,
+            'pass_condition' => "มี H2 อย่างน้อย " . H2_MIN . " หัวข้อ",
+        ],
+        'content_length'            => [
+            'tier' => 'required',
+            'requirement' => "เขียนเนื้อหาให้มีความยาวเพียงพอ",
+            'min' => WORD_COUNT_MIN,
+            'pass_condition' => "เนื้อหามีอย่างน้อย " . WORD_COUNT_MIN . " คำตามตัวนับของระบบ",
+        ],
+        'search_intent'             => [
+            'tier' => 'required',
+            'requirement' => "เขียนเนื้อหาให้สอดคล้องกับ search intent จาก research brief (เมื่อมี)",
+            'pass_condition' => "content สอดคล้องกับ intent (signal terms ตรง) หรือ n/a เมื่อไม่มี research",
+        ],
+        'primary_keyword_placement' => [
+            'tier' => 'required',
+            'requirement' => "ใส่คีย์เวิร์ดหลักใน title, ย่อหน้าแรก และหัวข้อ อย่างเป็นธรรมชาติ",
+            'pass_condition' => "คีย์เวิร์ดหลักปรากฏในตำแหน่งสำคัญครบถ้วน",
+        ],
+        'keyword_stuffing'          => [
+            'tier' => 'required',
+            'requirement' => "ใช้คีย์เวิร์ดอย่างเป็นธรรมชาติ ไม่หนาแน่นเกิน",
+            'max' => SEO_KEYWORD_DENSITY_MAX,
+            'pass_condition' => "ความหนาแน่นคีย์เวิร์ดไม่เกิน " . (int)(SEO_KEYWORD_DENSITY_MAX * 100) . "% ของจำนวนคำ",
+        ],
+        'related_keywords'          => [
+            'tier' => 'required',
+            'requirement' => "ใส่คีย์เวิร์ดรองจาก research ให้ครบตามเกณฑ์",
+            'min' => SEO_RELATED_MIN,
+            'pass_condition' => "ครอบคลุม secondary keywords ≥ " . (int)(SEO_RELATED_MIN * 100) . "% (n/a เมื่อไม่มี research)",
+        ],
+        'topic_coverage'            => [
+            'tier' => 'required',
+            'requirement' => "ครอบคลุมหัวข้อตาม outline จาก research",
+            'min' => SEO_TOPIC_MIN,
+            'pass_condition' => "ครอบคลุม outline ≥ " . (int)(SEO_TOPIC_MIN * 100) . "% (n/a เมื่อไม่มี research)",
+        ],
+        'paa_questions'             => [
+            'tier' => 'required',
+            'requirement' => "ตอบคำถาม People Also Ask จาก research",
+            'min' => SEO_PAA_MIN,
+            'pass_condition' => "ตอบคำถาม PAA ≥ " . (int)(SEO_PAA_MIN * 100) . "% (n/a เมื่อไม่มี research)",
+        ],
+        'content_gap'               => [
+            'tier' => 'required',
+            'requirement' => "เติมช่องว่างเนื้อหา (content gaps) จาก research",
+            'min' => SEO_GAP_MIN,
+            'pass_condition' => "เติม content gaps ≥ " . (int)(SEO_GAP_MIN * 100) . "% (n/a เมื่อไม่มี research)",
+        ],
+        'structured_data'           => [
+            'tier' => 'required',
+            'requirement' => "ใส่ structured data เป็น JSON ที่ถูกต้อง",
+            'pass_condition' => "structured data มี @context และ @type",
+        ],
+        'internal_linking'          => [
+            'tier' => 'optional',
+            'requirement' => "ใส่ internal link อย่างน้อย 1 ลิงก์ (คำแนะนำ)",
+            'min' => 1,
+            'pass_condition' => "มี internal link ≥ 1 (optional ไม่ block)",
+        ],
     ];
 
     // เรียงตามน้ำหนักมาก → น้อย
@@ -244,10 +324,18 @@ function seo_generation_requirements(string $type): array {
 
     $requirements = [];
     foreach ($ordered as $key) {
-        $requirements[] = ['key' => $key, 'requirement' => $text[$key]];
+        if (!isset($contract[$key])) continue;
+        $req = ['key' => $key] + $contract[$key];
+        $requirements[] = $req;
     }
     if ($isVideo) {
-        $requirements[] = ['key' => 'hashtags', 'requirement' => 'วิดีโอต้องมี hashtag อย่างน้อย 1 รายการ'];
+        $requirements[] = [
+            'key' => 'hashtags',
+            'tier' => 'required',
+            'requirement' => 'วิดีโอต้องมี hashtag อย่างน้อย 1 รายการ',
+            'min' => 1,
+            'pass_condition' => 'มี hashtag ≥ 1 รายการ',
+        ];
     }
     return $requirements;
 }
@@ -351,32 +439,32 @@ function seo_evaluate(array $item): array {
     // ── 1. seo_title 1–60 ───────────────────────────────────────────────────
     $len = mb_strlen($seoTitle);
     if ($seoTitle === '') {
-        $rules[] = seo_make_rule('seo_title', 'pending', 'ยังไม่ได้กรอก SEO title');
+        $rules[] = seo_make_rule('seo_title', 'failed', 'ยังไม่ได้กรอก SEO title');
     } elseif ($len > SEO_TITLE_MAX) {
         $rules[] = seo_make_rule('seo_title', 'failed', "SEO title ยาวเกิน " . SEO_TITLE_MAX . " ตัวอักษร (ปัจจุบัน {$len})");
     } else {
-        $rules[] = seo_make_rule('seo_title', 'pass', "SEO title มีความยาวเหมาะสม ({$len} ตัวอักษร)");
+        $rules[] = seo_make_rule('seo_title', 'passed', "SEO title มีความยาวเหมาะสม ({$len} ตัวอักษร)");
     }
 
     // ── 2. meta_description 120–160 ─────────────────────────────────────────
     $dlen = mb_strlen($metaDesc);
     if ($metaDesc === '') {
-        $rules[] = seo_make_rule('meta_description', 'pending', 'ยังไม่ได้กรอกคำอธิบาย meta');
+        $rules[] = seo_make_rule('meta_description', 'failed', 'ยังไม่ได้กรอกคำอธิบาย meta');
     } elseif ($dlen < META_DESC_MIN) {
         $rules[] = seo_make_rule('meta_description', 'failed', "คำอธิบาย meta สั้นเกินไป ({$dlen} ตัวอักษร ควร " . META_DESC_MIN . "–" . META_DESC_MAX . ")");
     } elseif ($dlen > META_DESC_MAX) {
         $rules[] = seo_make_rule('meta_description', 'failed', "คำอธิบาย meta ยาวเกินไป ({$dlen} ตัวอักษร ควร " . META_DESC_MIN . "–" . META_DESC_MAX . ")");
     } else {
-        $rules[] = seo_make_rule('meta_description', 'pass', "คำอธิบาย meta มีความยาวเหมาะสม ({$dlen} ตัวอักษร)");
+        $rules[] = seo_make_rule('meta_description', 'passed', "คำอธิบาย meta มีความยาวเหมาะสม ({$dlen} ตัวอักษร)");
     }
 
     // ── 3. slug ตัวพิมพ์เล็ก-ขีดคั่น ─────────────────────────────────────────
     if ($slug === '') {
-        $rules[] = seo_make_rule('slug', 'pending', 'ยังไม่ได้กำหนด slug');
+        $rules[] = seo_make_rule('slug', 'failed', 'ยังไม่ได้กำหนด slug');
     } elseif (!preg_match('/^[a-z0-9]+(-[a-z0-9]+)*$/', $slug)) {
         $rules[] = seo_make_rule('slug', 'failed', 'slug ต้องเป็นตัวพิมพ์เล็กและคั่นด้วยขีด (a-z, 0-9, -)');
     } else {
-        $rules[] = seo_make_rule('slug', 'pass', 'slug ถูกต้อง');
+        $rules[] = seo_make_rule('slug', 'passed', 'slug ถูกต้อง');
     }
 
     // ── 4. h1 (per-type) ────────────────────────────────────────────────────
@@ -384,7 +472,7 @@ function seo_evaluate(array $item): array {
         // Video: title เป็น h1 หนึ่งตัวเสมอ
         $rules[] = seo_make_rule('h1', 'passed', 'วิดีโอใช้ชื่อเรื่องเป็น H1 หนึ่งตัว');
     } elseif (!$hasContent) {
-        $rules[] = seo_make_rule('h1', 'pending', 'ไม่มีเนื้อหาบทความ จึงยังตรวจ H1 ไม่ได้');
+        $rules[] = seo_make_rule('h1', 'failed', 'ไม่มีเนื้อหาบทความ จึงไม่มี H1 ของชื่อบทความ');
     } elseif (preg_match_all('/<h1[\s>]/i', $html, $matches) > H1_MAX) {
         $count = count($matches[0]);
         $rules[] = seo_make_rule('h1', 'failed', "เนื้อหามีแท็ก H1 ซ้ำ {$count} ตัว (อนุญาตเฉพาะ H1 ของชื่อบทความ 1 ตัวแรก)");
@@ -403,7 +491,7 @@ function seo_evaluate(array $item): array {
             $rules[] = seo_make_rule('heading_structure', 'failed', 'วิดีโอไม่มีโครงสร้าง script section ที่ชัดเจน');
         }
     } elseif (!$hasContent) {
-        $rules[] = seo_make_rule('heading_structure', 'pending', 'ไม่มีเนื้อหาบทความ จึงยังตรวจหัวข้อไม่ได้');
+        $rules[] = seo_make_rule('heading_structure', 'failed', 'ไม่มีเนื้อหาบทความ จึงไม่มีหัวข้อ H2');
     } elseif (preg_match('/<h2[\s>]/i', $html)) {
         $rules[] = seo_make_rule('heading_structure', 'passed', 'มีหัวข้อ H2 ในเนื้อหา');
     } else {
@@ -412,7 +500,7 @@ function seo_evaluate(array $item): array {
 
     // ── 6. content_length (per-type) ────────────────────────────────────────
     if (!$hasContent) {
-        $rules[] = seo_make_rule('content_length', 'pending', $isVideo ? 'วิดีโอไม่มี script/description ให้วัดจำนวนคำ' : 'ไม่มีเนื้อหาบทความ จึงข้ามการนับจำนวนคำ');
+        $rules[] = seo_make_rule('content_length', 'failed', $isVideo ? 'วิดีโอไม่มี script/description ให้วัดจำนวนคำ' : 'ไม่มีเนื้อหาบทความ');
     } else {
         $wc = seo_word_count($bodyForCount);
         if ($wc < WORD_COUNT_MIN) {
@@ -425,7 +513,7 @@ function seo_evaluate(array $item): array {
     // ── 7. search_intent (research-dependent, ทั้ง article และ video) ───────
     // Hybrid: heuristic (deterministic) ตัดสินความสอดคล้องระหว่าง content กับ intent จริง
     if (!$brief || empty($brief['intent'])) {
-        $rules[] = seo_make_rule('search_intent', 'pending', 'ยังไม่มี research brief / search intent จึงข้ามการตรวจ');
+        $rules[] = seo_make_rule('search_intent', 'n/a', 'ไม่ใช้ research / ไม่มี search intent');
     } else {
         $intent = trim((string)$brief['intent']);
         $match  = seo_intent_match($searchText, $intent);
@@ -440,7 +528,7 @@ function seo_evaluate(array $item): array {
 
     // ── 8. primary_keyword_placement (title + first para + headings) ────────
     if ($primaryKw === '') {
-        $rules[] = seo_make_rule('primary_keyword_placement', 'pending', 'ยังไม่ได้กำหนดคีย์เวิร์ดหลัก (meta_keywords ว่าง)');
+        $rules[] = seo_make_rule('primary_keyword_placement', 'failed', 'ยังไม่ได้กำหนดคีย์เวิร์ดหลัก (meta_keywords ว่าง)');
     } else {
         $checks = 1;
         $hits = 0;
@@ -462,7 +550,7 @@ function seo_evaluate(array $item): array {
 
     // ── 9. keyword_stuffing (per-type) ──────────────────────────────────────
     if (!$hasContent || $primaryKw === '') {
-        $rules[] = seo_make_rule('keyword_stuffing', 'pending', 'ยังไม่มีเนื้อหาหรือคีย์เวิร์ดหลักให้ตรวจความหนาแน่น');
+        $rules[] = seo_make_rule('keyword_stuffing', 'n/a', 'ไม่มีเนื้อหาหรือคีย์เวิร์ดหลักให้ตรวจความหนาแน่น');
     } else {
         $totalWords = seo_word_count($bodyForCount);
         $occurrences = seo_count_occurrences($bodyText, $primaryKw);
@@ -476,7 +564,7 @@ function seo_evaluate(array $item): array {
 
     // ── 10. related_keywords (research-dependent) ───────────────────────────
     if (!$brief || empty(seo_brief_secondary_keywords($brief))) {
-        $rules[] = seo_make_rule('related_keywords', 'pending', 'ยังไม่มี secondary keywords จาก research จึงข้ามการตรวจ');
+        $rules[] = seo_make_rule('related_keywords', 'n/a', 'ไม่ใช้ research / ไม่มี secondary keywords');
     } else {
         $secondary = seo_brief_secondary_keywords($brief);
         $found = 0;
@@ -495,7 +583,7 @@ function seo_evaluate(array $item): array {
 
     // ── 11. topic_coverage (research-dependent) ─────────────────────────────
     if (!$brief || empty(seo_brief_outline($brief))) {
-        $rules[] = seo_make_rule('topic_coverage', 'pending', 'ยังไม่มี outline จาก research จึงข้ามการตรวจ');
+        $rules[] = seo_make_rule('topic_coverage', 'n/a', 'ไม่ใช้ research / ไม่มี outline');
     } else {
         $outline = seo_brief_outline($brief);
         $covered = 0;
@@ -514,7 +602,7 @@ function seo_evaluate(array $item): array {
 
     // ── 12. paa_questions (research-dependent) ──────────────────────────────
     if (!$brief || empty(seo_brief_paa($brief))) {
-        $rules[] = seo_make_rule('paa_questions', 'pending', 'ยังไม่มีคำถาม PAA จาก research จึงข้ามการตรวจ');
+        $rules[] = seo_make_rule('paa_questions', 'n/a', 'ไม่ใช้ research / ไม่มีคำถาม PAA');
     } else {
         $paa = seo_brief_paa($brief);
         $answered = 0;
@@ -533,7 +621,7 @@ function seo_evaluate(array $item): array {
 
     // ── 13. content_gap (research-dependent) ────────────────────────────────
     if (!$brief || empty(seo_brief_gaps($brief))) {
-        $rules[] = seo_make_rule('content_gap', 'pending', 'ยังไม่มี content gaps จาก research จึงข้ามการตรวจ');
+        $rules[] = seo_make_rule('content_gap', 'n/a', 'ไม่ใช้ research / ไม่มี content gaps');
     } else {
         $gaps = seo_brief_gaps($brief);
         $filled = 0;
@@ -552,7 +640,7 @@ function seo_evaluate(array $item): array {
 
     // ── 14. structured_data (JSON + @context/@type; video ต้องเป็น Video schema) ──
     if ($structured === '') {
-        $rules[] = seo_make_rule('structured_data', 'pending', 'ยังไม่ได้ตั้งข้อมูลโครงสร้าง (structured data)');
+        $rules[] = seo_make_rule('structured_data', 'failed', 'ยังไม่ได้ตั้งข้อมูลโครงสร้าง (structured data)');
     } else {
         $sd = json_decode($structured, true);
         if (!is_array($sd)) {
@@ -566,22 +654,22 @@ function seo_evaluate(array $item): array {
         }
     }
 
-    // ── 15. internal_linking (per-type) ─────────────────────────────────────
+    // ── 15. internal_linking (optional — ไม่ block) ─────────────────────────
     if ($isVideo) {
         $n = count($videoLinks);
         if ($n >= 1) {
             $rules[] = seo_make_rule('internal_linking', 'passed', "มีลิงก์ภายใน/ที่เกี่ยวข้องใน description {$n} รายการ");
         } else {
-            $rules[] = seo_make_rule('internal_linking', 'pending', 'วิดีโอไม่มี description/link ภายในให้ตรวจ (เป็นคำแนะนำ ไม่ fail)');
+            $rules[] = seo_make_rule('internal_linking', 'n/a', 'วิดีโอไม่มี description/link ภายใน (คำแนะนำ ไม่บังคับ)');
         }
     } elseif (!$hasContent) {
-        $rules[] = seo_make_rule('internal_linking', 'pending', 'ไม่มีเนื้อหาบทความ จึงข้ามการตรวจลิงก์ภายใน');
+        $rules[] = seo_make_rule('internal_linking', 'n/a', 'ไม่มีเนื้อหาบทความให้ตรวจลิงก์ภายใน');
     } else {
         $n = seo_internal_link_count($html);
         if ($n >= 1) {
             $rules[] = seo_make_rule('internal_linking', 'passed', "มีลิงก์ภายใน {$n} รายการ");
         } else {
-            $rules[] = seo_make_rule('internal_linking', 'needs_improvement', 'ไม่พบลิงก์ภายในในเนื้อหา');
+            $rules[] = seo_make_rule('internal_linking', 'needs_improvement', 'ไม่พบลิงก์ภายในในเนื้อหา (คำแนะนำ ไม่บังคับ)');
         }
     }
 

@@ -5,30 +5,34 @@
 ## Requirements
 
 ### Requirement: SEO Quality Gate กำหนดสถานะจากคะแนนรวมและ critical rules
-ระบบ SHALL มีฟังก์ชัน `seo_gate_status(array $eval): string` ที่คืนสถานะ `passed`, `needs_improvement`, หรือ `failed` จากคะแนนรวมและ required/critical rules โดย gate เป็นตัวตัดสินว่า Content ผ่านข้อกำหนดสำหรับการสร้างหรือไม่ — `failed` เมื่อคะแนน < 80 หรือมี required/critical rule ใดมี `status = 'failed'`, `needs_improvement` เมื่อคะแนน 80–89 และไม่มี required/critical failed, และ `passed` เมื่อคะแนน ≥ 90 และไม่มี required/critical failed
+ระบบ SHALL มีฟังก์ชัน `seo_gate_status(array $eval): string` ที่คืนสถานะ `passed`, `needs_improvement`, หรือ `failed` โดย gate ตัดสินจาก required rules เป็นหลัก — `failed` เมื่อมี required rule ใด `status = 'failed'` (ไม่ว่า score สูงแค่ไหน) หรือ score < 80; `needs_improvement` เมื่อ 80 ≤ score < 90 และไม่มี required failed; `passed` เมื่อ score ≥ 90 และไม่มี required failed — และ SEO Score (0–100) ใช้แสดงคุณภาพรวมเท่านั้น
 
-#### Scenario: คะแนน ≥ 90 ไม่มี critical failed เป็น passed
-- **WHEN** คะแนนรวม = 92 และไม่มี required/critical rule ที่ `failed`
-- **THEN** `seo_gate_status()` คืน `passed`
+#### Scenario: required failed แม้คะแนนสูงเป็น failed
+- **WHEN** คะแนนรวม ≥ 90 แต่มี required rule `failed`
+- **THEN** `seo_gate_status()` คืน `failed` และ generation ไม่ถือเป็น success
 
-#### Scenario: คะแนน 80–89 เป็น needs_improvement
-- **WHEN** คะแนนรวม = 85 และไม่มี required/critical rule ที่ `failed`
-- **THEN** `seo_gate_status()` คืน `needs_improvement`
+#### Scenario: n/a ไม่ทำให้ gate failed
+- **WHEN** research rules มี `status = 'n/a'` (ปิด research) และไม่มี required rule อื่น `failed`
+- **THEN** gate ไม่เป็น `failed` เพียงเพราะ research rules เป็น `n/a`
 
-#### Scenario: คะแนน < 80 เป็น failed
-- **WHEN** คะแนนรวม = 74
-- **THEN** `seo_gate_status()` คืน `failed`
-
-#### Scenario: required/critical rule ล้มแม้คะแนนถึงเกณฑ์เป็น failed
-- **WHEN** คะแนนรวม = 93 แต่มี required/critical rule ที่ `failed`
-- **THEN** `seo_gate_status()` คืน `failed`
+#### Scenario: optional rule ไม่ block
+- **WHEN** optional rule เป็น `needs_improvement`/`failed` แต่ required rules ผ่านหมด
+- **THEN** gate ไม่เป็น `failed` (optional แจ้งเตือนเท่านั้น)
 
 ### Requirement: แยก SEO Score ออกจาก SEO Gate
-ระบบ SHALL แยกความหมายของ `score` (คะแนนคุณภาพรวม — informational สำหรับแสดงผล) ออกจาก `gate` (ตัวตัดสินว่า Content ผ่านข้อกำหนด) โดยการมีคะแนนสูง SHALL ไม่ทำให้ Content ผ่าน หากยังมี required/critical rule ที่ `failed`
+ระบบ SHALL แยกความหมายของ `score` (คะแนนคุณภาพรวม — informational สำหรับแสดงผล) ออกจาก `gate` (ตัวตัดสินว่า Content ผ่านข้อกำหนด) โดยการมีคะแนนสูง SHALL ไม่ทำให้ Content ผ่าน หากยังมี required rule ที่ `failed`
 
 #### Scenario: คะแนนสูงแต่มี rule failed ไม่ถือว่าผ่าน
-- **WHEN** คะแนนรวม ≥ 90 แต่มี required/critical rule `failed`
+- **WHEN** คะแนนรวม ≥ 90 แต่มี required rule `failed`
 - **THEN** gate เป็น `failed` แม้ score สูง และ generation ไม่ถือเป็น success
+
+### Requirement: Rule tier กำหนดว่า rule ใด block generation
+ระบบ SHALL กำหนด tier ของแต่ละ rule ผ่าน weight catalog — `required` (ไม่ผ่าน → generation ล้ม), `optional` (เตือนเท่านั้น), `informational` (แสดงคุณภาพเท่านั้น) — และ SHALL เปิดเผย tier นี้ให้ `seo_gate_status()` และ UI อ้างอิงชุดเดียวกัน
+
+#### Scenario: tier อ่านได้จาก weight catalog
+- **WHEN** ผู้เรียกอ่าน weight catalog ของระบบ
+- **THEN** แต่ละ rule มี `tier` ระบุว่าเป็น required/optional/informational
+- **AND** `critical` flag เดิม (alias) สอดคล้องกับ tier (required + กลุ่ม critical เดิม)
 
 ### Requirement: critical rules มีชุดที่กำหนดแน่นอน
 ระบบ SHALL กำหนด critical rules เป็น {`seo_title`, `meta_description`, `h1`, `content_length`, `primary_keyword_placement`, `structured_data`} และ SHALL เปิดเผยชุดนี้ผ่านรายการน้ำหนัก (weight catalog) เพื่อให้ `seo_gate_status()` และ UI อ้างอิงชุดเดียวกัน

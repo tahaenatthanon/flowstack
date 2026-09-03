@@ -50,7 +50,7 @@ import { Separator } from '@/components/ui/separator';
 import { apiFetch } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import type { SeoFields, SeoChecklistResult, SeoRuleLevel, SeoRuleStatus } from '@/components/content/types';
-import { SEO_GATE_LABEL } from '@/components/content/types';
+import { SEO_GATE_LABEL, SEO_TIER_LABEL } from '@/components/content/types';
 import {
   Bold, Italic, Underline as UnderlineIcon, Strikethrough,
   Heading1, Heading2, Heading3, Heading4,
@@ -715,11 +715,12 @@ const SEO_LEVEL_META: Record<SeoRuleLevel, { icon: React.ElementType; className:
   skip: { icon: MinusCircle,   className: 'text-muted-foreground/50' },
 };
 
-// status ใหม่ (passed/needs_improvement/failed/pending/skip) — map ไปใช้ icon ชุดเดิม
+// status ใหม่ (passed/needs_improvement/failed/n/a/pending/skip) — map ไปใช้ icon ชุดเดิม
 const SEO_STATUS_META: Record<SeoRuleStatus, { icon: React.ElementType; className: string }> = {
   passed: SEO_LEVEL_META.pass,
   needs_improvement: SEO_LEVEL_META.warn,
   failed: SEO_LEVEL_META.fail,
+  'n/a': SEO_LEVEL_META.skip,
   pending: SEO_LEVEL_META.pending,
   skip: SEO_LEVEL_META.skip,
 };
@@ -800,13 +801,17 @@ function SeoChecklistPanel({ result, loading, error, onRecheck }: {
             const meta = SEO_STATUS_META[status] ?? SEO_LEVEL_META.pending;
             const Icon = meta.icon;
             const showScore = (status === 'passed' || status === 'needs_improvement' || status === 'failed') && rule.weight > 0;
+            const tierLabel = rule.tier && rule.tier !== 'required' ? SEO_TIER_LABEL[rule.tier] : null;
             return (
               <li key={rule.key} className="flex items-start gap-1.5 text-[11px] leading-relaxed">
                 <Icon className={cn('h-3.5 w-3.5 mt-px shrink-0', meta.className)} />
                 <span className={cn(
-                  (status === 'skip' || status === 'pending') && 'text-muted-foreground/70',
+                  (status === 'skip' || status === 'pending' || status === 'n/a') && 'text-muted-foreground/70',
                 )}>
                   {rule.message}
+                  {tierLabel && (
+                    <span className="ml-1 text-[9px] uppercase text-muted-foreground/60">({tierLabel})</span>
+                  )}
                   {showScore && (
                     <span className="ml-1 text-muted-foreground/70">
                       ({rule.score}/{rule.weight})
