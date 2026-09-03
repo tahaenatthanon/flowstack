@@ -2022,11 +2022,7 @@ if ($action === 'generate-article') {
     // โ”€โ”€ Step 1: Generate full structured content in one call โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
     if ($isVideo) {
         // Video-first prompt: detailed scene-by-scene script for TikTok/YouTube
-        $seoGenerationRequirements = seo_generation_requirements('video');
-        $seoRequirementsText = implode("\n", array_map(
-            static fn(array $r): string => '- [' . $r['key'] . '] ' . $r['requirement'],
-            $seoGenerationRequirements
-        ));
+        $seoRequirementsText = seo_contract_hints('video');
         $mainSys = "CRITICAL: ตอบเป็นภาษาไทยเท่านั้น ห้ามใช้ภาษาจีน เกาหลี ญี่ปุ่น (CJK). English OK for technical terms only.\n" .
                    "คุณเป็น Video Content Creator ผู้เชี่ยวชาญ ตอบกลับเป็น JSON เท่านั้น ไม่มี markdown fence\n" .
                    "โครงสร้าง JSON สำหรับวิดีโอ:\n" .
@@ -2038,12 +2034,8 @@ if ($action === 'generate-article') {
                    '"hashtags":["#hashtag1","#hashtag2","#hashtag3","#hashtag4","#hashtag5"]}' . "\n\nSEO Checklist Requirements (single source of truth):\n{$seoRequirementsText}";
     } else {
         // Article/social-first prompt with SEO/AEO optimization
-        $jsonSchema = '{"title":"ชื่อบทความ (SEO optimized)","excerpt":"สรุป 1-2 ประโยค","seo_title":"SEO Title Tag","slug":"url-friendly-slug","meta_description":"Meta description ภาษาไทย 150-160 chars","meta_keywords":"keyword1, keyword2, ...","full_html":"<article>\\n<h2>heading</h2>\\n<p>content paragraph</p>\\n<h2>heading 2</h2>\\n<p>more content</p>\\n</article> (semantic HTML ใช้ h2,h3,p,ul,ol,blockquote,table ห้ามใช้ h1 เนื่องจากสงวนให้ title) เนื้อหาเข้มข้น >=500 คำ","structured_data":{"@context":"https://schema.org","@type":"Article","headline":"...","description":"..."},"structured_data_faq":{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"คำถาม","acceptedAnswer":{"@type":"Answer","text":"คำตอบ"}}]} (ใส่เฉพาะเมื่อบทความมี Q&A จริง)","headlines":{"viral_clickbait":[{"title":"...","hook":"..."}],"storytelling":[{"title":"...","hook":"..."}],"educational":[{"title":"...","hook":"..."}]},"scripts":{"facebook":"post สั้น","instagram":"caption","tiktok":"script TikTok","youtube":"script YouTube"},"script_sections":{"opening":"hook","bridge":"เนื้อหา","twist":"จุดพลิก","ending":"CTA"},"visuals":["ภาพประกอบ 1","ภาพประกอบ 2"],"hashtags":["#tag1","#tag2","#tag3","#tag4","#tag5"]}';
-        $seoGenerationRequirements = seo_generation_requirements('article');
-        $seoRequirementsText = implode("\n", array_map(
-            static fn(array $r): string => '- [' . $r['key'] . '] ' . $r['requirement'],
-            $seoGenerationRequirements
-        ));
+        $jsonSchema = '{"title":"ชื่อบทความ (SEO optimized)","excerpt":"สรุป 1-2 ประโยค","seo_title":"SEO Title Tag","slug":"url-friendly-slug","meta_description":"Meta description ภาษาไทย 120-160 chars","meta_keywords":"keyword1, keyword2, ...","full_html":"<article>\\n<h2>heading</h2>\\n<p>content paragraph</p>\\n<h2>heading 2</h2>\\n<p>more content</p>\\n</article> (semantic HTML ใช้ h2,h3,p,ul,ol,blockquote,table ห้ามใช้ h1 เนื่องจากสงวนให้ title)","structured_data":{"@context":"https://schema.org","@type":"Article","headline":"...","description":"..."},"structured_data_faq":{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"คำถาม","acceptedAnswer":{"@type":"Answer","text":"คำตอบ"}}]} (ใส่เฉพาะเมื่อบทความมี Q&A จริง)","headlines":{"viral_clickbait":[{"title":"...","hook":"..."}],"storytelling":[{"title":"...","hook":"..."}],"educational":[{"title":"...","hook":"..."}]},"scripts":{"facebook":"post สั้น","instagram":"caption","tiktok":"script TikTok","youtube":"script YouTube"},"script_sections":{"opening":"hook","bridge":"เนื้อหา","twist":"จุดพลิก","ending":"CTA"},"visuals":["ภาพประกอบ 1","ภาพประกอบ 2"],"hashtags":["#tag1","#tag2","#tag3","#tag4","#tag5"]}';
+        $seoRequirementsText = seo_contract_hints('article');
         $mainSys = "CRITICAL: ตอบเป็นภาษาไทยเท่านั้น ห้ามใช้ภาษาจีน เกาหลี ญี่ปุ่น (CJK). English OK for technical terms only.\n" .
                    "คุณเป็นนักเขียน Content Marketing + SEO Specialist ตอบกลับเป็น JSON เท่านั้น ไม่มี markdown fence\n" .
                    "โครงสร้าง JSON ที่ต้องการ:\n{$jsonSchema}\n\n" .
@@ -2215,15 +2207,15 @@ if ($action === 'generate-article') {
         usort($seoIssues, static fn(array $a, array $b): int => ($b['weight'] ?? 0) <=> ($a['weight'] ?? 0));
 
         $feedback = implode("\n", array_map(
-            static fn(array $r): string => '- ' . ($r['key'] ?? 'rule') . ' [' . ($r['status'] ?? '') . ']: ' . ($r['message'] ?? ''),
+            static fn(array $r): string =>
+                '- [' . ($r['key'] ?? 'rule') . '] ' . ($r['status'] ?? '') . "\n" .
+                '  expected: ' . seo_contract_pass_condition($ciType, $r['key'] ?? '') . "\n" .
+                '  message: ' . ($r['message'] ?? ''),
             $seoIssues
         ));
         $repairSystem = "CRITICAL: ตอบเป็นภาษาไทยเท่านั้น ห้ามใช้ภาษาจีน เกาหลี ญี่ปุ่น (CJK). English OK for technical terms only.\n" .
             "คุณเป็น SEO Content Editor ให้แก้ไข JSON เดิมให้ผ่าน SEO Quality Gate แล้วตอบกลับเป็น JSON object เท่านั้น ไม่มี markdown fence และต้องส่งข้อมูลทุก field กลับมาให้ครบ\n" .
-            "SEO Checklist Requirements:\n" . implode("\n", array_map(
-                static fn(array $r): string => '- [' . $r['key'] . '] ' . $r['requirement'],
-                seo_generation_requirements($ciType)
-            )) . "\n" .
+            "SEO Checklist Requirements:\n" . seo_contract_hints($ciType) . "\n" .
             "ห้ามเปลี่ยนสาระสำคัญของเนื้อหาโดยไม่จำเป็น และห้ามลบ field เดิมที่ผ่านแล้ว";
         $repairUser = "เนื้อหานี้ยังไม่ผ่าน SEO Quality Gate ให้แก้เฉพาะข้อที่ติดต่อไปนี้ แล้วส่ง JSON ฉบับสมบูรณ์กลับมา:\n{$feedback}\n\nJSON ปัจจุบัน:\n" .
             json_encode($mainData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
@@ -2298,6 +2290,15 @@ if ($action === 'generate-article') {
     $generationStatus = $seoPassed ? 'success' : 'failed';
     // เมื่อ gate ไม่ผ่านหลัง repair ครบ max attempts → เก็บเป็น revision (ไม่ถือเป็นผลสำเร็จ)
     $finalStatus = $seoPassed ? null : 'revision';
+    // รายการ required rule ที่ fail (key, message, expected) — ให้ผู้ใช้เห็นสาเหตุจริง
+    $failedRequired = array_values(array_map(
+        static fn(array $r): array => [
+            'key' => $r['key'] ?? '',
+            'message' => $r['message'] ?? '',
+            'expected' => seo_contract_pass_condition($ciType, $r['key'] ?? ''),
+        ],
+        array_filter($seoEval['rules'], static fn(array $r): bool => ($r['tier'] ?? '') === 'required' && ($r['status'] ?? '') === 'failed')
+    ));
 
     // Update content_items with article content + SEO columns
     $newCaption = $mainData['caption'] ?? null;
@@ -2336,6 +2337,7 @@ if ($action === 'generate-article') {
         ],
         'seo_passed' => $seoPassed,
         'generation_status' => $generationStatus,
+        'failed_required' => $failedRequired,
     ]);
     } catch (Throwable $e) {
         restore_error_handler();

@@ -173,4 +173,12 @@ foreach ($reqs as $req) {
     check(array_key_exists('pass_condition', $req), 'req ' . $req['key'] . ' has pass_condition');
 }
 
+echo "== 12. seo_contract_hints() derive from contract (no drift) ==\n";
+$hints = seo_contract_hints('article');
+check(strpos($hints, '120') !== false && strpos($hints, '160') !== false, 'article hints mention 120 and 160 (meta_description)');
+check(strpos($hints, '150') === false, 'article hints do NOT hardcode 150 (drift eliminated)');
+check(strpos($hints, (string)WORD_COUNT_MIN) !== false, 'article hints mention min word count ' . WORD_COUNT_MIN);
+check(seo_contract_pass_condition('article', 'meta_description') !== '', 'pass_condition for meta_description is non-empty');
+check(seo_contract_pass_condition('article', 'content_length') !== '', 'pass_condition for content_length is non-empty');
+
 fwrite(STDOUT, "\nAll SEO quality gate tests passed.\n");

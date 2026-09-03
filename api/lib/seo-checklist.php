@@ -341,6 +341,41 @@ function seo_generation_requirements(string $type): array {
 }
 
 /**
+ * คืน field hints ภาษาไทย (source of truth) สำหรับใช้ใน AI prompt
+ * — derive จาก seo_generation_requirements() เพื่อไม่ให้ hardcode ค่าเกณฑ์ซ้ำ
+ *   และรับประกันว่า prompt กับ evaluator ใช้ threshold เดียวกัน
+ *
+ * @return string ข้อความ hint ต่อบรรทัด
+ */
+function seo_contract_hints(string $type): string {
+    $lines = [];
+    foreach (seo_generation_requirements($type) as $r) {
+        $line = '- [' . $r['key'] . '] ' . ($r['requirement'] ?? '');
+        if (isset($r['min']) || isset($r['max'])) {
+            $bounds = [];
+            if (isset($r['min'])) $bounds[] = 'min ' . $r['min'];
+            if (isset($r['max'])) $bounds[] = 'max ' . $r['max'];
+            $line .= ' (' . implode(', ', $bounds) . ')';
+        }
+        if (!empty($r['pass_condition'])) {
+            $line .= ' — ผ่านเมื่อ: ' . $r['pass_condition'];
+        }
+        $lines[] = $line;
+    }
+    return implode("\n", $lines);
+}
+
+/**
+ * คืน pass_condition ของ rule key ที่ระบุ (สำหรับใช้ใน feedback expected)
+ */
+function seo_contract_pass_condition(string $type, string $key): string {
+    foreach (seo_generation_requirements($type) as $r) {
+        if (($r['key'] ?? '') === $key) return $r['pass_condition'] ?? '';
+    }
+    return '';
+}
+
+/**
  * ประเมิน SEO ของคอนเทนต์ (15 ข้อ + weighted scoring)
  *
  * @param array $item ฟิลด์ที่ใช้: seo_title, slug, meta_description, meta_keywords,

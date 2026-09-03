@@ -28,6 +28,21 @@
 - **WHEN** `seo_evaluate()` ถูกเรียกโดยไม่มี `type`
 - **THEN** ระบบใช้ ruleset ของ article เพื่อรักษาความเข้ากันได้กับผู้เรียกเดิม
 
+### Requirement: prompt ใช้ contract เป็น source of truth (ไม่ duplicate threshold)
+ระบบ SHALL มี helper `seo_contract_hints(string $type): string` ที่คืน field hints ภาษาไทยซึ่ง derive จาก `seo_generation_requirements()` (requirement + pass_condition + min/max) และ SHALL ใช้ hint นี้ใน `generate-article` prompt แทนการ hardcode ค่าเกณฑ์ซ้ำ เพื่อไม่ให้ prompt กับ evaluator ใช้ threshold ต่างกัน
+
+#### Scenario: prompt ไม่ hardcode ค่าเกณฑ์ซ้ำ
+- **WHEN** `generate-article` สร้าง `$jsonSchema`/`$mainSys`
+- **THEN** field description เช่น meta_description, content_length, slug derive จาก `seo_contract_hints()` ไม่ใช่ hardcode
+- **AND** meta_description ปรากฏเป็น 120–160 (เดียวกับ evaluator) ไม่ใช่ค่าอื่นเช่น 150–160
+
+### Requirement: seo_evaluate ข้อที่ fail ระบุ actual value
+`seo_evaluate()` SHALL ระบุค่าที่วัดได้จริง (actual) ใน `message` ของ rule ที่ `failed`/`needs_improvement` อย่างสม่ำเสมอ เมื่อมีค่าให้วัดได้ (เช่น จำนวนตัวอักษร, จำนวนคำ, coverage ratio, จำนวน keyword ที่พบ)
+
+#### Scenario: ข้อที่ fail มีค่า actual
+- **WHEN** rule `meta_description` เป็น `failed` เพราะสั้นเกิน
+- **THEN** `message` ระบุความยาวจริง (เช่น "ปัจจุบัน 100 ตัวอักษร") และเกณฑ์ (120–160)
+
 ### Requirement: Required rule ที่ข้อมูลจำเป็นหายไปต้องเป็น failed
 Required rule ที่ข้อมูลจำเป็นหายไป (เช่น `seo_title` ว่าง, `meta_description` ว่าง, `structured_data` ว่าง, `primary_keyword_placement` ไม่มี keyword, `content_length`/`heading_structure` ไม่มีเนื้อหา) SHALL มี `status = 'failed'` และ SHALL ไม่ใช้ `pending` เพื่อเลี่ยงการ block
 
