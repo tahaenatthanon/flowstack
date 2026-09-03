@@ -2181,8 +2181,10 @@ if ($action === 'generate-article') {
         'seo_title'        => $mainData['seo_title'] ?? $artTitle,
         'slug'             => $mainData['slug'] ?? '',
         'meta_description' => $mainData['meta_description'] ?? $artExcerpt,
-        // meta_keywords ต้องมาจาก Research เท่านั้น; รอบนี้ยังไม่มี research_job จึงปล่อยว่าง
-        'meta_keywords'    => $researchMetaKeywords,
+        // meta_keywords: research override เมื่อมี; มิฉะนั้นใช้ keyword ที่ AI ผลิต (ไม่บังคับว่าง)
+        'meta_keywords'    => $researchMetaKeywords !== ''
+            ? $researchMetaKeywords
+            : trim((string)($mainData['meta_keywords'] ?? '')),
         'structured_data'  => $structuredData,
         'og_image'         => $mainData['og_image'] ?? '',
     ];
@@ -2273,7 +2275,9 @@ if ($action === 'generate-article') {
                 'seo_title' => $mainData['seo_title'] ?? $artTitle,
                 'slug' => $mainData['slug'] ?? '',
                 'meta_description' => $mainData['meta_description'] ?? $artExcerpt,
-                'meta_keywords' => $researchMetaKeywords,
+                'meta_keywords' => $researchMetaKeywords !== ''
+                    ? $researchMetaKeywords
+                    : trim((string)($mainData['meta_keywords'] ?? '')),
                 'structured_data' => $structuredData,
                 'og_image' => $mainData['og_image'] ?? '',
             ];
@@ -2291,15 +2295,28 @@ if ($action === 'generate-article') {
     }
     $seoGate   = seo_gate_status($seoEval);
     $seoPassed = $seoGate === 'passed';
+    $generationStatus = $seoPassed ? 'success' : 'failed';
+    // เมื่อ gate ไม่ผ่านหลัง repair ครบ max attempts → เก็บเป็น revision (ไม่ถือเป็นผลสำเร็จ)
+    $finalStatus = $seoPassed ? null : 'revision';
 
     // Update content_items with article content + SEO columns
     $newCaption = $mainData['caption'] ?? null;
     if ($newCaption !== null) {
-        $db->prepare("UPDATE content_items SET article_content=?, title=?, type=?, caption=?, seo_title=?, slug=?, meta_description=?, meta_keywords=?, structured_data=?, og_image=?, updated_at=NOW() WHERE id=? AND tenant_id=?")
-           ->execute([json_encode($art), $artTitle, $ciType, $newCaption, $art['seo_title'], $art['slug'], $art['meta_description'], $art['meta_keywords'], $structuredData, $art['og_image'], $itemId, $tenantId]);
+        if ($finalStatus !== null) {
+            $db->prepare("UPDATE content_items SET article_content=?, title=?, type=?, caption=?, seo_title=?, slug=?, meta_description=?, meta_keywords=?, structured_data=?, og_image=?, status=?, updated_at=NOW() WHERE id=? AND tenant_id=?")
+               ->execute([json_encode($art), $artTitle, $ciType, $newCaption, $art['seo_title'], $art['slug'], $art['meta_description'], $art['meta_keywords'], $structuredData, $art['og_image'], $finalStatus, $itemId, $tenantId]);
+        } else {
+            $db->prepare("UPDATE content_items SET article_content=?, title=?, type=?, caption=?, seo_title=?, slug=?, meta_description=?, meta_keywords=?, structured_data=?, og_image=?, updated_at=NOW() WHERE id=? AND tenant_id=?")
+               ->execute([json_encode($art), $artTitle, $ciType, $newCaption, $art['seo_title'], $art['slug'], $art['meta_description'], $art['meta_keywords'], $structuredData, $art['og_image'], $itemId, $tenantId]);
+        }
     } else {
-        $db->prepare("UPDATE content_items SET article_content=?, title=?, type=?, seo_title=?, slug=?, meta_description=?, meta_keywords=?, structured_data=?, og_image=?, updated_at=NOW() WHERE id=? AND tenant_id=?")
-           ->execute([json_encode($art), $artTitle, $ciType, $art['seo_title'], $art['slug'], $art['meta_description'], $art['meta_keywords'], $structuredData, $art['og_image'], $itemId, $tenantId]);
+        if ($finalStatus !== null) {
+            $db->prepare("UPDATE content_items SET article_content=?, title=?, type=?, seo_title=?, slug=?, meta_description=?, meta_keywords=?, structured_data=?, og_image=?, status=?, updated_at=NOW() WHERE id=? AND tenant_id=?")
+               ->execute([json_encode($art), $artTitle, $ciType, $art['seo_title'], $art['slug'], $art['meta_description'], $art['meta_keywords'], $structuredData, $art['og_image'], $finalStatus, $itemId, $tenantId]);
+        } else {
+            $db->prepare("UPDATE content_items SET article_content=?, title=?, type=?, seo_title=?, slug=?, meta_description=?, meta_keywords=?, structured_data=?, og_image=?, updated_at=NOW() WHERE id=? AND tenant_id=?")
+               ->execute([json_encode($art), $artTitle, $ciType, $art['seo_title'], $art['slug'], $art['meta_description'], $art['meta_keywords'], $structuredData, $art['og_image'], $itemId, $tenantId]);
+        }
     }
 
     // Also update content_plan_items for backward compat
@@ -2318,6 +2335,7 @@ if ($action === 'generate-article') {
             'rules' => $seoEval['rules'],
         ],
         'seo_passed' => $seoPassed,
+        'generation_status' => $generationStatus,
     ]);
     } catch (Throwable $e) {
         restore_error_handler();

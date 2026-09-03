@@ -76,6 +76,86 @@
 - **WHEN** `seo_title` ว่างหรือยาวเกิน 60 ตัวอักษร
 - **THEN** กฎ `seo_title` มี `status = 'failed'`
 
+### Requirement: search_intent ตรวจความสอดคล้องจริงด้วย heuristic
+เมื่อมี research brief ที่มี `intent` ระบบ SHALL ประเมิน `search_intent` โดยเทียบ signal terms ของ intent กับ content (hybrid: heuristic deterministic ตัดสิน) โดยคืน `passed` เมื่อ content สอดคล้องกับ intent, `failed` เมื่อ content ขัดกับ intent อย่างชัดเจน, `needs_improvement` เมื่อไม่ชัดเจน (uncertain) และ `pending` เมื่อไม่มี brief/intent
+
+#### Scenario: content สอดคล้องกับ intent
+- **WHEN** brief มี `intent = 'informational'` และ content มี signal ของ informational (เช่น วิธี/คือ/ทำไม) พร้อม primary keyword
+- **THEN** กฎ `search_intent` มี `status = 'passed'`
+
+#### Scenario: content ขัดกับ intent
+- **WHEN** brief มี `intent = 'informational'` แต่ content มีแต่ signal ของ transactional (ซื้อ/ราคา/สั่งซื้อ) เด่นกว่า
+- **THEN** กฎ `search_intent` มี `status = 'failed'`
+
+#### Scenario: intent ไม่ชัดเจน
+- **WHEN** brief มี `intent` แต่ content ไม่มี signal ของ intent ใดชัดเจน
+- **THEN** กฎ `search_intent` มี `status = 'needs_improvement'`
+- **AND** ระบบส่ง feedback ให้ AI ปรับเนื้อหาให้สอดคล้องกับ intent
+
+#### Scenario: ไม่มี intent เป็น pending
+- **WHEN** ไม่มี research brief หรือ brief ไม่มี `intent`
+- **THEN** กฎ `search_intent` มี `status = 'pending'`
+
+### Requirement: related_keywords ต้องครอบคลุม keyword จาก research ตามเกณฑ์
+เมื่อมี `secondary_keywords` จาก research ระบบ SHALL ประเมิน `related_keywords` ตาม coverage โดยครอบคลุม ≥ 0.6 → `passed`, ครอบคลุม 0 → `failed`, ระหว่างนั้น → `needs_improvement` และไม่มี keyword ให้ตรวจ → `pending`
+
+#### Scenario: ครอบคลุม 0 เป็น failed
+- **WHEN** brief มี secondary keywords แต่ content ไม่พบ keyword รองเลย
+- **THEN** กฎ `related_keywords` มี `status = 'failed'`
+
+#### Scenario: ครอบคลุมบางส่วน
+- **WHEN** content ครอบคลุม keyword รองต่ำกว่า 60%
+- **THEN** กฎ `related_keywords` มี `status = 'needs_improvement'`
+
+#### Scenario: ครอบคลุมครบเกณฑ์
+- **WHEN** content ครอบคลุม keyword รอง ≥ 60%
+- **THEN** กฎ `related_keywords` มี `status = 'passed'`
+
+### Requirement: topic_coverage ต้องครอบคลุมหัวข้อสำคัญจาก research ตามเกณฑ์
+เมื่อมี `outline` จาก research ระบบ SHALL ประเมิน `topic_coverage` ตาม coverage โดยครอบคลุม ≥ 0.7 → `passed`, < 0.3 → `failed`, ระหว่างนั้น → `needs_improvement` และไม่มี outline → `pending`
+
+#### Scenario: ไม่ครอบคลุม outline เป็น failed
+- **WHEN** brief มี outline แต่ content ครอบคลุมหัวข้อต่ำกว่า 30%
+- **THEN** กฎ `topic_coverage` มี `status = 'failed'`
+
+#### Scenario: ครอบคลุมบางส่วน
+- **WHEN** content ครอบคลุม outline ระหว่าง 30–70%
+- **THEN** กฎ `topic_coverage` มี `status = 'needs_improvement'`
+
+#### Scenario: ครอบคลุมครบเกณฑ์
+- **WHEN** content ครอบคลุม outline ≥ 70%
+- **THEN** กฎ `topic_coverage` มี `status = 'passed'`
+
+### Requirement: paa_questions ต้องตอบคำถามที่ research พบตามเกณฑ์
+เมื่อมีคำถาม PAA จาก research ระบบ SHALL ประเมิน `paa_questions` โดยตอบ ≥ 0.5 → `passed`, ตอบ 0 → `failed`, ระหว่างนั้น → `needs_improvement` และไม่มี PAA → `pending`
+
+#### Scenario: ตอบ 0 เป็น failed
+- **WHEN** brief มีคำถาม PAA แต่ content ไม่ตอบคำถามใดเลย
+- **THEN** กฎ `paa_questions` มี `status = 'failed'`
+
+#### Scenario: ตอบบางส่วน
+- **WHEN** content ตอบคำถาม PAA ต่ำกว่า 50%
+- **THEN** กฎ `paa_questions` มี `status = 'needs_improvement'`
+
+#### Scenario: ตอบครบเกณฑ์
+- **WHEN** content ตอบคำถาม PAA ≥ 50%
+- **THEN** กฎ `paa_questions` มี `status = 'passed'`
+
+### Requirement: content_gap ต้องครอบคลุม gap ที่ค้นพบตามเกณฑ์
+เมื่อมี content gaps จาก research ระบบ SHALL ประเมิน `content_gap` โดยเติม ≥ 0.5 → `passed`, เติม 0 → `failed`, ระหว่างนั้น → `needs_improvement` และไม่มี gap → `pending`
+
+#### Scenario: เติม 0 เป็น failed
+- **WHEN** brief มี content gaps แต่ content ไม่เติม gap ใดเลย
+- **THEN** กฎ `content_gap` มี `status = 'failed'`
+
+#### Scenario: เติมบางส่วน
+- **WHEN** content เติม gap ต่ำกว่า 50%
+- **THEN** กฎ `content_gap` มี `status = 'needs_improvement'`
+
+#### Scenario: เติมครบเกณฑ์
+- **WHEN** content เติม gap ≥ 50%
+- **THEN** กฎ `content_gap` มี `status = 'passed'`
+
 ### Requirement: ตั้งค่าเกตใน content_global_settings
 ฐานข้อมูล SHALL มีคอลัมน์ `seo_gate_enabled TINYINT(1) DEFAULT 0` และ `seo_gate_min_score TINYINT UNSIGNED DEFAULT 0` ในตาราง `content_global_settings` โดยค่า default ปิดเกต
 

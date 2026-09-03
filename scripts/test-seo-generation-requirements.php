@@ -92,4 +92,47 @@ check($vContentLength !== null && $vContentLength['status'] === 'passed', 'video
 check($vHeading !== null && $vHeading['status'] === 'passed', 'video heading_structure measured from sections => passed (got ' . ($vHeading['status'] ?? '?') . ')');
 check($vSd !== null && $vSd['status'] === 'passed', 'video structured_data VideoObject => passed (got ' . ($vSd['status'] ?? '?') . ')');
 
+echo "== 8. research rules strict (failed when coverage = 0) ==\n";
+$brief = [
+    'primary_keyword' => 'test',
+    'intent' => 'informational',
+    'secondary_keywords' => ['keyword2', 'keyword3'],
+    'outline' => ['หัวข้อ A', 'หัวข้อ B', 'หัวข้อ C'],
+    'paa' => ['คำถาม PAA 1', 'คำถาม PAA 2'],
+    'content_gaps' => ['gap 1', 'gap 2'],
+];
+$strict = seo_evaluate([
+    'type' => 'article',
+    'title' => 'Test',
+    'seo_title' => 'Test',
+    'slug' => 'test',
+    'meta_description' => str_repeat('ก', 120),
+    'meta_keywords' => 'test',
+    'structured_data' => json_encode(['@context' => 'https://schema.org', '@type' => 'Article']),
+    'article_content' => ['html' => '<h2>Test</h2><p>' . str_repeat('test ', 600) . '</p>'],
+    'research_brief' => $brief,
+]);
+foreach ($strict['rules'] as $r) {
+    if ($r['key'] === 'related_keywords') check($r['status'] === 'failed', 'related_keywords =0 => failed (got ' . $r['status'] . ')');
+    if ($r['key'] === 'topic_coverage') check($r['status'] === 'failed', 'topic_coverage <0.3 => failed (got ' . $r['status'] . ')');
+    if ($r['key'] === 'paa_questions') check($r['status'] === 'failed', 'paa_questions =0 => failed (got ' . $r['status'] . ')');
+    if ($r['key'] === 'content_gap') check($r['status'] === 'failed', 'content_gap =0 => failed (got ' . $r['status'] . ')');
+}
+
+echo "== 9. search_intent heuristic ==\n";
+$informational = seo_evaluate([
+    'type' => 'article',
+    'title' => 'วิธีทำคอนเทนต์',
+    'seo_title' => 'วิธีทำคอนเทนต์',
+    'slug' => 'how-to-content',
+    'meta_description' => str_repeat('ก', 120),
+    'meta_keywords' => 'วิธีทำ',
+    'structured_data' => json_encode(['@context' => 'https://schema.org', '@type' => 'Article']),
+    'article_content' => ['html' => '<h2>วิธีทำ</h2><p>ขั้นตอนและวิธีการทำคอนเทนต์ ' . str_repeat('test ', 600) . '</p>'],
+    'research_brief' => ['primary_keyword' => 'วิธีทำ', 'intent' => 'informational'],
+]);
+$si = null;
+foreach ($informational['rules'] as $r) if ($r['key'] === 'search_intent') $si = $r;
+check($si !== null && $si['status'] === 'passed', 'informational intent matches => passed (got ' . ($si['status'] ?? '?') . ')');
+
 fwrite(STDOUT, "\nAll SEO quality gate tests passed.\n");

@@ -97,9 +97,9 @@ export default function ContentListTab() {
       qc.invalidateQueries({ queryKey: ['content', 'items'] });
       qc.invalidateQueries({ queryKey: ['content', 'plans'] });
       toast({
-        title: result?.seo?.gate === 'passed' ? 'AI เขียนบทความสำเร็จ!' : 'AI เขียนบทความแล้ว แต่ยังไม่ผ่าน SEO',
-        description: result?.seo?.gate !== 'passed' ? `คะแนน SEO ${result?.seo?.score ?? 0} — กรุณาตรวจสอบ SEO Checklist` : undefined,
-        variant: result?.seo?.gate !== 'passed' ? 'destructive' : undefined,
+        title: result?.generation_status === 'failed' ? 'สร้างไม่ผ่าน SEO — สถานะ revision' : 'AI เขียนบทความสำเร็จ!',
+        description: result?.generation_status === 'failed' ? `คะแนน SEO ${result?.seo?.score ?? 0} — เนื้อหาถูกบันทึกเป็น revision กรุณาตรวจสอบ SEO Checklist` : undefined,
+        variant: result?.generation_status === 'failed' ? 'destructive' : undefined,
       });
     } catch (e: any) {
       toast({ title: 'สร้างบทความไม่สำเร็จ', description: e.message, variant: 'destructive' });

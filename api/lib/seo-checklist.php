@@ -28,6 +28,13 @@ const SEO_KEYWORD_DENSITY_MAX = 0.04; // 4% — เกินนี้ถือ�
 const SEO_GATE_PASS_SCORE = 90;
 const SEO_GATE_WARN_SCORE = 80;
 
+// Research-rule coverage thresholds (fraction of research items that must be covered).
+const SEO_RELATED_MIN  = 0.6; // related_keywords: ≥0.6 passed, =0 failed
+const SEO_TOPIC_MIN    = 0.7; // topic_coverage: ≥0.7 passed
+const SEO_TOPIC_FAIL   = 0.3; // topic_coverage: <0.3 failed
+const SEO_PAA_MIN      = 0.5; // paa_questions: ≥0.5 passed, =0 failed
+const SEO_GAP_MIN      = 0.5; // content_gap: ≥0.5 passed, =0 failed
+
 // Weight catalog for the 15-rule SEO checklist. Total weight = 100.
 // `critical` rules block the publish gate even when total score meets threshold.
 const SEO_WEIGHTS = [
@@ -165,6 +172,43 @@ function seo_brief_gaps(array $brief): array {
         elseif (is_array($entry)) $out[] = trim((string)($entry['text'] ?? $entry['gap'] ?? ''));
     }
     return array_values(array_filter($out, fn($k) => $k !== ''));
+}
+
+/**
+ * Map search intent → signal terms (best-effort heuristic สำหรับ search_intent rule).
+ * signal terms ใช้ตรวจความสอดคล้องระหว่าง content กับ intent จริง
+ */
+function seo_intent_signals(string $intent): array {
+    return match (strtolower(trim($intent))) {
+        'commercial'    => ['เปรียบเทียบ', 'รีวิว', 'ดีที่สุด', 'คุ้มค่า', 'best', 'review', 'vs', 'เทียบ', 'แนะนำ'],
+        'transactional' => ['ซื้อ', 'สมัคร', 'ราคา', 'สั่งซื้อ', 'โปรโมชั่น', 'ส่วนลด', 'buy', 'price', 'order', 'จอง'],
+        'navigational'  => ['เข้าเว็บ', 'เว็บไซต์', 'ล็อกอิน', 'login', 'official', 'เข้าสู่ระบบ', 'download', 'ดาวน์โหลด'],
+        default         => ['คือ', 'วิธี', 'ทำไม', 'อย่างไร', 'ขั้นตอน', 'how', 'what', 'why', 'guide', 'แนวทาง'], // informational
+    };
+}
+
+/**
+ * นับจำนวน signal terms ที่ปรากฏในข้อความ (แยกตาม intent)
+ *
+ * @return array{intent:int, other:int} จำนวน signal ของ intent ที่ระบุ vs signal ของ intent อื่นทั้งหมด
+ */
+function seo_intent_match(string $text, string $intent): array {
+    $signals = seo_intent_signals($intent);
+    $own  = 0;
+    $other = 0;
+    $all = ['commercial', 'transactional', 'navigational', 'informational'];
+    foreach ($all as $i) {
+        $count = 0;
+        foreach (seo_intent_signals($i) as $term) {
+            $count += seo_count_occurrences($text, $term);
+        }
+        if (strtolower(trim($intent)) === $i) {
+            $own += $count;
+        } else {
+            $other += $count;
+        }
+    }
+    return ['intent' => $own, 'other' => $other];
 }
 
 /**
@@ -379,10 +423,19 @@ function seo_evaluate(array $item): array {
     }
 
     // ── 7. search_intent (research-dependent, ทั้ง article และ video) ───────
+    // Hybrid: heuristic (deterministic) ตัดสินความสอดคล้องระหว่าง content กับ intent จริง
     if (!$brief || empty($brief['intent'])) {
         $rules[] = seo_make_rule('search_intent', 'pending', 'ยังไม่มี research brief / search intent จึงข้ามการตรวจ');
     } else {
-        $rules[] = seo_make_rule('search_intent', 'passed', 'เนื้อหาสอดคล้องกับ search intent "' . trim((string)$brief['intent']) . '" (จาก research)');
+        $intent = trim((string)$brief['intent']);
+        $match  = seo_intent_match($searchText, $intent);
+        if ($match['intent'] >= 1 && $match['intent'] >= $match['other']) {
+            $rules[] = seo_make_rule('search_intent', 'passed', "เนื้อหาสอดคล้องกับ search intent \"{$intent}\" (signal {$match['intent']} จุด)");
+        } elseif ($match['other'] > $match['intent']) {
+            $rules[] = seo_make_rule('search_intent', 'failed', "เนื้อหาขัดกับ search intent \"{$intent}\" — พบ signal ของ intent อื่นมากกว่า ({$match['other']} vs {$match['intent']})");
+        } else {
+            $rules[] = seo_make_rule('search_intent', 'needs_improvement', "ยังไม่ชัดเจนว่าเนื้อหาสอดคล้องกับ search intent \"{$intent}\" — เพิ่มเนื้อหาที่ตอบโจทย์ intent นี้");
+        }
     }
 
     // ── 8. primary_keyword_placement (title + first para + headings) ────────
@@ -430,10 +483,13 @@ function seo_evaluate(array $item): array {
         foreach ($secondary as $kw) {
             if (seo_contains($searchText, $kw)) $found++;
         }
-        if ($found > 0) {
-            $rules[] = seo_make_rule('related_keywords', 'passed', "พบคีย์เวิร์ดรองจาก research {$found}/" . count($secondary) . " คำ");
+        $ratio = count($secondary) > 0 ? $found / count($secondary) : 0;
+        if ($ratio >= SEO_RELATED_MIN) {
+            $rules[] = seo_make_rule('related_keywords', 'passed', "ครอบคลุมคีย์เวิร์ดรองจาก research {$found}/" . count($secondary) . " คำ");
+        } elseif ($found === 0) {
+            $rules[] = seo_make_rule('related_keywords', 'failed', 'ไม่พบคีย์เวิร์ดรองจาก research ในเนื้อหาเลย (ควรครอบคลุม ≥ ' . (int)(SEO_RELATED_MIN * 100) . '%)');
         } else {
-            $rules[] = seo_make_rule('related_keywords', 'needs_improvement', 'ไม่พบคีย์เวิร์ดรองจาก research ในเนื้อหา');
+            $rules[] = seo_make_rule('related_keywords', 'needs_improvement', "ครอบคลุมคีย์เวิร์ดรองเพียง {$found}/" . count($secondary) . " คำ (ควร ≥ " . (int)(SEO_RELATED_MIN * 100) . '%)');
         }
     }
 
@@ -447,12 +503,12 @@ function seo_evaluate(array $item): array {
             if (seo_contains($searchText, $heading)) $covered++;
         }
         $ratio = count($outline) > 0 ? $covered / count($outline) : 0;
-        if ($ratio >= 0.5) {
+        if ($ratio >= SEO_TOPIC_MIN) {
             $rules[] = seo_make_rule('topic_coverage', 'passed', "ครอบคลุมหัวข้อจาก outline {$covered}/" . count($outline) . " หัวข้อ");
-        } elseif ($covered > 0) {
-            $rules[] = seo_make_rule('topic_coverage', 'needs_improvement', "ครอบคลุมหัวข้อจาก outline เพียง {$covered}/" . count($outline) . " หัวข้อ");
+        } elseif ($ratio < SEO_TOPIC_FAIL) {
+            $rules[] = seo_make_rule('topic_coverage', 'failed', "ครอบคลุมหัวข้อจาก outline เพียง {$covered}/" . count($outline) . " (ควร ≥ " . (int)(SEO_TOPIC_MIN * 100) . '%)');
         } else {
-            $rules[] = seo_make_rule('topic_coverage', 'needs_improvement', 'ไม่พบหัวข้อจาก outline ในเนื้อหา');
+            $rules[] = seo_make_rule('topic_coverage', 'needs_improvement', "ครอบคลุมหัวข้อจาก outline {$covered}/" . count($outline) . " หัวข้อ (ควร ≥ " . (int)(SEO_TOPIC_MIN * 100) . '%)');
         }
     }
 
@@ -465,10 +521,13 @@ function seo_evaluate(array $item): array {
         foreach ($paa as $q) {
             if (seo_contains($searchText, $q)) $answered++;
         }
-        if ($answered > 0) {
+        $ratio = count($paa) > 0 ? $answered / count($paa) : 0;
+        if ($ratio >= SEO_PAA_MIN) {
             $rules[] = seo_make_rule('paa_questions', 'passed', "เนื้อหาตอบคำถาม PAA {$answered}/" . count($paa) . " ข้อ");
+        } elseif ($answered === 0) {
+            $rules[] = seo_make_rule('paa_questions', 'failed', 'เนื้อหาไม่ตอบคำถาม PAA จาก research เลย (ควรตอบ ≥ ' . (int)(SEO_PAA_MIN * 100) . '%)');
         } else {
-            $rules[] = seo_make_rule('paa_questions', 'needs_improvement', 'เนื้อหายังไม่ตอบคำถาม PAA จาก research');
+            $rules[] = seo_make_rule('paa_questions', 'needs_improvement', "เนื้อหาตอบคำถาม PAA {$answered}/" . count($paa) . " ข้อ (ควร ≥ " . (int)(SEO_PAA_MIN * 100) . '%)');
         }
     }
 
@@ -481,10 +540,13 @@ function seo_evaluate(array $item): array {
         foreach ($gaps as $g) {
             if (seo_contains($searchText, $g)) $filled++;
         }
-        if ($filled > 0) {
+        $ratio = count($gaps) > 0 ? $filled / count($gaps) : 0;
+        if ($ratio >= SEO_GAP_MIN) {
             $rules[] = seo_make_rule('content_gap', 'passed', "เนื้อหาเติม content gaps {$filled}/" . count($gaps) . " จุด");
+        } elseif ($filled === 0) {
+            $rules[] = seo_make_rule('content_gap', 'failed', 'เนื้อหาไม่เติม content gaps จาก research เลย (ควรเติม ≥ ' . (int)(SEO_GAP_MIN * 100) . '%)');
         } else {
-            $rules[] = seo_make_rule('content_gap', 'needs_improvement', 'เนื้อยังไม่เติม content gaps จาก research');
+            $rules[] = seo_make_rule('content_gap', 'needs_improvement', "เนื้อหาเติม content gaps {$filled}/" . count($gaps) . " จุด (ควร ≥ " . (int)(SEO_GAP_MIN * 100) . '%)');
         }
     }
 
