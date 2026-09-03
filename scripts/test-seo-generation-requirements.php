@@ -46,15 +46,15 @@ foreach ($article['rules'] as $r) {
 }
 
 echo "== 5. gate status thresholds ==\n";
-check(seo_gate_status(['score' => 95, 'rules' => []]) === 'pass', 'score 95 => pass');
-check(seo_gate_status(['score' => 85, 'rules' => []]) === 'warning', 'score 85 => warning');
+check(seo_gate_status(['score' => 95, 'rules' => []]) === 'passed', 'score 95 => passed');
+check(seo_gate_status(['score' => 85, 'rules' => []]) === 'needs_improvement', 'score 85 => needs_improvement');
 check(seo_gate_status(['score' => 70, 'rules' => []]) === 'failed', 'score 70 => failed');
 check(seo_gate_status([
     'score' => 95,
     'rules' => [['key' => 'seo_title', 'status' => 'failed', 'critical' => true]],
 ]) === 'failed', 'critical failed => failed even at score 95');
 
-echo "== 6. video skips article rules + hashtags critical ==\n";
+echo "== 6. video: no skip, 15 rules measured per-type + hashtags critical ==\n";
 $video = seo_evaluate([
     'type' => 'video',
     'title' => 'Test video',
@@ -62,12 +62,17 @@ $video = seo_evaluate([
     'slug' => 'test-video',
     'meta_description' => str_repeat('ก', 120),
     'structured_data' => json_encode(['@context' => 'https://schema.org', '@type' => 'VideoObject']),
-    'article_content' => ['hashtags' => []],
+    'article_content' => [
+        'hashtags' => [],
+        'scripts' => ['tiktok' => str_repeat('test ', 600)],
+        'script_sections' => ['opening' => 'hook', 'bridge' => 'เนื้อหา', 'twist' => 'จุดพลิก', 'ending' => 'CTA'],
+    ],
 ]);
-$skipKeys = ['h1', 'heading_structure', 'content_length', 'search_intent', 'primary_keyword_placement', 'keyword_stuffing', 'related_keywords', 'topic_coverage', 'paa_questions', 'content_gap', 'internal_linking'];
+// ครบ 15 key ไม่มี skip
+check(count(array_intersect(array_keys(SEO_WEIGHTS), array_column($video['rules'], 'key'))) === 15, 'video has all 15 keys');
 foreach ($video['rules'] as $r) {
-    if (in_array($r['key'], $skipKeys, true)) {
-        check($r['status'] === 'skip', 'video ' . $r['key'] . ' is skip (got ' . $r['status'] . ')');
+    if (in_array($r['key'], array_keys(SEO_WEIGHTS), true)) {
+        check($r['status'] !== 'skip', 'video ' . $r['key'] . ' is NOT skip (got ' . $r['status'] . ')');
     }
 }
 $hashtag = null;
@@ -75,5 +80,16 @@ foreach ($video['rules'] as $r) if ($r['key'] === 'hashtags') $hashtag = $r;
 check($hashtag !== null && $hashtag['status'] === 'failed', 'video empty hashtags => failed');
 check($hashtag !== null && !empty($hashtag['critical']), 'hashtags is critical for video');
 check($video['gate'] === 'failed', 'video empty hashtags => gate failed');
+
+echo "== 7. video per-type measurement ==\n";
+$vContentLength = null; $vHeading = null; $vSd = null;
+foreach ($video['rules'] as $r) {
+    if ($r['key'] === 'content_length') $vContentLength = $r;
+    if ($r['key'] === 'heading_structure') $vHeading = $r;
+    if ($r['key'] === 'structured_data') $vSd = $r;
+}
+check($vContentLength !== null && $vContentLength['status'] === 'passed', 'video content_length measured from script => passed (got ' . ($vContentLength['status'] ?? '?') . ')');
+check($vHeading !== null && $vHeading['status'] === 'passed', 'video heading_structure measured from sections => passed (got ' . ($vHeading['status'] ?? '?') . ')');
+check($vSd !== null && $vSd['status'] === 'passed', 'video structured_data VideoObject => passed (got ' . ($vSd['status'] ?? '?') . ')');
 
 fwrite(STDOUT, "\nAll SEO quality gate tests passed.\n");

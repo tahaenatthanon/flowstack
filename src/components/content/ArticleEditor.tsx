@@ -715,10 +715,10 @@ const SEO_LEVEL_META: Record<SeoRuleLevel, { icon: React.ElementType; className:
   skip: { icon: MinusCircle,   className: 'text-muted-foreground/50' },
 };
 
-// status ใหม่ (pass/warning/failed/pending/skip) — map ไปใช้ icon ชุดเดิม
+// status ใหม่ (passed/needs_improvement/failed/pending/skip) — map ไปใช้ icon ชุดเดิม
 const SEO_STATUS_META: Record<SeoRuleStatus, { icon: React.ElementType; className: string }> = {
-  pass: SEO_LEVEL_META.pass,
-  warning: SEO_LEVEL_META.warn,
+  passed: SEO_LEVEL_META.pass,
+  needs_improvement: SEO_LEVEL_META.warn,
   failed: SEO_LEVEL_META.fail,
   pending: SEO_LEVEL_META.pending,
   skip: SEO_LEVEL_META.skip,
@@ -799,7 +799,7 @@ function SeoChecklistPanel({ result, loading, error, onRecheck }: {
             const status = (rule.status ?? rule.level) as SeoRuleStatus;
             const meta = SEO_STATUS_META[status] ?? SEO_LEVEL_META.pending;
             const Icon = meta.icon;
-            const showScore = (status === 'pass' || status === 'warning' || status === 'failed') && rule.weight > 0;
+            const showScore = (status === 'passed' || status === 'needs_improvement' || status === 'failed') && rule.weight > 0;
             return (
               <li key={rule.key} className="flex items-start gap-1.5 text-[11px] leading-relaxed">
                 <Icon className={cn('h-3.5 w-3.5 mt-px shrink-0', meta.className)} />

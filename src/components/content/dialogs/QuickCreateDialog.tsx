@@ -92,7 +92,7 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
             body: JSON.stringify({ item_id: item.id }),
           });
           setDoneTitle(art?.article?.title ?? item.topic);
-          if (art?.seo?.gate !== 'pass') {
+          if (art?.seo?.gate !== 'passed') {
             toast({
               title: 'สร้างเนื้อหาแล้ว แต่ยังไม่ผ่าน SEO',
               description: `คะแนน SEO ${art?.seo?.score ?? 0} — กรุณาตรวจสอบ SEO Checklist`,

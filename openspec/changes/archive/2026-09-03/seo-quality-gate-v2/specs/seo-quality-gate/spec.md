@@ -1,8 +1,4 @@
-## Purpose
-
-กำหนด SEO Quality Gate สำหรับการสร้าง Content — สถานะ Pass/Warning/Failed จากคะแนนรวม (0–100) และ critical rules, การบังคับตรวจครบ 15 ข้อ, AI Repair loop ที่ตรวจใหม่ทั้งชุด, และการแสดงผลคะแนนรวม/รายข้อ
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: SEO Quality Gate กำหนดสถานะจากคะแนนรวมและ critical rules
 ระบบ SHALL มีฟังก์ชัน `seo_gate_status(array $eval): string` ที่คืนสถานะ `passed`, `needs_improvement`, หรือ `failed` จากคะแนนรวมและ critical rules โดยสถานะ `failed` เมื่อคะแนน < 80 หรือมี critical rule ใดมี `status = 'failed'`, `needs_improvement` เมื่อคะแนน 80–89 และไม่มี critical failed, และ `passed` เมื่อคะแนน ≥ 90 และไม่มี critical failed

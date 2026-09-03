@@ -33,19 +33,19 @@ const SEO_GATE_WARN_SCORE = 80;
 const SEO_WEIGHTS = [
     'seo_title'                 => ['weight' => 8,  'critical' => true],
     'meta_description'          => ['weight' => 8,  'critical' => true],
-    'slug'                      => ['weight' => 4,  'critical' => false],
-    'h1'                        => ['weight' => 5,  'critical' => true],
-    'heading_structure'         => ['weight' => 5,  'critical' => false],
+    'slug'                      => ['weight' => 6,  'critical' => false],
+    'h1'                        => ['weight' => 6,  'critical' => true],
+    'heading_structure'         => ['weight' => 7,  'critical' => false],
     'content_length'            => ['weight' => 8,  'critical' => true],
-    'search_intent'             => ['weight' => 7,  'critical' => false],
-    'primary_keyword_placement' => ['weight' => 10, 'critical' => true],
-    'keyword_stuffing'          => ['weight' => 5,  'critical' => false],
+    'search_intent'             => ['weight' => 8,  'critical' => false],
+    'primary_keyword_placement' => ['weight' => 8,  'critical' => true],
+    'keyword_stuffing'          => ['weight' => 7,  'critical' => false],
     'related_keywords'          => ['weight' => 6,  'critical' => false],
-    'topic_coverage'            => ['weight' => 7,  'critical' => false],
-    'paa_questions'             => ['weight' => 5,  'critical' => false],
-    'content_gap'               => ['weight' => 4,  'critical' => false],
-    'structured_data'           => ['weight' => 8,  'critical' => true],
-    'internal_linking'          => ['weight' => 10, 'critical' => false],
+    'topic_coverage'            => ['weight' => 8,  'critical' => false],
+    'paa_questions'             => ['weight' => 6,  'critical' => false],
+    'content_gap'               => ['weight' => 6,  'critical' => false],
+    'structured_data'           => ['weight' => 5,  'critical' => true],
+    'internal_linking'          => ['weight' => 3,  'critical' => false],
 ];
 
 // Video-only rule (not part of the 15-article weight sum).
@@ -63,12 +63,12 @@ function seo_make_rule(string $key, string $status, string $message, ?int $weigh
     $meta     = SEO_WEIGHTS[$key] ?? null;
     $weight   = $weightOverride ?? ($meta['weight'] ?? 0);
     $critical = ($meta['critical'] ?? false) || in_array($key, SEO_CRITICAL_RULES, true);
-    $levelMap = ['pass' => 'pass', 'warning' => 'warn', 'failed' => 'fail', 'pending' => 'pending', 'skip' => 'skip'];
+    $levelMap = ['passed' => 'pass', 'needs_improvement' => 'warn', 'failed' => 'fail', 'pending' => 'pending', 'skip' => 'skip'];
     $level    = $levelMap[$status] ?? 'pending';
     $score    = match ($status) {
-        'pass'    => $weight,
-        'warning' => (int) round($weight / 2),
-        default   => 0, // failed / pending / skip
+        'passed'            => $weight,
+        'needs_improvement' => (int) round($weight / 2),
+        default             => 0, // failed / pending / skip
     };
     return [
         'key'      => $key,
@@ -101,7 +101,7 @@ function seo_normalized_score(array $rules): int {
  * กำหนดสถานะ SEO Quality Gate จากคะแนนรวม + critical rules
  *
  * @param array $eval ผลลัพธ์จาก seo_evaluate() รูป ['score' => int, 'rules' => array]
- * @return string 'pass' | 'warning' | 'failed'
+ * @return string 'passed' | 'needs_improvement' | 'failed'
  */
 function seo_gate_status(array $eval): string {
     $score = (int)($eval['score'] ?? 0);
@@ -111,8 +111,8 @@ function seo_gate_status(array $eval): string {
         if (!empty($r['critical']) && $status === 'failed') return 'failed';
     }
     if ($score < SEO_GATE_WARN_SCORE) return 'failed';
-    if ($score < SEO_GATE_PASS_SCORE) return 'warning';
-    return 'pass';
+    if ($score < SEO_GATE_PASS_SCORE) return 'needs_improvement';
+    return 'passed';
 }
 
 /** ดึงข้อความล้วนจาก HTML (decode entities + strip tags + normalize whitespace) */
@@ -198,12 +198,8 @@ function seo_generation_requirements(string $type): array {
     $ordered = array_keys(SEO_WEIGHTS);
     usort($ordered, static fn($a, $b) => SEO_WEIGHTS[$b]['weight'] <=> SEO_WEIGHTS[$a]['weight']);
 
-    // วิดีโอข้ามกฎโครงสร้างบทความ — เหลือเฉพาะ metadata + structured data
-    $videoApplicable = ['seo_title', 'meta_description', 'slug', 'structured_data'];
-
     $requirements = [];
     foreach ($ordered as $key) {
-        if ($isVideo && !in_array($key, $videoApplicable, true)) continue;
         $requirements[] = ['key' => $key, 'requirement' => $text[$key]];
     }
     if ($isVideo) {
@@ -258,8 +254,55 @@ function seo_evaluate(array $item): array {
     $plainText = $hasBody ? seo_plain_text($html) : '';
     $headingsText = $hasBody ? seo_headings_text($html) : '';
 
+    // Video: สร้าง "เนื้อหา" สำหรับวัดผลจาก scripts/script_sections/visuals/description
+    // (Video ไม่ skip — วัดผลด้วย source ที่ต่างจาก article ตาม design)
+    $videoText = '';
+    $videoSectionLabels = [];
+    $videoLinks = [];
+    if ($isVideo && is_array($art)) {
+        $videoParts = [];
+        foreach (($art['scripts'] ?? []) as $script) {
+            if (is_string($script) && trim($script) !== '') $videoParts[] = trim($script);
+        }
+        if (is_array($art['script_sections'] ?? null)) {
+            foreach ($art['script_sections'] as $label => $txt) {
+                if (is_string($txt) && trim($txt) !== '') {
+                    $videoParts[] = trim($txt);
+                    if (is_string($label)) $videoSectionLabels[] = trim($label);
+                }
+            }
+        }
+        if (is_array($art['visuals'] ?? null)) {
+            foreach ($art['visuals'] as $v) {
+                if (is_string($v) && trim($v) !== '') $videoParts[] = trim($v);
+            }
+        }
+        $desc = trim((string)($art['description'] ?? ($art['excerpt'] ?? '')));
+        if ($desc !== '') $videoParts[] = $desc;
+        $videoText = implode("\n\n", $videoParts);
+        // ลิงก์ภายในสำหรับ video — จาก description (ข้อความที่มี URL)
+        if ($desc !== '') {
+            $videoLinks = preg_match_all('/(?:https?:\/\/|\/)[^\s"\'<>]+/i', $desc, $ml) ? $ml[0] : [];
+        }
+    }
+
+    // เนื้อหา/หัวข้อที่ใช้ค้นหาคีย์เวิร์ดและวัดผล ขึ้นกับ type
+    if ($isVideo) {
+        $bodyText     = $videoText;
+        $hasContent   = $videoText !== '';
+        $headingsText = $hasContent ? implode(' ', $videoSectionLabels) : '';
+        $bodyForCount = $videoText; // จำนวนคำจาก script
+        $firstPara    = $hasContent ? mb_substr(seo_plain_text($videoText), 0, 200) : '';
+    } else {
+        $bodyText     = $plainText;
+        $hasContent   = $hasBody;
+        $headingsText = $hasBody ? seo_headings_text($html) : '';
+        $bodyForCount = $html; // ใช้ html เดิมสำหรับ word count
+        $firstPara    = $hasBody ? seo_first_paragraph($html) : '';
+    }
+
     // ข้อความที่ใช้ค้นหาคีย์เวิร์ดรวม (title + meta + เนื้อหา)
-    $searchText = implode(' ', array_filter([$seoTitle, $fallbackTitle, $metaDesc, $plainText, $headingsText], fn($s) => $s !== ''));
+    $searchText = implode(' ', array_filter([$seoTitle, $fallbackTitle, $metaDesc, $bodyText, $headingsText], fn($s) => $s !== ''));
 
     // ── 1. seo_title 1–60 ───────────────────────────────────────────────────
     $len = mb_strlen($seoTitle);
@@ -292,96 +335,94 @@ function seo_evaluate(array $item): array {
         $rules[] = seo_make_rule('slug', 'pass', 'slug ถูกต้อง');
     }
 
-    // ── 4. h1 (body-dependent) ─────────────────────────────────────────────
+    // ── 4. h1 (per-type) ────────────────────────────────────────────────────
     if ($isVideo) {
-        $rules[] = seo_make_rule('h1', 'skip', 'วิดีโอไม่มีเนื้อหาบทความ จึงข้ามการตรวจ H1');
-    } elseif (!$hasBody) {
-        $rules[] = seo_make_rule('h1', 'skip', 'ไม่มีเนื้อหาบทความ จึงข้ามการตรวจ H1');
+        // Video: title เป็น h1 หนึ่งตัวเสมอ
+        $rules[] = seo_make_rule('h1', 'passed', 'วิดีโอใช้ชื่อเรื่องเป็น H1 หนึ่งตัว');
+    } elseif (!$hasContent) {
+        $rules[] = seo_make_rule('h1', 'pending', 'ไม่มีเนื้อหาบทความ จึงยังตรวจ H1 ไม่ได้');
     } elseif (preg_match_all('/<h1[\s>]/i', $html, $matches) > H1_MAX) {
         $count = count($matches[0]);
         $rules[] = seo_make_rule('h1', 'failed', "เนื้อหามีแท็ก H1 ซ้ำ {$count} ตัว (อนุญาตเฉพาะ H1 ของชื่อบทความ 1 ตัวแรก)");
     } else {
-        $rules[] = seo_make_rule('h1', 'pass', 'มีแท็ก H1 ของชื่อบทความไม่เกิน 1 ตัว');
+        $rules[] = seo_make_rule('h1', 'passed', 'มีแท็ก H1 ของชื่อบทความไม่เกิน 1 ตัว');
     }
 
-    // ── 5. heading_structure (body-dependent) ──────────────────────────────
+    // ── 5. heading_structure (per-type) ─────────────────────────────────────
     if ($isVideo) {
-        $rules[] = seo_make_rule('heading_structure', 'skip', 'วิดีโอไม่ใช้โครงสร้างหัวข้อ จึงข้ามการตรวจ');
-    } elseif (!$hasBody) {
-        $rules[] = seo_make_rule('heading_structure', 'skip', 'ไม่มีเนื้อหาบทความ จึงข้ามการตรวจหัวข้อ');
+        $secCount = count($videoSectionLabels);
+        if ($secCount >= 2) {
+            $rules[] = seo_make_rule('heading_structure', 'passed', "วิดีโอมีโครงสร้าง section {$secCount} ส่วน (opening/bridge/twist/ending)");
+        } elseif ($secCount >= 1) {
+            $rules[] = seo_make_rule('heading_structure', 'needs_improvement', "วิดีโอมีโครงสร้าง section เพียง {$secCount} ส่วน (ควรมี opening/bridge/twist/ending ครบ)");
+        } else {
+            $rules[] = seo_make_rule('heading_structure', 'failed', 'วิดีโอไม่มีโครงสร้าง script section ที่ชัดเจน');
+        }
+    } elseif (!$hasContent) {
+        $rules[] = seo_make_rule('heading_structure', 'pending', 'ไม่มีเนื้อหาบทความ จึงยังตรวจหัวข้อไม่ได้');
     } elseif (preg_match('/<h2[\s>]/i', $html)) {
-        $rules[] = seo_make_rule('heading_structure', 'pass', 'มีหัวข้อ H2 ในเนื้อหา');
+        $rules[] = seo_make_rule('heading_structure', 'passed', 'มีหัวข้อ H2 ในเนื้อหา');
     } else {
         $rules[] = seo_make_rule('heading_structure', 'failed', 'เนื้อหาไม่มีหัวข้อ H2 เลย');
     }
 
-    // ── 6. content_length ≥500 (body-dependent) ─────────────────────────────
-    if ($isVideo) {
-        $rules[] = seo_make_rule('content_length', 'skip', 'วิดีโอไม่ใช้เกณฑ์จำนวนคำบทความ จึงข้ามการตรวจ');
-    } elseif (!$hasBody) {
-        $rules[] = seo_make_rule('content_length', 'skip', 'ไม่มีเนื้อหาบทความ จึงข้ามการนับจำนวนคำ');
+    // ── 6. content_length (per-type) ────────────────────────────────────────
+    if (!$hasContent) {
+        $rules[] = seo_make_rule('content_length', 'pending', $isVideo ? 'วิดีโอไม่มี script/description ให้วัดจำนวนคำ' : 'ไม่มีเนื้อหาบทความ จึงข้ามการนับจำนวนคำ');
     } else {
-        $wc = seo_word_count($html);
+        $wc = seo_word_count($bodyForCount);
         if ($wc < WORD_COUNT_MIN) {
             $rules[] = seo_make_rule('content_length', 'failed', "เนื้อหาสั้นเกินไป (~{$wc} คำ ควร ≥ " . WORD_COUNT_MIN . ")");
         } else {
-            $rules[] = seo_make_rule('content_length', 'pass', "จำนวนคำเพียงพอ (~{$wc} คำ)");
+            $rules[] = seo_make_rule('content_length', 'passed', "จำนวนคำเพียงพอ (~{$wc} คำ)");
         }
     }
 
-    // ── 7. search_intent (research-dependent) ───────────────────────────────
-    if ($isVideo) {
-        $rules[] = seo_make_rule('search_intent', 'skip', 'วิดีโอไม่ใช้การเทียบ search intent ของบทความ จึงข้าม');
-    } elseif (!$brief || empty($brief['intent'])) {
+    // ── 7. search_intent (research-dependent, ทั้ง article และ video) ───────
+    if (!$brief || empty($brief['intent'])) {
         $rules[] = seo_make_rule('search_intent', 'pending', 'ยังไม่มี research brief / search intent จึงข้ามการตรวจ');
     } else {
-        $rules[] = seo_make_rule('search_intent', 'pass', 'เนื้อหาสอดคล้องกับ search intent "' . trim((string)$brief['intent']) . '" (จาก research)');
+        $rules[] = seo_make_rule('search_intent', 'passed', 'เนื้อหาสอดคล้องกับ search intent "' . trim((string)$brief['intent']) . '" (จาก research)');
     }
 
     // ── 8. primary_keyword_placement (title + first para + headings) ────────
-    if ($isVideo) {
-        $rules[] = seo_make_rule('primary_keyword_placement', 'skip', 'วิดีโอไม่ใช้โครงสร้างบทความ จึงข้ามการตรวจคีย์เวิร์ด');
-    } elseif ($primaryKw === '') {
+    if ($primaryKw === '') {
         $rules[] = seo_make_rule('primary_keyword_placement', 'pending', 'ยังไม่ได้กำหนดคีย์เวิร์ดหลัก (meta_keywords ว่าง)');
     } else {
         $checks = 1;
         $hits = 0;
         if (seo_contains($seoTitle, $primaryKw) || seo_contains($fallbackTitle, $primaryKw)) $hits++;
-        if ($hasBody) {
+        if ($hasContent) {
             $checks++;
-            if (seo_contains(seo_first_paragraph($html), $primaryKw)) $hits++;
+            if (seo_contains($firstPara, $primaryKw)) $hits++;
             $checks++;
             if (seo_contains($headingsText, $primaryKw)) $hits++;
         }
         if ($hits === $checks) {
-            $rules[] = seo_make_rule('primary_keyword_placement', 'pass', "คีย์เวิร์ดหลัก \"{$primaryKw}\" อยู่ในตำแหน่งสำคัญครบถ้วน");
+            $rules[] = seo_make_rule('primary_keyword_placement', 'passed', "คีย์เวิร์ดหลัก \"{$primaryKw}\" อยู่ในตำแหน่งสำคัญครบถ้วน");
         } elseif ($hits >= (int) ceil($checks / 2)) {
-            $rules[] = seo_make_rule('primary_keyword_placement', 'warning', "คีย์เวิร์ดหลัก \"{$primaryKw}\" อยู่ในตำแหน่งสำคัญ {$hits}/{$checks} ตำแหน่ง");
+            $rules[] = seo_make_rule('primary_keyword_placement', 'needs_improvement', "คีย์เวิร์ดหลัก \"{$primaryKw}\" อยู่ในตำแหน่งสำคัญ {$hits}/{$checks} ตำแหน่ง");
         } else {
             $rules[] = seo_make_rule('primary_keyword_placement', 'failed', "คีย์เวิร์ดหลัก \"{$primaryKw}\" ปรากฏในตำแหน่งสำคัญเพียง {$hits}/{$checks} ตำแหน่ง");
         }
     }
 
-    // ── 9. keyword_stuffing (body-dependent) ────────────────────────────────
-    if ($isVideo) {
-        $rules[] = seo_make_rule('keyword_stuffing', 'skip', 'วิดีโอไม่ใช้การนับความหนาแน่นคีย์เวิร์ดบทความ จึงข้าม');
-    } elseif (!$hasBody || $primaryKw === '') {
+    // ── 9. keyword_stuffing (per-type) ──────────────────────────────────────
+    if (!$hasContent || $primaryKw === '') {
         $rules[] = seo_make_rule('keyword_stuffing', 'pending', 'ยังไม่มีเนื้อหาหรือคีย์เวิร์ดหลักให้ตรวจความหนาแน่น');
     } else {
-        $totalWords = seo_word_count($html);
-        $occurrences = seo_count_occurrences($plainText, $primaryKw);
+        $totalWords = seo_word_count($bodyForCount);
+        $occurrences = seo_count_occurrences($bodyText, $primaryKw);
         $density = $totalWords > 0 ? $occurrences / $totalWords : 0;
         if ($density > SEO_KEYWORD_DENSITY_MAX) {
             $rules[] = seo_make_rule('keyword_stuffing', 'failed', "คีย์เวิร์ดหลักหนาแน่นเกินไป (~" . (int) round($density * 100) . "% ควรต่ำกว่า " . (int)(SEO_KEYWORD_DENSITY_MAX * 100) . "%)");
         } else {
-            $rules[] = seo_make_rule('keyword_stuffing', 'pass', 'ความถี่คีย์เวิร์ดหลักอยู่ในระดับธรรมชาติ');
+            $rules[] = seo_make_rule('keyword_stuffing', 'passed', 'ความถี่คีย์เวิร์ดหลักอยู่ในระดับธรรมชาติ');
         }
     }
 
     // ── 10. related_keywords (research-dependent) ───────────────────────────
-    if ($isVideo) {
-        $rules[] = seo_make_rule('related_keywords', 'skip', 'วิดีโอไม่ใช้การตรวจคีย์เวิร์ดรองบทความ จึงข้าม');
-    } elseif (!$brief || empty(seo_brief_secondary_keywords($brief))) {
+    if (!$brief || empty(seo_brief_secondary_keywords($brief))) {
         $rules[] = seo_make_rule('related_keywords', 'pending', 'ยังไม่มี secondary keywords จาก research จึงข้ามการตรวจ');
     } else {
         $secondary = seo_brief_secondary_keywords($brief);
@@ -390,16 +431,14 @@ function seo_evaluate(array $item): array {
             if (seo_contains($searchText, $kw)) $found++;
         }
         if ($found > 0) {
-            $rules[] = seo_make_rule('related_keywords', 'pass', "พบคีย์เวิร์ดรองจาก research {$found}/" . count($secondary) . " คำ");
+            $rules[] = seo_make_rule('related_keywords', 'passed', "พบคีย์เวิร์ดรองจาก research {$found}/" . count($secondary) . " คำ");
         } else {
-            $rules[] = seo_make_rule('related_keywords', 'warning', 'ไม่พบคีย์เวิร์ดรองจาก research ในเนื้อหา');
+            $rules[] = seo_make_rule('related_keywords', 'needs_improvement', 'ไม่พบคีย์เวิร์ดรองจาก research ในเนื้อหา');
         }
     }
 
     // ── 11. topic_coverage (research-dependent) ─────────────────────────────
-    if ($isVideo) {
-        $rules[] = seo_make_rule('topic_coverage', 'skip', 'วิดีโอไม่ใช้ outline บทความ จึงข้าม');
-    } elseif (!$brief || empty(seo_brief_outline($brief))) {
+    if (!$brief || empty(seo_brief_outline($brief))) {
         $rules[] = seo_make_rule('topic_coverage', 'pending', 'ยังไม่มี outline จาก research จึงข้ามการตรวจ');
     } else {
         $outline = seo_brief_outline($brief);
@@ -409,18 +448,16 @@ function seo_evaluate(array $item): array {
         }
         $ratio = count($outline) > 0 ? $covered / count($outline) : 0;
         if ($ratio >= 0.5) {
-            $rules[] = seo_make_rule('topic_coverage', 'pass', "ครอบคลุมหัวข้อจาก outline {$covered}/" . count($outline) . " หัวข้อ");
+            $rules[] = seo_make_rule('topic_coverage', 'passed', "ครอบคลุมหัวข้อจาก outline {$covered}/" . count($outline) . " หัวข้อ");
         } elseif ($covered > 0) {
-            $rules[] = seo_make_rule('topic_coverage', 'warning', "ครอบคลุมหัวข้อจาก outline เพียง {$covered}/" . count($outline) . " หัวข้อ");
+            $rules[] = seo_make_rule('topic_coverage', 'needs_improvement', "ครอบคลุมหัวข้อจาก outline เพียง {$covered}/" . count($outline) . " หัวข้อ");
         } else {
-            $rules[] = seo_make_rule('topic_coverage', 'warning', 'ไม่พบหัวข้อจาก outline ในเนื้อหา');
+            $rules[] = seo_make_rule('topic_coverage', 'needs_improvement', 'ไม่พบหัวข้อจาก outline ในเนื้อหา');
         }
     }
 
     // ── 12. paa_questions (research-dependent) ──────────────────────────────
-    if ($isVideo) {
-        $rules[] = seo_make_rule('paa_questions', 'skip', 'วิดีโอไม่ใช้การตรวจคำถาม PAA บทความ จึงข้าม');
-    } elseif (!$brief || empty(seo_brief_paa($brief))) {
+    if (!$brief || empty(seo_brief_paa($brief))) {
         $rules[] = seo_make_rule('paa_questions', 'pending', 'ยังไม่มีคำถาม PAA จาก research จึงข้ามการตรวจ');
     } else {
         $paa = seo_brief_paa($brief);
@@ -429,16 +466,14 @@ function seo_evaluate(array $item): array {
             if (seo_contains($searchText, $q)) $answered++;
         }
         if ($answered > 0) {
-            $rules[] = seo_make_rule('paa_questions', 'pass', "เนื้อหาตอบคำถาม PAA {$answered}/" . count($paa) . " ข้อ");
+            $rules[] = seo_make_rule('paa_questions', 'passed', "เนื้อหาตอบคำถาม PAA {$answered}/" . count($paa) . " ข้อ");
         } else {
-            $rules[] = seo_make_rule('paa_questions', 'warning', 'เนื้อหายังไม่ตอบคำถาม PAA จาก research');
+            $rules[] = seo_make_rule('paa_questions', 'needs_improvement', 'เนื้อหายังไม่ตอบคำถาม PAA จาก research');
         }
     }
 
     // ── 13. content_gap (research-dependent) ────────────────────────────────
-    if ($isVideo) {
-        $rules[] = seo_make_rule('content_gap', 'skip', 'วิดีโอไม่ใช้การตรวจ content gap บทความ จึงข้าม');
-    } elseif (!$brief || empty(seo_brief_gaps($brief))) {
+    if (!$brief || empty(seo_brief_gaps($brief))) {
         $rules[] = seo_make_rule('content_gap', 'pending', 'ยังไม่มี content gaps จาก research จึงข้ามการตรวจ');
     } else {
         $gaps = seo_brief_gaps($brief);
@@ -447,13 +482,13 @@ function seo_evaluate(array $item): array {
             if (seo_contains($searchText, $g)) $filled++;
         }
         if ($filled > 0) {
-            $rules[] = seo_make_rule('content_gap', 'pass', "เนื้อหาเติม content gaps {$filled}/" . count($gaps) . " จุด");
+            $rules[] = seo_make_rule('content_gap', 'passed', "เนื้อหาเติม content gaps {$filled}/" . count($gaps) . " จุด");
         } else {
-            $rules[] = seo_make_rule('content_gap', 'warning', 'เนื้อยังไม่เติม content gaps จาก research');
+            $rules[] = seo_make_rule('content_gap', 'needs_improvement', 'เนื้อยังไม่เติม content gaps จาก research');
         }
     }
 
-    // ── 14. structured_data (JSON + @context/@type) ─────────────────────────
+    // ── 14. structured_data (JSON + @context/@type; video ต้องเป็น Video schema) ──
     if ($structured === '') {
         $rules[] = seo_make_rule('structured_data', 'pending', 'ยังไม่ได้ตั้งข้อมูลโครงสร้าง (structured data)');
     } else {
@@ -462,22 +497,29 @@ function seo_evaluate(array $item): array {
             $rules[] = seo_make_rule('structured_data', 'failed', 'structured data ไม่ใช่ JSON ที่อ่านได้');
         } elseif (!seo_structured_valid($sd)) {
             $rules[] = seo_make_rule('structured_data', 'failed', 'structured data ต้องมี @context และ @type');
+        } elseif ($isVideo && !seo_structured_has_type($sd, 'VideoObject')) {
+            $rules[] = seo_make_rule('structured_data', 'failed', 'structured data ของวิดีโอต้องมี @type เป็น VideoObject');
         } else {
-            $rules[] = seo_make_rule('structured_data', 'pass', 'structured data ถูกต้อง');
+            $rules[] = seo_make_rule('structured_data', 'passed', 'structured data ถูกต้อง');
         }
     }
 
-    // ── 15. internal_linking (body-dependent, best-effort) ──────────────────
+    // ── 15. internal_linking (per-type) ─────────────────────────────────────
     if ($isVideo) {
-        $rules[] = seo_make_rule('internal_linking', 'skip', 'วิดีโอไม่ใช้ลิงก์ภายในบทความ จึงข้ามการตรวจ');
-    } elseif (!$hasBody) {
-        $rules[] = seo_make_rule('internal_linking', 'skip', 'ไม่มีเนื้อหาบทความ จึงข้ามการตรวจลิงก์ภายใน');
+        $n = count($videoLinks);
+        if ($n >= 1) {
+            $rules[] = seo_make_rule('internal_linking', 'passed', "มีลิงก์ภายใน/ที่เกี่ยวข้องใน description {$n} รายการ");
+        } else {
+            $rules[] = seo_make_rule('internal_linking', 'pending', 'วิดีโอไม่มี description/link ภายในให้ตรวจ (เป็นคำแนะนำ ไม่ fail)');
+        }
+    } elseif (!$hasContent) {
+        $rules[] = seo_make_rule('internal_linking', 'pending', 'ไม่มีเนื้อหาบทความ จึงข้ามการตรวจลิงก์ภายใน');
     } else {
         $n = seo_internal_link_count($html);
         if ($n >= 1) {
-            $rules[] = seo_make_rule('internal_linking', 'pass', "มีลิงก์ภายใน {$n} รายการ");
+            $rules[] = seo_make_rule('internal_linking', 'passed', "มีลิงก์ภายใน {$n} รายการ");
         } else {
-            $rules[] = seo_make_rule('internal_linking', 'warning', 'ไม่พบลิงก์ภายในในเนื้อหา');
+            $rules[] = seo_make_rule('internal_linking', 'needs_improvement', 'ไม่พบลิงก์ภายในในเนื้อหา');
         }
     }
 
@@ -495,7 +537,7 @@ function seo_evaluate(array $item): array {
             ];
         } else {
             $rules[] = [
-                'key' => 'hashtags', 'level' => 'pass', 'status' => 'pass',
+                'key' => 'hashtags', 'level' => 'pass', 'status' => 'passed',
                 'weight' => SEO_WEIGHT_HASHTAGS, 'score' => SEO_WEIGHT_HASHTAGS, 'critical' => true,
                 'message' => 'มี hashtag สำหรับวิดีโอแล้ว',
             ];
@@ -561,6 +603,29 @@ function seo_structured_valid(array $sd): bool {
         || isset($sd[0]['@type'])
         || isset($sd['@graph'][0]['@type']);
     return $hasContext && $hasType;
+}
+
+/** ตรวจว่า structured data มี @type ตรงกับค่าที่ระบุ (รองรับ object เดี่ยว, array, และ @graph) */
+function seo_structured_has_type(array $sd, string $type): bool {
+    $types = [];
+    if (isset($sd['@type'])) {
+        $t = $sd['@type'];
+        $types = array_merge($types, is_array($t) ? $t : [$t]);
+    }
+    if (isset($sd[0]['@type'])) {
+        $t = $sd[0]['@type'];
+        $types = array_merge($types, is_array($t) ? $t : [$t]);
+    }
+    foreach (($sd['@graph'] ?? []) as $node) {
+        if (is_array($node) && isset($node['@type'])) {
+            $t = $node['@type'];
+            $types = array_merge($types, is_array($t) ? $t : [$t]);
+        }
+    }
+    foreach ($types as $t) {
+        if (is_string($t) && strcasecmp(trim($t), $type) === 0) return true;
+    }
+    return false;
 }
 
 /** ค้นหาแบบไม่สนตัวพิมพ์ รองรับ multibyte */

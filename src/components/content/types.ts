@@ -396,8 +396,8 @@ export const emptySeoFields = (): SeoFields => ({
 // ─── SEO checklist (Phase 4 publish gate) ───────────────────────────
 // ตรงกับผลลัพธ์จาก api/lib/seo-checklist.php ผ่าน ?action=seo-checklist
 export type SeoRuleLevel = 'pass' | 'warn' | 'fail' | 'pending' | 'skip';
-export type SeoRuleStatus = 'pass' | 'warning' | 'failed' | 'pending' | 'skip';
-export type SeoGateStatus = 'pass' | 'warning' | 'failed';
+export type SeoRuleStatus = 'passed' | 'needs_improvement' | 'failed' | 'pending' | 'skip';
+export type SeoGateStatus = 'passed' | 'needs_improvement' | 'failed';
 
 export interface SeoRule {
   key: string;
@@ -418,9 +418,9 @@ export interface SeoChecklistResult {
 }
 
 export const SEO_GATE_LABEL: Record<SeoGateStatus, { label: string; className: string }> = {
-  pass:    { label: 'ผ่าน',        className: 'text-green-600' },
-  warning: { label: 'ควรปรับปรุง', className: 'text-amber-500' },
-  failed:  { label: 'ไม่ผ่าน',     className: 'text-destructive' },
+  passed:           { label: 'ผ่าน',        className: 'text-green-600' },
+  needs_improvement: { label: 'ควรปรับปรุง', className: 'text-amber-500' },
+  failed:           { label: 'ไม่ผ่าน',     className: 'text-destructive' },
 };
 
 // ─── Constants ──────────────────────────────────────────────────────

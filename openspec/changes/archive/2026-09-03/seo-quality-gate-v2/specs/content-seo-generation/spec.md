@@ -1,36 +1,4 @@
-## Purpose
-
-กำหนดให้การสร้างเนื้อหาผ่าน `generate-article` ใช้กฎ SEO Checklist เป็นเงื่อนไขในการสร้างเนื้อหา โดยใช้ source of truth เดียวกับ `seo_evaluate()` ประเมินเนื้อหาที่สร้าง ก่อนคืนผล และสร้างใหม่พร้อม feedback จนไม่มีกฎ `fail` (ภายในเพดานที่กำหนด)
-
-## Requirements
-
-### Requirement: กฎ SEO ใน prompt มาจาก source of truth เดียวกับ seo_evaluate
-ระบบ SHALL มีฟังก์ชัน `seo_generation_requirements(string $type): array` ใน `api/lib/seo-checklist.php` ที่คืนรายการข้อกำหนดภาษาไทยสำหรับฉีดเข้า AI prompt โดยอ่าน threshold เดียวกับ `seo_evaluate()` (ผ่าน named constants) และ SHALL ใช้ข้อกำหนดนี้แทนกฎ SEO ที่ hardcode ไว้เดิมใน `generate-article`
-
-#### Scenario: prompt บทความมีข้อกำหนดครบชุด
-- **WHEN** `seo_generation_requirements('article')` ถูกเรียก
-- **THEN** ผลลัพธ์มีข้อกำหนดครอบคลุมอย่างน้อย seo_title (1–60), meta_description (120–160), slug (lowercase + ขีด), H2 อย่างน้อย 1, h1 ไม่เกิน 1, จำนวนคำ ≥ 500, คีย์เวิร์ดใน title/ย่อหน้าแรก/หัวข้อ, structured_data (@context/@type), และ internal_link
-- **AND** ข้อกำหนดภาษาไทยอ้างอิงค่า threshold เดียวกับที่ `seo_evaluate()` ใช้ตรวจ
-
-#### Scenario: prompt วิดีโอไม่บังคับโครงสร้างบทความ
-- **WHEN** `seo_generation_requirements('video')` ถูกเรียก
-- **THEN** ผลลัพธ์ไม่บังคับ H2, จำนวนคำ, และ internal_link
-- **AND** ผลลัพธ์บังคับ hashtag อย่างน้อย 1 รายการ
-
-#### Scenario: ใช้ข้อกำหนดร่วมแทนการ hardcode
-- **WHEN** `generate-article` สร้าง system prompt สำหรับบทความ
-- **THEN** ส่วนข้อกำหนด SEO มาจาก `seo_generation_requirements($type)` ไม่ใช่ข้อความ hardcode แยกชุด
-
-### Requirement: ประเมินเนื้อหาที่สร้างด้วย seo_evaluate ก่อนคืนผล
-ระบบ SHALL เรียก `seo_evaluate()` กับรายการที่ประกอบเสร็จแล้ว (แมป `article_content` เป็น array, `type`, `title`, `seo_title`, `slug`, `meta_description`, `meta_keywords`, `structured_data`, `og_image`) ในเส้นทาง `generate-article` ก่อนคืนผลให้ผู้ใช้
-
-#### Scenario: ประเมินหลังสร้างเนื้อหาบทความ
-- **WHEN** `generate-article` สร้างเนื้อหาบทความสำเร็จและประกอบ `$art` เสร็จ
-- **THEN** ระบบเรียก `seo_evaluate()` ด้วยฟิลด์ของรายการนั้น และได้ `score` + `rules`
-
-#### Scenario: ประเมินวิดีโอด้วย type=video
-- **WHEN** รายการมี `type = 'video'`
-- **THEN** ระบบส่ง `type = 'video'` ให้ `seo_evaluate()` เพื่อเลือก ruleset วิดีโอ
+## MODIFIED Requirements
 
 ### Requirement: สร้างใหม่พร้อม feedback จนกว่า SEO Quality Gate ผ่าน
 เมื่อผล `seo_evaluate()` มี gate status ไม่ใช่ `passed` (มีกฎ `failed`/`needs_improvement` หรือ critical rule ล้ม) ระบบ SHALL สร้างเนื้อหาใหม่อีกครั้งโดยเพิ่ม feedback (ข้อความภาษาไทยของกฎที่ติด เรียงตามน้ำหนักมากไปน้อย) เข้าในคำขอ AI และ SHALL ประเมินใหม่ครบทั้ง 15 ข้อทุกครั้ง แล้วทำซ้ำจน gate status เป็น `passed` หรือถึงเพดานที่กำหนด

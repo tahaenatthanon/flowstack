@@ -2214,10 +2214,10 @@ if ($action === 'generate-article') {
     ]);
 
     for ($seoAttempt = 1; $seoAttempt < SEO_GEN_MAX_ATTEMPTS; $seoAttempt++) {
-        // Repaired เมื่อ Quality Gate ยังไม่ผ่าน (failed/warning หรือ critical rule ล้ม)
-        if (seo_gate_status($seoEval) === 'pass') break;
+        // Repaired เมื่อ Quality Gate ยังไม่ผ่าน (failed/needs_improvement หรือ critical rule ล้ม)
+        if (seo_gate_status($seoEval) === 'passed') break;
 
-        $seoIssues = array_values(array_filter($seoEval['rules'], static fn(array $r): bool => in_array($r['status'] ?? '', ['failed', 'warning'], true)));
+        $seoIssues = array_values(array_filter($seoEval['rules'], static fn(array $r): bool => in_array($r['status'] ?? '', ['failed', 'needs_improvement'], true)));
         usort($seoIssues, static fn(array $a, array $b): int => ($b['weight'] ?? 0) <=> ($a['weight'] ?? 0));
 
         $feedback = implode("\n", array_map(
@@ -2298,7 +2298,7 @@ if ($action === 'generate-article') {
         }
     }
     $seoGate   = seo_gate_status($seoEval);
-    $seoPassed = $seoGate === 'pass';
+    $seoPassed = $seoGate === 'passed';
 
     // Update content_items with article content + SEO columns
     $newCaption = $mainData['caption'] ?? null;

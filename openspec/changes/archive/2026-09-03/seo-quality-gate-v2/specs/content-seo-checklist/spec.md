@@ -1,13 +1,7 @@
-# content-seo-checklist Specification
-
-## Purpose
-
-กำหนดการประเมิน SEO ของคอนเทนต์ก่อนเผยแพร่ — ฟังก์ชัน `seo_evaluate()` ที่คืนคะแนนและผลตรวจแต่ละกฎ, การตั้งค่าเกตใน `content_global_settings`, endpoint `seo-checklist` สำหรับ UI, และเกตบล็อกการเผยแพร่เมื่อเปิดใช้งาน
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: seo_evaluate เป็นฟังก์ชันบริสุทธิ์ที่คืนคะแนนและกฎ
-ระบบ SHALL มีฟังก์ชัน `seo_evaluate(array $item): array` ใน `api/lib/seo-checklist.php` ที่ไม่พึ่ง I/O ภายนอก และคืนผลลัพธ์รูป `['score' => int, 'rules' => array<array{key:string, level:string, status:string, weight:int, score:int, message:string}>]` โดยรับชนิดคอนเทนต์จาก `$item['type']` และใช้เลือก ruleset โดย `score` (รวม) คำนวณแบบ weighted จากน้ำหนักจริงของแต่ละกฎ (0–100) แทน penalty คงที่
+ระบบ SHALL มีฟังก์ชัน `seo_evaluate(array $item): array` ใน `api/lib/seo-checklist.php` ที่ไม่พึ่ง I/O ภายนอก และคืนผลลัพธ์รูป `['score' => int, 'gate' => string, 'rules' => array<array{key:string, level:string, status:string, weight:int, score:int, critical:bool, message:string}>]` โดยรับชนิดคอนเทนต์จาก `$item['type']` และใช้เลือก ruleset โดย `score` (รวม) คำนวณแบบ weighted จากน้ำหนักจริงของแต่ละกฎ (0–100)
 
 #### Scenario: ผลลัพธ์มี score และ rules พร้อมน้ำหนัก
 - **WHEN** `seo_evaluate()` ถูกเรียกด้วย array ของฟิลด์คอนเทนต์
@@ -17,7 +11,7 @@
 - **AND** `level` (alias) มีค่าใน `pass`, `warn`, `fail`, `pending` หรือ `skip`
 
 #### Scenario: คะแนนรวมสะท้อนน้ำหนักจริง
-- **WHEN** กฎที่มีน้ำหนักสูง (เช่น primary_keyword_placement = 10) เป็น `failed`
+- **WHEN** กฎที่มีน้ำหนักสูง (เช่น search_intent = 8) เป็น `failed`
 - **THEN** คะแนนรวมลดลงตามน้ำหนักของกฎนั้น ไม่ใช่ค่าคงที่เท่ากันทุกกฎ
 
 #### Scenario: คะแนนรายข้ออยู่ในช่วง 0 ถึงน้ำหนัก
@@ -76,20 +70,6 @@
 - **WHEN** `seo_title` ว่างหรือยาวเกิน 60 ตัวอักษร
 - **THEN** กฎ `seo_title` มี `status = 'failed'`
 
-### Requirement: ตั้งค่าเกตใน content_global_settings
-ฐานข้อมูล SHALL มีคอลัมน์ `seo_gate_enabled TINYINT(1) DEFAULT 0` และ `seo_gate_min_score TINYINT UNSIGNED DEFAULT 0` ในตาราง `content_global_settings` โดยค่า default ปิดเกต
-
-#### Scenario: default ปิดเกต
-- **WHEN** แถว `content_global_settings` ถูกสร้างใหม่โดยไม่ระบุค่า
-- **THEN** `seo_gate_enabled = 0` และ `seo_gate_min_score = 0`
-
-### Requirement: endpoint seo-checklist
-ระบบ SHALL มี endpoint `GET /brand-content.php?action=seo-checklist&item_id={id}` ที่คืนผลการประเมิน SEO ของคอนเทนต์นั้น โดยส่ง `content_items.type` ให้ `seo_evaluate()` และคืนสถานะ `pending` ได้
-
-#### Scenario: ดึงผลประเมินสด
-- **WHEN** ผู้ใช้เรียก `?action=seo-checklist&item_id={id}` ด้วย id ที่ถูกต้องและเป็นของ tenant
-- **THEN** ระบบคืน `score`, `rules`, และสถานะเกต (`seo_gate_enabled`, `seo_gate_min_score`) โดยเรียก `seo_evaluate()` ตัวเดียวกับที่ใช้ในเส้นทางเผยแพร่
-
 ### Requirement: เกตบล็อกการเผยแพร่เมื่อเปิดใช้งาน
 เมื่อ `seo_gate_enabled = 1` ระบบ SHALL บล็อกการเผยแพร่ (publish / send_now / cron scheduler) หาก `seo_gate_status()` คืน `failed` (คะแนน < 80 หรือมี critical rule `failed`) หรือคะแนนต่ำกว่า `seo_gate_min_score` โดย `pending` และ `needs_improvement` ไม่เป็นเหตุบล็อกเมื่อ `seo_gate_min_score = 0`
 
@@ -106,27 +86,3 @@
 #### Scenario: ปิดเกตไม่บล็อก
 - **WHEN** `seo_gate_enabled = 0` (default)
 - **THEN** การเผยแพร่ดำเนินต่อไปตามปกติไม่ว่าคะแนน/กฎจะเป็นอย่างไร
-
-### Requirement: หน้า SEO/AEO รองรับสถานะ pending
-หน้า SEO/AEO Metadata SHALL รองรับ rule level `pending` ที่ส่งจาก endpoint และแสดงผลเป็นสถานะข้อมูลที่ยังไม่ได้กำหนด โดยไม่ทำให้หน้า Page เกิด runtime error
-
-#### Scenario: เปิดแผง SEO ที่มี pending
-- **GIVEN** endpoint คืน rule ที่มี `level = 'pending'`
-- **WHEN** ผู้ใช้เปิดแผง "SEO / AEO Metadata"
-- **THEN** หน้าแสดงรายการ rule พร้อมไอคอนและรูปแบบของสถานะ pending
-- **AND** ไม่แสดงข้อผิดพลาดจาก ErrorBoundary ของ Page
-
-#### Scenario: แสดงสถานะ pending เป็นภาษาไทย
-- **GIVEN** rule มี `level = 'pending'` และข้อความจาก API ระบุว่ายังไม่ได้กรอกหรือยังไม่ได้กำหนด
-- **WHEN** รายการ rule ถูก render
-- **THEN** ผู้ใช้เห็นข้อความภาษาไทยตามข้อมูลจาก API
-- **AND** pending ไม่ถูกแสดงเป็น fail หรือ warn
-
-### Requirement: หน้า SEO/AEO ป้องกันข้อมูลสถานะที่ไม่รู้จักทำให้ล้ม
-ตัวแสดงผล SEO/AEO SHALL มี fallback สำหรับ rule level ที่ frontend ยังไม่รู้จัก เพื่อให้รายการยังแสดงได้และไม่ทำให้ component หลักหยุดทำงาน
-
-#### Scenario: API ส่ง level ใหม่ที่ frontend ยังไม่มี
-- **GIVEN** endpoint คืน rule ที่มี level ซึ่งไม่มีใน mapping ปัจจุบัน
-- **WHEN** หน้า render รายการ rule
-- **THEN** ระบบใช้รูปแบบ fallback ที่ปลอดภัย
-- **AND** หน้า SEO/AEO และหน้า Page ยังคงทำงานต่อได้
