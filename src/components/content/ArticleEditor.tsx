@@ -49,7 +49,8 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { apiFetch } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import type { SeoFields, SeoChecklistResult, SeoRuleLevel } from '@/components/content/types';
+import type { SeoFields, SeoChecklistResult, SeoRuleLevel, SeoRuleStatus } from '@/components/content/types';
+import { SEO_GATE_LABEL } from '@/components/content/types';
 import {
   Bold, Italic, Underline as UnderlineIcon, Strikethrough,
   Heading1, Heading2, Heading3, Heading4,
@@ -714,6 +715,15 @@ const SEO_LEVEL_META: Record<SeoRuleLevel, { icon: React.ElementType; className:
   skip: { icon: MinusCircle,   className: 'text-muted-foreground/50' },
 };
 
+// status ใหม่ (pass/warning/failed/pending/skip) — map ไปใช้ icon ชุดเดิม
+const SEO_STATUS_META: Record<SeoRuleStatus, { icon: React.ElementType; className: string }> = {
+  pass: SEO_LEVEL_META.pass,
+  warning: SEO_LEVEL_META.warn,
+  failed: SEO_LEVEL_META.fail,
+  pending: SEO_LEVEL_META.pending,
+  skip: SEO_LEVEL_META.skip,
+};
+
 function seoScoreColor(score: number): string {
   if (score >= 80) return 'text-green-600';
   if (score >= 50) return 'text-amber-500';
@@ -726,8 +736,9 @@ function SeoChecklistPanel({ result, loading, error, onRecheck }: {
   error: string | null;
   onRecheck: () => void;
 }) {
-  const fails = result?.rules.filter(r => r.level === 'fail') ?? [];
+  const fails = result?.rules.filter(r => (r.status ?? r.level) === 'failed' || r.level === 'fail') ?? [];
   const gateOn = result?.seo_gate_enabled === 1;
+  const gateMeta = result ? SEO_GATE_LABEL[result.gate] : undefined;
   return (
     <div className="rounded-md border bg-background/60 p-3 space-y-2">
       <div className="flex items-center justify-between gap-2">
@@ -741,6 +752,11 @@ function SeoChecklistPanel({ result, loading, error, onRecheck }: {
               <span className="text-[10px] font-normal text-muted-foreground">/100</span>
             </span>
           )}
+          {result && gateMeta && (
+            <span className={cn('text-[11px] font-medium leading-none', gateMeta.className)}>
+              {gateMeta.label}
+            </span>
+          )}
         </div>
         <Button type="button" variant="ghost" size="sm" className="h-7 gap-1 text-xs"
           onClick={onRecheck} disabled={loading}>
@@ -752,11 +768,11 @@ function SeoChecklistPanel({ result, loading, error, onRecheck }: {
       {result && gateOn && (
         <div className={cn(
           'flex items-start gap-1.5 rounded px-2 py-1.5 text-[11px] leading-relaxed',
-          fails.length > 0
+          result.gate === 'failed'
             ? 'bg-destructive/10 text-destructive'
             : 'bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300',
         )}>
-          {fails.length > 0 ? (
+          {result.gate === 'failed' ? (
             <>
               <XCircle className="h-3.5 w-3.5 mt-px shrink-0" />
               <span>เกต SEO เปิดอยู่ — มีกฎไม่ผ่าน {fails.length} ข้อ จะเผยแพร่/อนุมัติไม่ได้จนกว่าจะแก้ครบ{result.seo_gate_min_score > 0 ? ` (คะแนนขั้นต่ำ ${result.seo_gate_min_score})` : ''}</span>
@@ -780,14 +796,23 @@ function SeoChecklistPanel({ result, loading, error, onRecheck }: {
       {result && (
         <ul className="space-y-1">
           {result.rules.map(rule => {
-            const meta = SEO_LEVEL_META[rule.level] ?? SEO_LEVEL_META.pending;
+            const status = (rule.status ?? rule.level) as SeoRuleStatus;
+            const meta = SEO_STATUS_META[status] ?? SEO_LEVEL_META.pending;
             const Icon = meta.icon;
+            const showScore = (status === 'pass' || status === 'warning' || status === 'failed') && rule.weight > 0;
             return (
               <li key={rule.key} className="flex items-start gap-1.5 text-[11px] leading-relaxed">
                 <Icon className={cn('h-3.5 w-3.5 mt-px shrink-0', meta.className)} />
                 <span className={cn(
-                  (rule.level === 'skip' || rule.level === 'pending') && 'text-muted-foreground/70',
-                )}>{rule.message}</span>
+                  (status === 'skip' || status === 'pending') && 'text-muted-foreground/70',
+                )}>
+                  {rule.message}
+                  {showScore && (
+                    <span className="ml-1 text-muted-foreground/70">
+                      ({rule.score}/{rule.weight})
+                    </span>
+                  )}
+                </span>
               </li>
             );
           })}

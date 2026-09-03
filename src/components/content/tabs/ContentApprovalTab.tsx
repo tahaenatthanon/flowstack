@@ -165,10 +165,11 @@ export default function ContentApprovalTab() {
   const hasActiveFilters = !!searchQuery || statusFilter !== 'all' || typeFilter !== 'all' || platformFilter !== 'all';
 
   // เกต SEO ของรายการที่กำลังจะอนุมัติ — mirror ตรรกะ seo_gate_check() ฝั่ง backend
-  const approveFails = approveGate?.rules.filter(r => r.level === 'fail') ?? [];
+  const approveFails = approveGate?.rules.filter(r => r.status === 'failed' || r.level === 'fail') ?? [];
   const approveGateOn = approveGate?.seo_gate_enabled === 1;
   const approveLowScore = !!approveGate && approveGate.score < approveGate.seo_gate_min_score;
-  const approveBlocked = approveGateOn && (approveFails.length > 0 || approveLowScore);
+  const approveGateFailed = approveGate?.gate === 'failed';
+  const approveBlocked = approveGateOn && (approveGateFailed || approveLowScore);
 
   return (
     <>

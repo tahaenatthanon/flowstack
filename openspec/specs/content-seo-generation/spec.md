@@ -32,49 +32,53 @@
 - **WHEN** รายการมี `type = 'video'`
 - **THEN** ระบบส่ง `type = 'video'` ให้ `seo_evaluate()` เพื่อเลือก ruleset วิดีโอ
 
-### Requirement: สร้างใหม่พร้อม feedback เมื่อมีกฎ fail
-เมื่อผล `seo_evaluate()` มีกฎ `level = 'fail'` ระบบ SHALL สร้างเนื้อหาใหม่อีกครั้งโดยเพิ่ม feedback (ข้อความภาษาไทยของกฎที่ติด) เข้าในคำขอ AI และ SHALL ทำซ้ำจนไม่มีกฎ `fail` หรือถึงเพดานที่กำหนด
+### Requirement: สร้างใหม่พร้อม feedback จนกว่า SEO Quality Gate ผ่าน
+เมื่อผล `seo_evaluate()` มี gate status ไม่ใช่ `pass` (มีกฎ `failed`/`warning` หรือ critical rule ล้ม) ระบบ SHALL สร้างเนื้อหาใหม่อีกครั้งโดยเพิ่ม feedback (ข้อความภาษาไทยของกฎที่ติด เรียงตามน้ำหนักมากไปน้อย) เข้าในคำขอ AI และ SHALL ประเมินใหม่ครบทั้ง 15 ข้อทุกครั้ง แล้วทำซ้ำจน gate status เป็น `pass` หรือถึงเพดานที่กำหนด
 
 #### Scenario: meta_description นอกช่วงถูกสร้างใหม่
-- **WHEN** ผลประเมินมีกฎ `meta_description` เป็น `fail`
+- **WHEN** ผลประเมินมีกฎ `meta_description` เป็น `failed`
 - **THEN** ระบบสร้างเนื้อหาใหม่อีกครั้งพร้อม feedback ที่ระบุว่าคำอธิบาย meta ต้องยาว 120–160 ตัวอักษร
-- **AND** เนื้อหาที่คืนให้ผู้ใช้ไม่มีกฎ `fail` (เมื่อยังไม่ถึงเพดาน)
+- **AND** รอบถัดไปประเมินใหม่ครบทั้ง 15 ข้อ
 
 #### Scenario: เนื้อหาไม่มี H2 ถูกสร้างใหม่
-- **WHEN** ผลประเมินมีกฎ `has_h2` เป็น `fail`
+- **WHEN** ผลประเมินมีกฎ `heading_structure` เป็น `failed`
 - **THEN** ระบบสร้างใหม่อีกครั้งพร้อม feedback ให้เพิ่มหัวข้อ H2 ในเนื้อหา
 
-#### Scenario: slug ผิดรูปแบบถูกสร้างใหม่
-- **WHEN** ผลประเมินมีกฎ `slug` เป็น `fail`
-- **THEN** ระบบสร้างใหม่อีกครั้งพร้อม feedback ให้ slug เป็นตัวพิมพ์เล็กคั่นขีด (a-z, 0-9, -)
+#### Scenario: critical rule ล้มถูกสร้างใหม่แม้คะแนนถึงเกณฑ์
+- **WHEN** คะแนน ≥ 90 แต่ critical rule `structured_data` เป็น `failed`
+- **THEN** ระบบสร้างใหม่อีกครั้งพร้อม feedback ระบุ structured_data ต้องมี @context และ @type
 
-### Requirement: pending warn skip ไม่กระตุ้นการสร้างใหม่
-เฉพาะกฎ `level = 'fail'` เท่านั้นที่ SHALL กระตุ้นการสร้างเนื้อหาใหม่ — `pending`, `warn`, และ `skip` SHALL ไม่ทำให้ระบบสร้างใหม่ และ SHALL ไม่ถูกนับเป็นเหตุให้ `seo_passed = false`
+### Requirement: pending skip ไม่กระตุ้นการสร้างใหม่
+กฎ `pending` และ `skip` SHALL ไม่กระตุ้นการสร้างเนื้อหาใหม่ และ SHALL ไม่ถูกนับเป็นเหตุให้ `seo_passed = false` ส่วน `warning` และ `failed` SHALL กระตุ้นการสร้างใหม่เมื่อ gate status ยังไม่ใช่ `pass`
 
-#### Scenario: og_image ว่าง (pending) ไม่สร้างใหม่
-- **WHEN** ผลประเมินมี `og_image` เป็น `pending` และไม่มีกฎ `fail`
+#### Scenario: research ยังไม่มี (pending) ไม่สร้างใหม่
+- **WHEN** ผลประเมินมีกฎ `search_intent` เป็น `pending` และไม่มีกฎ `failed`/`warning` อื่นที่ทำให้ gate ไม่ผ่าน
 - **THEN** ระบบคืนเนื้อหาให้ผู้ใช้ทันทีโดยไม่สร้างใหม่
 - **AND** `seo_passed = true`
 
-#### Scenario: คีย์เวิร์ดไม่ปรากฏในหัวข้อ (warn) ไม่สร้างใหม่
-- **WHEN** ผลประเมินมี `keyword_in_headings` เป็น `warn` และไม่มีกฎ `fail`
-- **THEN** ระบบคืนเนื้อหาให้ผู้ใช้โดยไม่สร้างใหม่
+#### Scenario: คีย์เวิร์ดรองไม่ปรากฏ (warning) ถูกสร้างใหม่
+- **WHEN** ผลประเมินมีกฎ `related_keywords` เป็น `warning` ที่ทำให้ gate status ไม่ใช่ `pass`
+- **THEN** ระบบสร้างใหม่อีกครั้งพร้อม feedback ระบุคีย์เวิร์ดรองที่ควรเพิ่ม
 
 ### Requirement: คืนผลประเมิน SEO ใน response ของ generate-article
-`generate-article` SHALL คืน `seo` (มี `score` และ `rules`) และ `seo_passed` (boolean) ควบคู่กับ `article` โดย `seo_passed = true` เมื่อไม่มีกฎ `fail` และ `false` เมื่อมีกฎ `fail`
+`generate-article` SHALL คืน `seo` (มี `score`, `gate`, และ `rules`) และ `seo_passed` (boolean) ควบคู่กับ `article` โดย `seo_passed = true` เมื่อ `seo_gate_status()` คืน `pass` และ `false` เมื่อคืน `warning` หรือ `failed`
 
-#### Scenario: คืนผลประเมินพร้อมเนื้อหา
+#### Scenario: คืนผลประเมินพร้อมเนื้อหาและสถานะ gate
 - **WHEN** `generate-article` สร้างเนื้อหาเสร็จ
-- **THEN** response มี `article`, `seo` (`score` + `rules`), และ `seo_passed`
+- **THEN** response มี `article`, `seo` (`score` + `gate` + `rules`), และ `seo_passed`
 
-#### Scenario: seo_passed สะท้อนการมีกฎ fail
-- **WHEN** ผลประเมินมีกฎ `fail` อย่างน้อยหนึ่งรายการ
+#### Scenario: seo_passed สะท้อน gate status
+- **WHEN** `seo_gate_status()` คืน `failed` หรือ `warning`
 - **THEN** `seo_passed = false`
 
+#### Scenario: seo_passed เป็น true เมื่อ gate ผ่าน
+- **WHEN** `seo_gate_status()` คืน `pass`
+- **THEN** `seo_passed = true`
+
 ### Requirement: เพดานการสร้างใหม่จำกัดจำนวนรอบ
-ระบบ SHALL จำกัดจำนวนรอบสร้างใหม่ต่อคำขอ (ค่าคงที่ เช่น 3 รอบรวมรอบแรก) และเมื่อถึงเพดานแล้วยังมีกฎ `fail` SHALL คืนเนื้อหาที่ดีที่สุดพร้อม `seo_passed = false` และผล `seo` ให้ผู้ใช้แทนการค้างหรือล้ม
+ระบบ SHALL จำกัดจำนวนรอบสร้างใหม่ต่อคำขอ (ค่าคงที่ เช่น 3 รอบรวมรอบแรก) และเมื่อถึงเพดานแล้ว gate status ยังไม่ใช่ `pass` SHALL คืนเนื้อหาที่ดีที่สุดพร้อม `seo_passed = false` และผล `seo` ให้ผู้ใช้แทนการค้างหรือล้ม
 
 #### Scenario: ถึงเพดานแล้วคืนเนื้อหาที่ดีที่สุด
-- **WHEN** ระบบสร้างใหม่จนครบเพดานแล้วยังมีกฎ `fail`
+- **WHEN** ระบบสร้างใหม่จนครบเพดานแล้ว gate status ยังไม่ใช่ `pass`
 - **THEN** ระบบคืน `article` พร้อม `seo_passed = false` และผล `seo` ของรอบล่าสุด
 - **AND** ระบบไม่เรียก AI เพิ่มเกินเพดาน

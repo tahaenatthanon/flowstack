@@ -325,6 +325,17 @@ if ($action === 'seo-checklist') {
     $item = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$item) jsonError('Content not found', 404);
 
+    // แนบ research brief (ถ้ามี) เพื่อให้ research rules ไม่เป็น pending เสมอ
+    $researchBrief = null;
+    $rs = $db->prepare("SELECT analysis FROM content_research_jobs WHERE content_item_id=? AND tenant_id=? AND status='done' ORDER BY created_at DESC LIMIT 1");
+    $rs->execute([$itemId, $tenantId]);
+    $rr = $rs->fetch(PDO::FETCH_ASSOC);
+    if ($rr && !empty($rr['analysis'])) {
+        $decoded = json_decode((string)$rr['analysis'], true);
+        if (is_array($decoded)) $researchBrief = $decoded;
+    }
+    $item['research_brief'] = $researchBrief;
+
     $eval = seo_evaluate($item);
 
     // สถานะเกตของ tenant (ให้ UI รู้ว่ากฎ fail จะบล็อกจริงหรือไม่)
@@ -334,6 +345,7 @@ if ($action === 'seo-checklist') {
 
     jsonResponse([
         'score'              => $eval['score'],
+        'gate'               => $eval['gate'],
         'rules'              => $eval['rules'],
         'seo_gate_enabled'   => (int)($cfg['seo_gate_enabled'] ?? 0),
         'seo_gate_min_score' => (int)($cfg['seo_gate_min_score'] ?? 0),
@@ -2198,24 +2210,28 @@ if ($action === 'generate-article') {
         'structured_data' => $art['structured_data'],
         'og_image' => $art['og_image'],
         'article_content' => $art,
+        'research_brief' => $researchBrief,
     ]);
 
     for ($seoAttempt = 1; $seoAttempt < SEO_GEN_MAX_ATTEMPTS; $seoAttempt++) {
-        $seoFails = array_values(array_filter($seoEval['rules'], static fn(array $r): bool => ($r['level'] ?? '') === 'fail'));
-        if (!$seoFails) break;
+        // Repaired เมื่อ Quality Gate ยังไม่ผ่าน (failed/warning หรือ critical rule ล้ม)
+        if (seo_gate_status($seoEval) === 'pass') break;
+
+        $seoIssues = array_values(array_filter($seoEval['rules'], static fn(array $r): bool => in_array($r['status'] ?? '', ['failed', 'warning'], true)));
+        usort($seoIssues, static fn(array $a, array $b): int => ($b['weight'] ?? 0) <=> ($a['weight'] ?? 0));
 
         $feedback = implode("\n", array_map(
-            static fn(array $r): string => '- ' . ($r['key'] ?? 'rule') . ': ' . ($r['message'] ?? ''),
-            $seoFails
+            static fn(array $r): string => '- ' . ($r['key'] ?? 'rule') . ' [' . ($r['status'] ?? '') . ']: ' . ($r['message'] ?? ''),
+            $seoIssues
         ));
         $repairSystem = "CRITICAL: ตอบเป็นภาษาไทยเท่านั้น ห้ามใช้ภาษาจีน เกาหลี ญี่ปุ่น (CJK). English OK for technical terms only.\n" .
-            "คุณเป็น SEO Content Editor ให้แก้ไข JSON เดิมให้ผ่าน SEO Checklist แล้วตอบกลับเป็น JSON object เท่านั้น ไม่มี markdown fence และต้องส่งข้อมูลทุก field กลับมาให้ครบ\n" .
+            "คุณเป็น SEO Content Editor ให้แก้ไข JSON เดิมให้ผ่าน SEO Quality Gate แล้วตอบกลับเป็น JSON object เท่านั้น ไม่มี markdown fence และต้องส่งข้อมูลทุก field กลับมาให้ครบ\n" .
             "SEO Checklist Requirements:\n" . implode("\n", array_map(
                 static fn(array $r): string => '- [' . $r['key'] . '] ' . $r['requirement'],
                 seo_generation_requirements($ciType)
             )) . "\n" .
             "ห้ามเปลี่ยนสาระสำคัญของเนื้อหาโดยไม่จำเป็น และห้ามลบ field เดิมที่ผ่านแล้ว";
-        $repairUser = "เนื้อหานี้ยังไม่ผ่าน SEO Checklist ให้แก้เฉพาะข้อ fail ต่อไปนี้ แล้วส่ง JSON ฉบับสมบูรณ์กลับมา:\n{$feedback}\n\nJSON ปัจจุบัน:\n" .
+        $repairUser = "เนื้อหานี้ยังไม่ผ่าน SEO Quality Gate ให้แก้เฉพาะข้อที่ติดต่อไปนี้ แล้วส่ง JSON ฉบับสมบูรณ์กลับมา:\n{$feedback}\n\nJSON ปัจจุบัน:\n" .
             json_encode($mainData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
         try {
@@ -2274,14 +2290,15 @@ if ($action === 'generate-article') {
                 'slug' => $art['slug'], 'meta_description' => $art['meta_description'],
                 'meta_keywords' => $art['meta_keywords'], 'structured_data' => $art['structured_data'],
                 'og_image' => $art['og_image'], 'article_content' => $art,
+                'research_brief' => $researchBrief,
             ]);
         } catch (Throwable $repairError) {
             error_log('[brand-content seo-repair] attempt=' . ($seoAttempt + 1) . ' error: ' . $repairError->getMessage());
             break;
         }
     }
-    $seoFails = array_values(array_filter($seoEval['rules'], static fn(array $r): bool => ($r['level'] ?? '') === 'fail'));
-    $seoPassed = empty($seoFails);
+    $seoGate   = seo_gate_status($seoEval);
+    $seoPassed = $seoGate === 'pass';
 
     // Update content_items with article content + SEO columns
     $newCaption = $mainData['caption'] ?? null;
@@ -2305,6 +2322,7 @@ if ($action === 'generate-article') {
         'article' => $art,
         'seo' => [
             'score' => (int)$seoEval['score'],
+            'gate'  => $seoGate,
             'rules' => $seoEval['rules'],
         ],
         'seo_passed' => $seoPassed,
