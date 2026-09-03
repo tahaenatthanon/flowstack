@@ -2018,6 +2018,11 @@ if ($action === 'generate-article') {
     // โ”€โ”€ Step 1: Generate full structured content in one call โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
     if ($isVideo) {
         // Video-first prompt: detailed scene-by-scene script for TikTok/YouTube
+        $seoGenerationRequirements = seo_generation_requirements('video');
+        $seoRequirementsText = implode("\n", array_map(
+            static fn(array $r): string => '- [' . $r['key'] . '] ' . $r['requirement'],
+            $seoGenerationRequirements
+        ));
         $mainSys = "CRITICAL: ตอบเป็นภาษาไทยเท่านั้น ห้ามใช้ภาษาจีน เกาหลี ญี่ปุ่น (CJK). English OK for technical terms only.\n" .
                    "คุณเป็น Video Content Creator ผู้เชี่ยวชาญ ตอบกลับเป็น JSON เท่านั้น ไม่มี markdown fence\n" .
                    "โครงสร้าง JSON สำหรับวิดีโอ:\n" .
@@ -2026,18 +2031,21 @@ if ($action === 'generate-article') {
                    '"scripts":{"tiktok":"Hook 3 วิ: ...\nScene 1 (0:00-0:15): ...\nScene 2 (0:15-0:35): ...\nScene 3 (0:35-0:55): ...\nCTA: ...","youtube":"Intro (0:00-0:30): ...\nSection 1 (0:30-2:00): ...\nSection 2 (2:00-4:00): ...\nOutro (4:00-4:30): ...","facebook":"ประกาศวิดีโอ + caption สำหรับ Facebook","instagram":"caption สำหรับ Reels/Instagram"},' .
                    '"script_sections":{"opening":"Hook 3 วินาทีแรก","bridge":"เนื้อหาหลัก","twist":"จุดพลิกหรือข้อมูลสำคัญ","ending":"CTA + Subscribe/Follow"},' .
                    '"visuals":["Scene 1: คำอธิบายภาพ/การถ่าย","Scene 2: คำอธิบายภาพ/การถ่าย","Scene 3: คำอธิบายภาพ/การถ่าย"],' .
-                   '"hashtags":["#hashtag1","#hashtag2","#hashtag3","#hashtag4","#hashtag5"]}';
+                   '"hashtags":["#hashtag1","#hashtag2","#hashtag3","#hashtag4","#hashtag5"]}' . "\n\nSEO Checklist Requirements (single source of truth):\n{$seoRequirementsText}";
     } else {
         // Article/social-first prompt with SEO/AEO optimization
         $jsonSchema = '{"title":"ชื่อบทความ (SEO optimized)","excerpt":"สรุป 1-2 ประโยค","seo_title":"SEO Title Tag","slug":"url-friendly-slug","meta_description":"Meta description ภาษาไทย 150-160 chars","meta_keywords":"keyword1, keyword2, ...","full_html":"<article>\\n<h2>heading</h2>\\n<p>content paragraph</p>\\n<h2>heading 2</h2>\\n<p>more content</p>\\n</article> (semantic HTML ใช้ h2,h3,p,ul,ol,blockquote,table ห้ามใช้ h1 เนื่องจากสงวนให้ title) เนื้อหาเข้มข้น >=500 คำ","structured_data":{"@context":"https://schema.org","@type":"Article","headline":"...","description":"..."},"structured_data_faq":{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"คำถาม","acceptedAnswer":{"@type":"Answer","text":"คำตอบ"}}]} (ใส่เฉพาะเมื่อบทความมี Q&A จริง)","headlines":{"viral_clickbait":[{"title":"...","hook":"..."}],"storytelling":[{"title":"...","hook":"..."}],"educational":[{"title":"...","hook":"..."}]},"scripts":{"facebook":"post สั้น","instagram":"caption","tiktok":"script TikTok","youtube":"script YouTube"},"script_sections":{"opening":"hook","bridge":"เนื้อหา","twist":"จุดพลิก","ending":"CTA"},"visuals":["ภาพประกอบ 1","ภาพประกอบ 2"],"hashtags":["#tag1","#tag2","#tag3","#tag4","#tag5"]}';
+        $seoGenerationRequirements = seo_generation_requirements('article');
+        $seoRequirementsText = implode("\n", array_map(
+            static fn(array $r): string => '- [' . $r['key'] . '] ' . $r['requirement'],
+            $seoGenerationRequirements
+        ));
         $mainSys = "CRITICAL: ตอบเป็นภาษาไทยเท่านั้น ห้ามใช้ภาษาจีน เกาหลี ญี่ปุ่น (CJK). English OK for technical terms only.\n" .
                    "คุณเป็นนักเขียน Content Marketing + SEO Specialist ตอบกลับเป็น JSON เท่านั้น ไม่มี markdown fence\n" .
                    "โครงสร้าง JSON ที่ต้องการ:\n{$jsonSchema}\n\n" .
-                   "SEO/AEO Rules:\n" .
-                   "- full_html: เขียนด้วย semantic HTML5 (h2, h3, p, ul, ol, blockquote, table) — ห้ามใช้ h1\n" .
+                   "SEO/AEO Rules (single source of truth จาก SEO Checklist):\n{$seoRequirementsText}\n" .
+                   "- full_html: เขียนด้วย semantic HTML5 (h2, h3, p, ul, ol, blockquote, table) และอย่าเพิ่ม H1 ซ้ำใน body\n" .
                    "- ใส่ FAQ schema (structured_data_faq) เฉพาะเมื่อบทความมีรูปแบบคำถาม-คำตอบจริง\n" .
-                   "- ใช้คำหลัก (keywords) ใน heading และ paragraph แรกอย่างเป็นธรรมชาติ\n" .
-                   "- ความยาว article_content >=500 คำ\n" .
                    "- Answer Engine Optimization: ใช้โครงสร้างคำถาม-คำตอบชัดเจน ย่อหน้าแรกตอบคำถามหลักทันที\n" .
                    "- HTML ต้อง valid — ปิด tag ครบ, attributes ในเครื่องหมายคำพูดคู่";
         if ($researchBrief) {
@@ -2178,6 +2186,103 @@ if ($action === 'generate-article') {
     // Determine content type from the content item, independent of publish platform.
     $ciType = $isVideo ? 'video' : 'article';
 
+    // SEO post-generation gate: evaluate the exact object that will be persisted.
+    // Only `fail` rules trigger a repair attempt; warn/pending/skip never block generation.
+    $seoEval = seo_evaluate([
+        'type' => $ciType,
+        'title' => $artTitle,
+        'seo_title' => $art['seo_title'],
+        'slug' => $art['slug'],
+        'meta_description' => $art['meta_description'],
+        'meta_keywords' => $art['meta_keywords'],
+        'structured_data' => $art['structured_data'],
+        'og_image' => $art['og_image'],
+        'article_content' => $art,
+    ]);
+
+    for ($seoAttempt = 1; $seoAttempt < SEO_GEN_MAX_ATTEMPTS; $seoAttempt++) {
+        $seoFails = array_values(array_filter($seoEval['rules'], static fn(array $r): bool => ($r['level'] ?? '') === 'fail'));
+        if (!$seoFails) break;
+
+        $feedback = implode("\n", array_map(
+            static fn(array $r): string => '- ' . ($r['key'] ?? 'rule') . ': ' . ($r['message'] ?? ''),
+            $seoFails
+        ));
+        $repairSystem = "CRITICAL: ตอบเป็นภาษาไทยเท่านั้น ห้ามใช้ภาษาจีน เกาหลี ญี่ปุ่น (CJK). English OK for technical terms only.\n" .
+            "คุณเป็น SEO Content Editor ให้แก้ไข JSON เดิมให้ผ่าน SEO Checklist แล้วตอบกลับเป็น JSON object เท่านั้น ไม่มี markdown fence และต้องส่งข้อมูลทุก field กลับมาให้ครบ\n" .
+            "SEO Checklist Requirements:\n" . implode("\n", array_map(
+                static fn(array $r): string => '- [' . $r['key'] . '] ' . $r['requirement'],
+                seo_generation_requirements($ciType)
+            )) . "\n" .
+            "ห้ามเปลี่ยนสาระสำคัญของเนื้อหาโดยไม่จำเป็น และห้ามลบ field เดิมที่ผ่านแล้ว";
+        $repairUser = "เนื้อหานี้ยังไม่ผ่าน SEO Checklist ให้แก้เฉพาะข้อ fail ต่อไปนี้ แล้วส่ง JSON ฉบับสมบูรณ์กลับมา:\n{$feedback}\n\nJSON ปัจจุบัน:\n" .
+            json_encode($mainData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        try {
+            $repairRaw = $aiCall($repairSystem, $repairUser);
+            $repairData = json_decode($repairRaw, true);
+            if (!is_array($repairData) && preg_match('/\\{.*\\}/s', $repairRaw, $rm)) {
+                $repairData = json_decode($rm[0], true);
+            }
+            if (!is_array($repairData)) break;
+            $repairData = $sanitizeArr($repairData);
+            $mainData = array_replace_recursive($mainData, $repairData);
+
+            // Rebuild the persisted article fields from the repaired JSON.
+            $artTitle = $mainData['title'] ?? $artTitle;
+            $artExcerpt = $mainData['excerpt'] ?? $artExcerpt;
+            $aiHtml = $mainData['full_html'] ?? '';
+            if (!empty(trim(strip_tags($aiHtml)))) {
+                $fullHtml = '<article class="prose prose-sm max-w-none"><h1>' . htmlspecialchars($artTitle) . '</h1>';
+                if ($artExcerpt) $fullHtml .= '<p class="lead text-muted-foreground italic">' . htmlspecialchars($artExcerpt) . '</p>';
+                $fullHtml .= $aiHtml . '</article>';
+            } else {
+                $fbScript = $mainData['scripts']['facebook'] ?? '';
+                $fullHtml = '<article class="prose prose-sm max-w-none"><h1>' . htmlspecialchars($artTitle) . '</h1>';
+                if ($artExcerpt) $fullHtml .= '<p class="lead text-muted-foreground italic">' . htmlspecialchars($artExcerpt) . '</p>';
+                foreach (explode("\n\n", $fbScript) as $para) {
+                    $para = trim($para);
+                    if ($para !== '') $fullHtml .= '<p>' . nl2br(htmlspecialchars($para)) . '</p>';
+                }
+                $fullHtml .= '</article>';
+            }
+            $sd = $mainData['structured_data'] ?? null;
+            $faq = $mainData['structured_data_faq'] ?? null;
+            $structuredData = is_array($sd)
+                ? (($faq && is_array($faq) && !empty($faq['mainEntity']))
+                    ? json_encode([$sd, $faq], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+                    : json_encode($sd, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES))
+                : null;
+            $art = [
+                'title' => $artTitle,
+                'excerpt' => $artExcerpt,
+                'html' => $fullHtml,
+                'headlines' => $mainData['headlines'] ?? [],
+                'scripts' => $mainData['scripts'] ?? [],
+                'script_sections' => $mainData['script_sections'] ?? [],
+                'visuals' => $mainData['visuals'] ?? [],
+                'hashtags' => $mainData['hashtags'] ?? [],
+                'seo_title' => $mainData['seo_title'] ?? $artTitle,
+                'slug' => $mainData['slug'] ?? '',
+                'meta_description' => $mainData['meta_description'] ?? $artExcerpt,
+                'meta_keywords' => $researchMetaKeywords,
+                'structured_data' => $structuredData,
+                'og_image' => $mainData['og_image'] ?? '',
+            ];
+            $seoEval = seo_evaluate([
+                'type' => $ciType, 'title' => $artTitle, 'seo_title' => $art['seo_title'],
+                'slug' => $art['slug'], 'meta_description' => $art['meta_description'],
+                'meta_keywords' => $art['meta_keywords'], 'structured_data' => $art['structured_data'],
+                'og_image' => $art['og_image'], 'article_content' => $art,
+            ]);
+        } catch (Throwable $repairError) {
+            error_log('[brand-content seo-repair] attempt=' . ($seoAttempt + 1) . ' error: ' . $repairError->getMessage());
+            break;
+        }
+    }
+    $seoFails = array_values(array_filter($seoEval['rules'], static fn(array $r): bool => ($r['level'] ?? '') === 'fail'));
+    $seoPassed = empty($seoFails);
+
     // Update content_items with article content + SEO columns
     $newCaption = $mainData['caption'] ?? null;
     if ($newCaption !== null) {
@@ -2196,7 +2301,14 @@ if ($action === 'generate-article') {
             ->execute([$itemId, $researchJobId, $tenantId]);
     }
 
-    jsonResponse(['article' => $art]);
+    jsonResponse([
+        'article' => $art,
+        'seo' => [
+            'score' => (int)$seoEval['score'],
+            'rules' => $seoEval['rules'],
+        ],
+        'seo_passed' => $seoPassed,
+    ]);
     } catch (Throwable $e) {
         restore_error_handler();
         error_log('[brand-content generate-article] ' . get_class($e) . ': ' . $e->getMessage() . ' in ' . basename($e->getFile()) . ':' . $e->getLine());

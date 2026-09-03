@@ -20,6 +20,46 @@
 const SEO_PENALTY_FAIL = 12;
 const SEO_PENALTY_WARN = 4;
 
+// Shared thresholds used by both seo_evaluate() and AI generation prompts.
+const SEO_TITLE_MAX = 60;
+const META_DESC_MIN = 120;
+const META_DESC_MAX = 160;
+const WORD_COUNT_MIN = 500;
+const H2_MIN = 1;
+const H1_MAX = 1;
+const SEO_GEN_MAX_ATTEMPTS = 3;
+
+/**
+ * Return generation requirements derived from the same thresholds/rules used by
+ * seo_evaluate(). This keeps the AI prompt and evaluator in sync.
+ *
+ * @return array<int,array{key:string,requirement:string}>
+ */
+function seo_generation_requirements(string $type): array {
+    $isVideo = strtolower(trim($type)) === 'video';
+    $requirements = [
+        ['key' => 'seo_title', 'requirement' => "SEO title ต้องไม่เกิน " . SEO_TITLE_MAX . " ตัวอักษร"],
+        ['key' => 'meta_description', 'requirement' => "meta description ต้องยาว " . META_DESC_MIN . "–" . META_DESC_MAX . " ตัวอักษร"],
+        ['key' => 'slug', 'requirement' => 'slug ต้องเป็นตัวพิมพ์เล็ก ใช้เฉพาะ a-z, 0-9 และขีด (-) และห้ามมีขีดติดกัน/ขึ้นต้น/ลงท้าย'],
+        ['key' => 'structured_data', 'requirement' => 'structured data ต้องเป็น JSON ที่ถูกต้องและมี @context กับ @type'],
+    ];
+
+    if ($isVideo) {
+        $requirements[] = ['key' => 'hashtags', 'requirement' => 'วิดีโอต้องมี hashtag อย่างน้อย 1 รายการ'];
+        return $requirements;
+    }
+
+    $requirements[] = ['key' => 'has_h2', 'requirement' => 'full_html ต้องมีหัวข้อ H2 อย่างน้อย ' . H2_MIN . ' หัวข้อ'];
+    $requirements[] = ['key' => 'no_h1', 'requirement' => 'full_html ต้องมี H1 ไม่เกิน ' . H1_MAX . ' ตัว และไม่ควรใส่ H1 ซ้ำในเนื้อหา'];
+    $requirements[] = ['key' => 'word_count', 'requirement' => 'full_html ต้องมีเนื้อหาอย่างน้อย ' . WORD_COUNT_MIN . ' คำตามตัวนับของระบบ'];
+    $requirements[] = ['key' => 'keyword_in_title', 'requirement' => 'ใส่คีย์เวิร์ดหลักใน SEO title หรือชื่อบทความอย่างเป็นธรรมชาติเมื่อมีคีย์เวิร์ด'];
+    $requirements[] = ['key' => 'keyword_in_first_para', 'requirement' => 'ใส่คีย์เวิร์ดหลักในย่อหน้าแรกอย่างเป็นธรรมชาติเมื่อมีคีย์เวิร์ด'];
+    $requirements[] = ['key' => 'keyword_in_headings', 'requirement' => 'ใส่คีย์เวิร์ดหลักในหัวข้ออย่างเป็นธรรมชาติเมื่อมีคีย์เวิร์ด'];
+    $requirements[] = ['key' => 'internal_link', 'requirement' => 'ใส่ internal link อย่างน้อย 1 ลิงก์เมื่อมี URL ที่เกี่ยวข้อง (เป็นคำแนะนำ ไม่ใช่ fail)'];
+
+    return $requirements;
+}
+
 /**
  * ประเมิน SEO ของคอนเทนต์
  *
@@ -64,8 +104,8 @@ function seo_evaluate(array $item): array {
     $len = mb_strlen($seoTitle);
     if ($seoTitle === '') {
         $rules[] = ['key' => 'seo_title', 'level' => 'pending', 'message' => 'ยังไม่ได้กรอก SEO title'];
-    } elseif ($len > 60) {
-        $rules[] = ['key' => 'seo_title', 'level' => 'fail', 'message' => "SEO title ยาวเกิน 60 ตัวอักษร (ปัจจุบัน {$len})"];
+    } elseif ($len > SEO_TITLE_MAX) {
+        $rules[] = ['key' => 'seo_title', 'level' => 'fail', 'message' => "SEO title ยาวเกิน " . SEO_TITLE_MAX . " ตัวอักษร (ปัจจุบัน {$len})"];
     } else {
         $rules[] = ['key' => 'seo_title', 'level' => 'pass', 'message' => "SEO title มีความยาวเหมาะสม ({$len} ตัวอักษร)"];
     }
@@ -74,10 +114,10 @@ function seo_evaluate(array $item): array {
     $dlen = mb_strlen($metaDesc);
     if ($metaDesc === '') {
         $rules[] = ['key' => 'meta_description', 'level' => 'pending', 'message' => 'ยังไม่ได้กรอกคำอธิบาย meta'];
-    } elseif ($dlen < 120) {
-        $rules[] = ['key' => 'meta_description', 'level' => 'fail', 'message' => "คำอธิบาย meta สั้นเกินไป ({$dlen} ตัวอักษร ควร 120–160)"];
-    } elseif ($dlen > 160) {
-        $rules[] = ['key' => 'meta_description', 'level' => 'fail', 'message' => "คำอธิบาย meta ยาวเกินไป ({$dlen} ตัวอักษร ควร 120–160)"];
+    } elseif ($dlen < META_DESC_MIN) {
+        $rules[] = ['key' => 'meta_description', 'level' => 'fail', 'message' => "คำอธิบาย meta สั้นเกินไป ({$dlen} ตัวอักษร ควร " . META_DESC_MIN . "–" . META_DESC_MAX . ")"];
+    } elseif ($dlen > META_DESC_MAX) {
+        $rules[] = ['key' => 'meta_description', 'level' => 'fail', 'message' => "คำอธิบาย meta ยาวเกินไป ({$dlen} ตัวอักษร ควร " . META_DESC_MIN . "–" . META_DESC_MAX . ")"];
     } else {
         $rules[] = ['key' => 'meta_description', 'level' => 'pass', 'message' => "คำอธิบาย meta มีความยาวเหมาะสม ({$dlen} ตัวอักษร)"];
     }
@@ -107,7 +147,7 @@ function seo_evaluate(array $item): array {
         $rules[] = ['key' => 'no_h1', 'level' => 'skip', 'message' => 'วิดีโอไม่มีเนื้อหาบทความ จึงข้ามการตรวจ H1'];
     } elseif (!$hasBody) {
         $rules[] = ['key' => 'no_h1', 'level' => 'skip', 'message' => 'ไม่มีเนื้อหาบทความ จึงข้ามการตรวจ H1'];
-    } elseif (preg_match_all('/<h1[\s>]/i', $html, $matches) > 1) {
+    } elseif (preg_match_all('/<h1[\s>]/i', $html, $matches) > H1_MAX) {
         $count = count($matches[0]);
         $rules[] = ['key' => 'no_h1', 'level' => 'fail', 'message' => "เนื้อหามีแท็ก H1 ซ้ำ {$count} ตัว (อนุญาตเฉพาะ H1 ของชื่อบทความ 1 ตัวแรก)"];
     } else {
@@ -121,8 +161,8 @@ function seo_evaluate(array $item): array {
         $rules[] = ['key' => 'word_count', 'level' => 'skip', 'message' => 'ไม่มีเนื้อหาบทความ จึงข้ามการนับจำนวนคำ'];
     } else {
         $wc = seo_word_count($html);
-        if ($wc < 500) {
-            $rules[] = ['key' => 'word_count', 'level' => 'fail', 'message' => "เนื้อหาสั้นเกินไป (~{$wc} คำ ควร ≥ 500)"];
+        if ($wc < WORD_COUNT_MIN) {
+            $rules[] = ['key' => 'word_count', 'level' => 'fail', 'message' => "เนื้อหาสั้นเกินไป (~{$wc} คำ ควร ≥ " . WORD_COUNT_MIN . ")"];
         } else {
             $rules[] = ['key' => 'word_count', 'level' => 'pass', 'message' => "จำนวนคำเพียงพอ (~{$wc} คำ)"];
         }

@@ -229,13 +229,17 @@ export default function ContentDetailView({
   const handleEditAI = async (data: { topic: string; platform: string; scheduled_date: string }) => {
     toast({ title: 'AI กำลังเขียนบทความ...', description: 'โปรดรอสักครู่ (อาจใช้เวลา 30-60 วินาที)' });
     try {
-      await apiFetch('/brand-content.php?action=generate-article', {
+      const result = await apiFetch('/brand-content.php?action=generate-article', {
         method: 'POST',
         body: JSON.stringify({ item_id: item.id }),
       });
       qc.invalidateQueries({ queryKey: ['content', 'items'] });
       qc.invalidateQueries({ queryKey: ['content', 'plans'] });
-      toast({ title: 'AI เขียนบทความสำเร็จ!' });
+      toast({
+        title: result?.seo_passed === false ? 'AI เขียนบทความแล้ว แต่ยังไม่ผ่าน SEO' : 'AI เขียนบทความสำเร็จ!',
+        description: result?.seo_passed === false ? `คะแนน SEO ${result?.seo?.score ?? 0} — กรุณาตรวจสอบ SEO Checklist` : undefined,
+        variant: result?.seo_passed === false ? 'destructive' : undefined,
+      });
     } catch (e: any) {
       toast({ title: 'สร้างบทความไม่สำเร็จ', description: e.message, variant: 'destructive' });
     }
@@ -245,13 +249,17 @@ export default function ContentDetailView({
     setGeneratingArticle(true);
     toast({ title: 'AI กำลังเขียนเนื้อหา...', description: 'โปรดรอสักครู่ (อาจใช้เวลา 30-60 วินาที)' });
     try {
-      await apiFetch('/brand-content.php?action=generate-article', {
+      const result = await apiFetch('/brand-content.php?action=generate-article', {
         method: 'POST',
         body: JSON.stringify({ item_id: item.id }),
       });
       qc.invalidateQueries({ queryKey: ['content', 'items'] });
       qc.invalidateQueries({ queryKey: ['content', 'plans'] });
-      toast({ title: 'สร้างเนื้อหาสำเร็จ!' });
+      toast({
+        title: result?.seo_passed === false ? 'สร้างเนื้อหาแล้ว แต่ยังไม่ผ่าน SEO' : 'สร้างเนื้อหาสำเร็จ!',
+        description: result?.seo_passed === false ? `คะแนน SEO ${result?.seo?.score ?? 0} — กรุณาตรวจสอบ SEO Checklist` : undefined,
+        variant: result?.seo_passed === false ? 'destructive' : undefined,
+      });
     } catch (e: any) {
       toast({ title: 'สร้างเนื้อหาไม่สำเร็จ', description: e.message, variant: 'destructive' });
     } finally {

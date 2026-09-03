@@ -90,13 +90,17 @@ export default function ContentListTab() {
     if (!editItemLatest) return;
     toast({ title: 'AI กำลังเขียนบทความ...', description: 'โปรดรอสักครู่ (อาจใช้เวลา 30-60 วินาที)' });
     try {
-      await apiFetch('/brand-content.php?action=generate-article', {
+      const result = await apiFetch('/brand-content.php?action=generate-article', {
         method: 'POST',
         body: JSON.stringify({ item_id: editItemLatest.id }),
       });
       qc.invalidateQueries({ queryKey: ['content', 'items'] });
       qc.invalidateQueries({ queryKey: ['content', 'plans'] });
-      toast({ title: 'AI เขียนบทความสำเร็จ!' });
+      toast({
+        title: result?.seo_passed === false ? 'AI เขียนบทความแล้ว แต่ยังไม่ผ่าน SEO' : 'AI เขียนบทความสำเร็จ!',
+        description: result?.seo_passed === false ? `คะแนน SEO ${result?.seo?.score ?? 0} — กรุณาตรวจสอบ SEO Checklist` : undefined,
+        variant: result?.seo_passed === false ? 'destructive' : undefined,
+      });
     } catch (e: any) {
       toast({ title: 'สร้างบทความไม่สำเร็จ', description: e.message, variant: 'destructive' });
     }
