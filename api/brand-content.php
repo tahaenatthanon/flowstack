@@ -7,6 +7,7 @@ require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/lib/seo-checklist.php';
 require_once __DIR__ . '/lib/ai-creds.php';
 require_once __DIR__ . '/lib/ai-research.php';
+require_once __DIR__ . '/lib/content-plan-prompt.php';
 
 /**
  * Whitelist-based sanitizer: keep ONLY printable ASCII + Thai script.
@@ -511,6 +512,9 @@ if ($action === 'plans') {
 if ($action === 'generate-plan' && $method === 'POST') {
     $body = getRequestBody();
     $triggerCommand  = trim($body['trigger_command'] ?? '');
+    $sourceTopic     = trim((string)($body['source_topic'] ?? ''));
+    $generationMode  = strtolower(trim((string)($body['generation_mode'] ?? 'plan')));
+    $isDirect        = content_plan_is_direct($generationMode);
     $skillId         = $body['skill_id'] ?? null;
     $brandContextIds = $body['brand_context_ids'] ?? [];
     $weekStart       = $body['week_start'] ?? date('Y-m-d');
@@ -558,8 +562,9 @@ if ($action === 'generate-plan' && $method === 'POST') {
 
     // Build shared system prompt (context + skill, no output-format section)
     $sysParts = [];
-    if (in_array($planType, ['monthly', 'quarterly', 'yearly'])) {
-        $sysParts[] = "## DATE INSTRUCTION\nAssign each post to a specific date within the plan range (start: {$planStart}, end: {$planEnd}). Use the \"scheduled_date\" field with format YYYY-MM-DD. Spread posts evenly across the plan period.";
+    $dateInstruction = content_plan_date_instruction($planType, $planStart, $planEnd);
+    if ($dateInstruction !== '') {
+        $sysParts[] = $dateInstruction;
     }
     if ($globalInstruction) $sysParts[] = "## Global Instruction\n{$globalInstruction}";
     if (!empty($contextTexts)) $sysParts[] = "## Brand Context\n" . implode("\n\n", $contextTexts);
@@ -568,20 +573,11 @@ if ($action === 'generate-plan' && $method === 'POST') {
         $pList = implode(', ', $platforms);
         $sysParts[] = "## Platform Constraint\nTarget publish platforms (list of channels for this content): {$pList}. Write content suitable to be published across these platforms. Set the \"platform\" field to the primary platform from this list.";
     }
-    $sysParts[] = <<<'PROMPT'
-## CRITICAL LANGUAGE RULE
-ตอบเป็นภาษาไทยเท่านั้น (Thai script only). ห้ามใช้ภาษาจีน เกาหลี ญี่ปุ่น (CJK) โดยเด็ดขาด. English is allowed ONLY for image_brief field and technical terms.
-
-## OUTPUT RULE โ€” STRICTLY JSON ONLY
-Your ENTIRE response must be ONE valid JSON object and nothing else.
-- Do NOT write any explanation, reasoning, preamble, or commentary.
-- Do NOT use markdown code fences (```json).
-- Do NOT write sentences before or after the JSON.
-- Start your response with { and end with }
-
-Required JSON schema (all fields mandatory):
-{"day_label":"วันจันทร์","day_order":1,"platform":"facebook","topic":"หัวข้อภาษาไทย","caption":"แคปชั่นภาษาไทย 3+ บรรทัด พร้อม #hashtag","image_brief":"Detailed English image prompt for DALL-E/Flux: scene, lighting, style, colors."}
-PROMPT;
+    $directGuard = content_plan_direct_guard($isDirect);
+    if ($directGuard !== '') {
+        $sysParts[] = $directGuard;
+    }
+    $sysParts[] = content_plan_output_rule($isDirect);
 
     $systemPrompt = implode("\n\n", $sysParts);
 
@@ -749,9 +745,9 @@ PROMPT;
         return $obj;
     };
 
-    // Loop N days (default 3, supports 1-7 via 'days' param for performance)
-    // Reduced from 5 to 3 to prevent timeout issues with multiple AI calls
-    $maxDays = min(7, max(1, (int)($body['days'] ?? 3)));
+    // Direct mode is always exactly one item and must not use `days` to activate
+    // weekly/day generation logic. Non-direct requests retain the legacy behavior.
+    $maxDays = content_plan_item_count($isDirect, $body['days'] ?? 3);
 
     // Validate total API calls won't exceed reasonable limits
     $platformCount = empty($platforms) ? 1 : count($platforms);
@@ -759,31 +755,25 @@ PROMPT;
     if ($totalCalls > 10) {
         jsonError("จำนวนการเรียก AI API มากเกินไป ({$totalCalls} calls) — กรุณาลดจำนวนวันหรือแพลตฟอร์ม (สูงสุด 10 calls รวม)", 400);
     }
-    $allDayDefs = [
-        ['จันทร์', 1], ['อังคาร', 2], ['พุธ', 3], ['พฤหัสบดี', 4], ['ศุกร์', 5],
-        ['เสาร์', 6], ['อาทิตย์', 7],
-    ];
-    // For > 7 days, extend with Day N labels
-    $days = [];
-    for ($di = 0; $di < $maxDays; $di++) {
-        if ($di < count($allDayDefs)) {
-            $days[] = $allDayDefs[$di];
-        } else {
-            $days[] = ['วันที่ ' . ($di + 1), $di + 1];
-        }
-    }
+    // Direct mode returns neutral metadata (`['', 0]`); plan mode keeps the weekly
+    // day definitions and extends with "วันที่ N" beyond 7.
+    $days = content_plan_day_defs($isDirect, $maxDays);
     $planItems = [];
     $allRaw    = [];
     $platformsStr = implode(', ', $platforms);
+    $originalTopic = $sourceTopic !== '' ? $sourceTopic : $triggerCommand;
     // One AI call per day. Platforms are publish channels (not a multiplier),
     // so selecting multiple platforms produces a single content item per day.
     foreach ($days as [$dayLabel, $dayOrder]) {
-        $scheduledDate = date('Y-m-d', strtotime($weekStart . ' + ' . ($dayOrder - 1) . ' days'));
-        if (!empty($platforms)) {
-            $userMsg = "{$triggerCommand}\nสัปดาห์เริ่มต้น: {$weekStart}\nสร้างโพสต์สำหรับวัน{$dayLabel} (วันที่ {$dayOrder} ของสัปดาห์)\nPlatform เป้าหมาย (ช่องทางเผยแพร่): {$platformsStr}\nREMINDER: Output ONLY the JSON object. Start with { and end with }. No other text.";
-        } else {
-            $userMsg = "{$triggerCommand}\nสัปดาห์เริ่มต้น: {$weekStart}\nสร้างโพสต์สำหรับวัน{$dayLabel} (วันที่ {$dayOrder} ของสัปดาห์)\nREMINDER: Output ONLY the JSON object. Start with { and end with }. No other text.";
-        }
+        $scheduledDate = content_plan_scheduled_date($isDirect, $weekStart, $dayOrder);
+        $userMsg = content_plan_user_message($isDirect, [
+            'source_topic'    => $originalTopic,
+            'trigger_command' => $triggerCommand,
+            'week_start'      => $weekStart,
+            'day_label'       => $dayLabel,
+            'day_order'       => $dayOrder,
+            'platforms_str'   => $platformsStr,
+        ]);
         $result  = $callAI($userMsg);
         if (isset($result['__error']) && str_starts_with($result['__error'], 'parse_failed')) {
             $result = $callAI($userMsg . "\n[RETRY] Output ONLY JSON. Do not explain. Begin with {");
@@ -792,7 +782,8 @@ PROMPT;
             if ($result['__error'] === 'token_limit') {
                 jsonError("โมเดล {$modelName} ตอบถูกตัดสั้น (token limit) — กรุณาเปลี่ยนเป็นโมเดลที่มี output token สูงกว่าใน Admin > AI Settings", 500);
             }
-            jsonError("AI error (วันที่ {$dayLabel}): " . $result['__error'], 500);
+            $errorScope = $dayLabel !== '' ? " (วันที่ {$dayLabel})" : '';
+            jsonError("AI error{$errorScope}: " . $result['__error'], 500);
         }
         $result['day_label']      = $dayLabel;
         $result['day_order']      = $dayOrder;
@@ -809,8 +800,9 @@ PROMPT;
 
     // Save plan + items
     $planId = generateUUID();
+    $planTitle = $isDirect && $sourceTopic !== '' ? $sourceTopic : $triggerCommand;
     $db->prepare('INSERT INTO content_plans (id,tenant_id,title,week_start,status,plan_type,plan_start,plan_end,trigger_command,skill_id,brand_context_ids,ai_raw_output,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
-       ->execute([$planId, $tenantId, $triggerCommand, $weekStart, 'draft', $planType, $planStart, $planEnd, $triggerCommand, $skillId ?: null, json_encode($brandContextIds), implode("\n---\n", $allRaw), $userId]);
+       ->execute([$planId, $tenantId, $planTitle, $weekStart, 'draft', $planType, $planStart, $planEnd, $triggerCommand, $skillId ?: null, json_encode($brandContextIds), implode("\n---\n", $allRaw), $userId]);
 
     foreach ($planItems as $item) {
         $itemId = generateUUID();

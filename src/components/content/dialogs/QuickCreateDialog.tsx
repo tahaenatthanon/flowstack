@@ -72,12 +72,12 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
         method: 'POST',
         body: JSON.stringify({
           trigger_command: cmd,
+          source_topic: topic.trim(),
+          generation_mode: 'direct',
           skill_id: selSkillId === '__none__' ? null : selSkillId,
           brand_context_ids: selContextIds,
-          week_start: new Date().toISOString().split('T')[0],
           platforms: platList,
           type: contentType,
-          days: 1,
         }),
       });
       qc.invalidateQueries({ queryKey: ['content', 'plans'] });
