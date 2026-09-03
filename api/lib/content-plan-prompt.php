@@ -110,7 +110,8 @@ PROMPT;
 /**
  * User message ต่อ 1 AI call
  *
- * `$args` รับ: source_topic, trigger_command, week_start, day_label, day_order, platforms_str
+ * `$args` รับ: source_topic, trigger_command, trigger_commands, week_start, day_label, day_order, platforms_str
+ * Topic เป็น Source of Truth; Trigger/Skill เป็น instructions และห้ามแทนที่ Topic
  */
 function content_plan_user_message(bool $isDirect, array $args): string
 {
@@ -118,8 +119,15 @@ function content_plan_user_message(bool $isDirect, array $args): string
     $reminder     = 'REMINDER: Output ONLY the JSON object. Start with { and end with }. No other text.';
     $lines        = [];
 
+    $triggerCommands = $args['trigger_commands'] ?? [];
+    if (!is_array($triggerCommands)) $triggerCommands = [];
+    if (!$triggerCommands && !empty($args['trigger_command'])) $triggerCommands = [(string)$args['trigger_command']];
+
     if ($isDirect) {
-        $lines[] = 'Original User Topic/Seed: ' . (string)($args['source_topic'] ?? '');
+        $lines[] = 'Original User Topic/Seed (SOURCE OF TRUTH): ' . (string)($args['source_topic'] ?? '');
+        if ($triggerCommands) {
+            $lines[] = 'Trigger Instructions (apply all selected Triggers; do not replace the Topic): ' . implode(' | ', $triggerCommands);
+        }
         if ($platformsStr !== '') {
             $lines[] = 'Platform เป้าหมาย (ช่องทางเผยแพร่): ' . $platformsStr;
         }
@@ -128,7 +136,10 @@ function content_plan_user_message(bool $isDirect, array $args): string
         return implode("\n", $lines);
     }
 
-    $lines[] = (string)($args['trigger_command'] ?? '');
+    $lines[] = 'Original User Topic/Seed (SOURCE OF TRUTH): ' . (string)($args['source_topic'] ?? '');
+    if ($triggerCommands) {
+        $lines[] = 'Trigger Instructions (apply all selected Triggers; do not replace the Topic): ' . implode(' | ', $triggerCommands);
+    }
     $lines[] = 'สัปดาห์เริ่มต้น: ' . (string)($args['week_start'] ?? '');
     $lines[] = 'สร้างโพสต์สำหรับวัน' . (string)($args['day_label'] ?? '') . ' (วันที่ ' . (int)($args['day_order'] ?? 0) . ' ของสัปดาห์)';
     if ($platformsStr !== '') {

@@ -12,7 +12,6 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { Plus, Wand2, Sparkles, FileText, Play, Loader2, ArrowRight, RefreshCw, Send, ImagePlus, PenTool, Zap, CheckCircle2, ChevronRight } from 'lucide-react';
 
@@ -27,7 +26,9 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
   const [tone, setTone]               = useState<'friendly' | 'professional' | 'educational' | 'storytelling'>('friendly');
   const [scriptStyle, setScriptStyle] = useState<'hook-story' | 'educational' | 'storytelling' | 'vsl'>('hook-story');
   const [duration, setDuration]       = useState<'15s' | '30s' | '60s' | '3min' | '10min+'>('60s');
-  const [selSkillId, setSelSkillId]   = useState('__none__');
+  const [selTriggerIds, setSelTriggerIds] = useState<string[]>([]);
+  const [selSkillIds, setSelSkillIds]   = useState<string[]>([]);
+  const [autoSkillIds, setAutoSkillIds] = useState<string[]>([]);
   const [selContextIds, setSelContextIds] = useState<string[]>([]);
   const [step, setStep]               = useState<'type' | 'form' | 'progress' | 'done'>('type');
   const [doneTitle, setDoneTitle]     = useState('');
@@ -42,7 +43,7 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
   const handleReset = () => {
     setContentType(null); setTopic(''); setSelPlatforms([]); setTone('friendly');
     setScriptStyle('hook-story'); setDuration('60s');
-    setSelSkillId('__none__'); setSelContextIds([]); setStep('type'); setDoneTitle('');
+    setSelTriggerIds([]); setSelSkillIds([]); setAutoSkillIds([]); setSelContextIds([]); setStep('type'); setDoneTitle('');
     setResearchEnabled(false);
   };
 
@@ -74,7 +75,8 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
           trigger_command: cmd,
           source_topic: topic.trim(),
           generation_mode: 'direct',
-          skill_id: selSkillId === '__none__' ? null : selSkillId,
+          trigger_ids: selTriggerIds,
+          skill_ids: selSkillIds,
           brand_context_ids: selContextIds,
           platforms: platList,
           type: contentType,
@@ -182,12 +184,27 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
             {/* Trigger shortcuts */}
             {triggers.length > 0 && (
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">เลือก Trigger</Label>
-                <div className="flex flex-wrap gap-1.5">
+                <Label className="text-xs text-muted-foreground">เลือก Trigger ({selTriggerIds.length === 0 ? 'ไม่เลือก' : selTriggerIds.length})</Label>
+                <div className="flex flex-wrap gap-1.5 p-2 border rounded-md min-h-[38px] bg-background items-center">
                   {triggers.map(tr => (
                     <button key={tr.id} type="button"
-                      onClick={() => { setTopic(tr.command); if (tr.skill_id) setSelSkillId(tr.skill_id); }}
-                      className="text-[11px] px-2 py-1 rounded border hover:bg-muted font-mono flex items-center gap-1">
+                      onClick={() => {
+                        setSelTriggerIds(ids => {
+                          const next = ids.includes(tr.id) ? ids.filter(x => x !== tr.id) : [...ids, tr.id];
+                          const linkedSkillIds = triggers
+                            .filter(t => next.includes(t.id) && t.skill_id)
+                            .map(t => t.skill_id as string);
+                          const nextAutoSkillIds = Array.from(new Set(linkedSkillIds));
+                          setAutoSkillIds(nextAutoSkillIds);
+                          setSelSkillIds(current => Array.from(new Set([
+                            ...current.filter(id => !autoSkillIds.includes(id)),
+                            ...nextAutoSkillIds,
+                          ])));
+                          return next;
+                        });
+                      }}
+                      className={cn('text-[11px] px-2 py-1 rounded border font-mono flex items-center gap-1',
+                        selTriggerIds.includes(tr.id) ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-muted')}>
                       <Zap className="h-3 w-3 text-amber-500" />{getTriggerDisplayLabel(tr.command)}
                     </button>
                   ))}
@@ -285,14 +302,24 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
             )}
             {/* Skill */}
             <div className="space-y-1.5">
-              <Label>Skill</Label>
-              <Select value={selSkillId} onValueChange={setSelSkillId}>
-                <SelectTrigger><SelectValue placeholder="ไม่เลือก Skill" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">ไม่เลือก Skill</SelectItem>
-                  {skills.map(sk => <SelectItem key={sk.id} value={sk.id}>{sk.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <Label>Skill ({selSkillIds.length === 0 ? 'ไม่เลือก' : selSkillIds.length})</Label>
+              <div className="flex flex-wrap gap-1.5 p-2 border rounded-md min-h-[38px] bg-background items-center">
+                {skills.map(sk => {
+                  const sel = selSkillIds.includes(sk.id);
+                  const locked = autoSkillIds.includes(sk.id);
+                  return (
+                    <button key={sk.id} type="button" disabled={locked}
+                      onClick={() => setSelSkillIds(ids => sel ? ids.filter(x => x !== sk.id) : [...ids, sk.id])}
+                      className={cn('text-[11px] px-2 py-0.5 rounded-full border transition-colors',
+                        sel ? 'bg-primary text-primary-foreground border-primary' : 'border-border hover:bg-muted',
+                        locked && 'cursor-not-allowed opacity-90')}>
+                      {sk.name}{locked ? ' 🔒' : ''}
+                    </button>
+                  );
+                })}
+                {skills.length === 0 && <span className="text-xs text-muted-foreground">ยังไม่มี Skill</span>}
+              </div>
+              {autoSkillIds.length > 0 && <p className="text-[10px] text-muted-foreground">🔒 Skill ที่มาจาก Trigger ถูกเลือกอัตโนมัติและเอาออกไม่ได้</p>}
             </div>
             {/* Knowledge Base */}
             <div className="space-y-1.5">

@@ -515,8 +515,30 @@ if ($action === 'generate-plan' && $method === 'POST') {
     $sourceTopic     = trim((string)($body['source_topic'] ?? ''));
     $generationMode  = strtolower(trim((string)($body['generation_mode'] ?? 'plan')));
     $isDirect        = content_plan_is_direct($generationMode);
-    $skillId         = $body['skill_id'] ?? null;
+    $triggerIds      = is_array($body['trigger_ids'] ?? null) ? array_values(array_unique(array_filter(array_map('strval', $body['trigger_ids'])))) : [];
+    $skillIds        = is_array($body['skill_ids'] ?? null) ? array_values(array_unique(array_filter(array_map('strval', $body['skill_ids'])))) : [];
+    // Backward compatibility: accept the existing single skill_id input.
+    if (!$skillIds && !empty($body['skill_id'])) $skillIds = [(string)$body['skill_id']];
     $brandContextIds = $body['brand_context_ids'] ?? [];
+    // Direct creation may have no Trigger; preserve the legacy command only as metadata.
+    if (!$triggerIds && $triggerCommand === '' && !$sourceTopic) jsonError('กรุณาระบุหัวข้อ');
+
+    // Resolve selected Triggers and their mandatory linked Skills within this tenant.
+    $triggerRows = [];
+    if ($triggerIds) {
+        $ph = implode(',', array_fill(0, count($triggerIds), '?'));
+        $stmt = $db->prepare("SELECT id,command,skill_id FROM content_triggers WHERE id IN ($ph) AND tenant_id=? AND is_active=1 ORDER BY created_at ASC");
+        $stmt->execute([...$triggerIds, $tenantId]);
+        $triggerRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $foundTriggerIds = array_column($triggerRows, 'id');
+        if (count($foundTriggerIds) !== count($triggerIds)) jsonError('พบ Trigger ที่เลือกไม่ถูกต้องหรือไม่อยู่ใน tenant นี้', 422);
+        $triggerCommands = array_values(array_filter(array_map(static fn(array $r): string => trim((string)$r['command']), $triggerRows)));
+        if ($triggerCommands) $triggerCommand = implode("\n", $triggerCommands);
+        foreach ($triggerRows as $tr) {
+            if (!empty($tr['skill_id'])) $skillIds[] = (string)$tr['skill_id'];
+        }
+        $skillIds = array_values(array_unique(array_filter($skillIds)));
+    }
     $weekStart       = $body['week_start'] ?? date('Y-m-d');
     $planType        = $body['plan_type'] ?? 'weekly';
     $planStart       = $body['plan_start'] ?? null;
@@ -528,7 +550,7 @@ if ($action === 'generate-plan' && $method === 'POST') {
     $platforms = array_values(array_filter(array_map('strval', $platforms), fn($p) => $p !== ''));
     // Content type chosen by the user (article/video) — drives AI prompt flow later
     $type = normalizeContentType($body['type'] ?? null);
-    if (empty($triggerCommand)) jsonError('กรุณาระบุ Trigger Command');
+    if ($sourceTopic === '') jsonError('กรุณาระบุหัวข้อ');
 
     // Load global settings
     $stmt = $db->prepare('SELECT global_instruction FROM content_global_settings WHERE tenant_id=?');
@@ -551,14 +573,18 @@ if ($action === 'generate-plan' && $method === 'POST') {
         $contextTexts[] = "=== {$ctx['name']} ({$ctx['file_type']}) ===\n{$ctx['content']}";
     }
 
-    // Load skill
-    $skillSystemPrompt = '';
-    if ($skillId) {
-        $stmt = $db->prepare('SELECT system_prompt FROM content_skills WHERE id=? AND tenant_id=?');
-        $stmt->execute([$skillId, $tenantId]);
-        $sk = $stmt->fetch();
-        if ($sk) $skillSystemPrompt = $sk['system_prompt'] ?? '';
+    // Load all selected Skills. Trigger-linked Skills are mandatory and already included above.
+    $skillRows = [];
+    if ($skillIds) {
+        $ph = implode(',', array_fill(0, count($skillIds), '?'));
+        $stmt = $db->prepare("SELECT id,name,system_prompt FROM content_skills WHERE id IN ($ph) AND tenant_id=? ORDER BY created_at ASC");
+        $stmt->execute([...$skillIds, $tenantId]);
+        $skillRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $foundSkillIds = array_column($skillRows, 'id');
+        if (count($foundSkillIds) !== count($skillIds)) jsonError('พบ Skill ที่เลือกไม่ถูกต้องหรือไม่อยู่ใน tenant นี้', 422);
     }
+    $skillSystemPrompts = array_values(array_filter(array_map(static fn(array $sk): string => trim((string)($sk['system_prompt'] ?? '')), $skillRows)));
+    $skillSystemPrompt = implode("\n\n---\n\n", $skillSystemPrompts);
 
     // Build shared system prompt (context + skill, no output-format section)
     $sysParts = [];
@@ -568,7 +594,8 @@ if ($action === 'generate-plan' && $method === 'POST') {
     }
     if ($globalInstruction) $sysParts[] = "## Global Instruction\n{$globalInstruction}";
     if (!empty($contextTexts)) $sysParts[] = "## Brand Context\n" . implode("\n\n", $contextTexts);
-    if ($skillSystemPrompt) $sysParts[] = "## Skill Instructions\n{$skillSystemPrompt}";
+    if ($skillSystemPrompt) $sysParts[] = "## Skill Instructions (all selected Skills)\n{$skillSystemPrompt}";
+    if ($triggerCommand) $sysParts[] = "## Trigger Instructions (all selected Triggers)\n{$triggerCommand}\n\nThese are workflow instructions only. They must not replace or redefine the user's Topic.";
     if (!empty($platforms)) {
         $pList = implode(', ', $platforms);
         $sysParts[] = "## Platform Constraint\nTarget publish platforms (list of channels for this content): {$pList}. Write content suitable to be published across these platforms. Set the \"platform\" field to the primary platform from this list.";
@@ -761,14 +788,18 @@ if ($action === 'generate-plan' && $method === 'POST') {
     $planItems = [];
     $allRaw    = [];
     $platformsStr = implode(', ', $platforms);
-    $originalTopic = $sourceTopic !== '' ? $sourceTopic : $triggerCommand;
+    $originalTopic = $sourceTopic;
     // One AI call per day. Platforms are publish channels (not a multiplier),
     // so selecting multiple platforms produces a single content item per day.
     foreach ($days as [$dayLabel, $dayOrder]) {
         $scheduledDate = content_plan_scheduled_date($isDirect, $weekStart, $dayOrder);
+        // Preserve legacy plan-mode behavior when callers did not provide source_topic;
+        // direct mode always requires an explicit Topic.
+        $promptTopic = $originalTopic !== '' ? $originalTopic : ($isDirect ? '' : $triggerCommand);
         $userMsg = content_plan_user_message($isDirect, [
-            'source_topic'    => $originalTopic,
+            'source_topic'    => $promptTopic,
             'trigger_command' => $triggerCommand,
+            'trigger_commands' => array_values(array_filter(array_map(static fn(array $r): string => trim((string)$r['command']), $triggerRows))),
             'week_start'      => $weekStart,
             'day_label'       => $dayLabel,
             'day_order'       => $dayOrder,
@@ -801,8 +832,17 @@ if ($action === 'generate-plan' && $method === 'POST') {
     // Save plan + items
     $planId = generateUUID();
     $planTitle = $isDirect && $sourceTopic !== '' ? $sourceTopic : $triggerCommand;
+    $legacySkillId = $skillIds[0] ?? null;
     $db->prepare('INSERT INTO content_plans (id,tenant_id,title,week_start,status,plan_type,plan_start,plan_end,trigger_command,skill_id,brand_context_ids,ai_raw_output,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
-       ->execute([$planId, $tenantId, $planTitle, $weekStart, 'draft', $planType, $planStart, $planEnd, $triggerCommand, $skillId ?: null, json_encode($brandContextIds), implode("\n---\n", $allRaw), $userId]);
+       ->execute([$planId, $tenantId, $planTitle, $weekStart, 'draft', $planType, $planStart, $planEnd, $triggerCommand, $legacySkillId, json_encode($brandContextIds), implode("\n---\n", $allRaw), $userId]);
+
+    // Persist normalized many-to-many selections. Legacy columns above remain for compatibility.
+    foreach ($triggerRows as $tr) {
+        $db->prepare('INSERT IGNORE INTO content_plan_triggers (plan_id,trigger_id) VALUES (?,?)')->execute([$planId, $tr['id']]);
+    }
+    foreach ($skillIds as $sid) {
+        $db->prepare('INSERT IGNORE INTO content_plan_skills (plan_id,skill_id) VALUES (?,?)')->execute([$planId, $sid]);
+    }
 
     foreach ($planItems as $item) {
         $itemId = generateUUID();
@@ -1847,10 +1887,31 @@ if ($action === 'generate-article') {
     $researchJobId = trim((string)($body['research_job_id'] ?? ''));
     if (!$itemId) jsonError('item_id required', 400);
 
-    $item = $db->prepare("SELECT ci.*, ci.title AS topic, cp.trigger_command, cp.brand_context_ids, cpi.day_label, cpi.day_order FROM content_items ci LEFT JOIN content_plans cp ON cp.id = ci.plan_id LEFT JOIN content_plan_items cpi ON cpi.id = ci.plan_item_id WHERE ci.id = ? AND ci.tenant_id = ?");
+    $item = $db->prepare("SELECT ci.*, ci.title AS topic, cp.trigger_command, cp.skill_id, cp.brand_context_ids, cpi.day_label, cpi.day_order FROM content_items ci LEFT JOIN content_plans cp ON cp.id = ci.plan_id LEFT JOIN content_plan_items cpi ON cpi.id = ci.plan_item_id WHERE ci.id = ? AND ci.tenant_id = ?");
     $item->execute([$itemId, $tenantId]);
     $item = $item->fetch();
     if (!$item) jsonError('Item not found', 404);
+
+    // Resolve the exact Trigger/Skill selections persisted with this plan.
+    $planTriggerCommands = [];
+    $planSkillPrompts = [];
+    if (!empty($item['plan_id'])) {
+        $trStmt = $db->prepare('SELECT ct.command FROM content_plan_triggers cpt JOIN content_triggers ct ON ct.id=cpt.trigger_id AND ct.tenant_id=? WHERE cpt.plan_id=? ORDER BY cpt.created_at ASC');
+        $trStmt->execute([$tenantId, $item['plan_id']]);
+        $planTriggerCommands = array_values(array_filter(array_map(static fn(array $r): string => trim((string)$r['command']), $trStmt->fetchAll(PDO::FETCH_ASSOC))));
+
+        $skStmt = $db->prepare('SELECT cs.system_prompt FROM content_plan_skills cps JOIN content_skills cs ON cs.id=cps.skill_id AND cs.tenant_id=? WHERE cps.plan_id=? ORDER BY cps.created_at ASC');
+        $skStmt->execute([$tenantId, $item['plan_id']]);
+        $planSkillPrompts = array_values(array_filter(array_map(static fn(array $r): string => trim((string)$r['system_prompt']), $skStmt->fetchAll(PDO::FETCH_ASSOC))));
+    }
+    // Legacy plans without relation rows continue to use the existing single Trigger/Skill columns.
+    if (!$planTriggerCommands && !empty($item['trigger_command'])) $planTriggerCommands = [trim((string)$item['trigger_command'])];
+    if (!$planSkillPrompts && !empty($item['skill_id'])) {
+        $legacySkillStmt = $db->prepare('SELECT system_prompt FROM content_skills WHERE id=? AND tenant_id=?');
+        $legacySkillStmt->execute([$item['skill_id'], $tenantId]);
+        $legacySkillPrompt = $legacySkillStmt->fetchColumn();
+        if ($legacySkillPrompt) $planSkillPrompts = [trim((string)$legacySkillPrompt)];
+    }
 
     $researchJob = null;
     $researchBrief = null;
@@ -1933,7 +1994,9 @@ if ($action === 'generate-article') {
     // โ”€โ”€ Helper: call AI, return raw text content (strips fences) โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
     $apiUrl  = rtrim($creds['base_url'], '/') . '/chat/completions';
     $headers = ['Content-Type: application/json', "Authorization: Bearer {$creds['api_key']}"];
-    $baseCtx = ($globalInstr ? $globalInstr."\n\n" : '') . ($brandText ? "Brand Context:{$brandText}\n\n" : '') . ($kbContext ? "Knowledge Base Reference:{$kbContext}\n\n" : '');
+    $triggerCtx = $planTriggerCommands ? "Trigger Instructions (all selected Triggers):\n" . implode("\n", $planTriggerCommands) . "\n\nThese are workflow instructions only. They must not replace or redefine the Topic.\n\n" : '';
+    $skillCtx = $planSkillPrompts ? "Skill Instructions (all selected Skills):\n" . implode("\n\n---\n\n", $planSkillPrompts) . "\n\n" : '';
+    $baseCtx = ($globalInstr ? $globalInstr."\n\n" : '') . ($brandText ? "Brand Context:{$brandText}\n\n" : '') . ($kbContext ? "Knowledge Base Reference:{$kbContext}\n\n" : '') . $triggerCtx . $skillCtx;
 
     $aiCall = function(string $sysPart, string $userMsg) use ($apiUrl, $headers, $modelName, &$baseCtx, $contentTimeout, $contentMaxTokens): string {
         $ch = curl_init($apiUrl);
@@ -2003,7 +2066,7 @@ if ($action === 'generate-article') {
 
     $itemPlatform = $item['platform'] ?? 'facebook';
     $isVideo = strtolower((string)($item['type'] ?? 'article')) === 'video';
-    $itemCtx = "หัวข้อ: {$item['topic']}\nแพลตฟอร์ม: {$itemPlatform}\nแคปชั่น:\n{$item['caption']}";
+    $itemCtx = "หัวข้อ (Source of Truth): {$item['topic']}\nแพลตฟอร์ม: {$itemPlatform}\nแคปชั่น:\n{$item['caption']}";
     if ($researchBrief && $researchJob) {
         $selectedKeywords = array_values(array_filter($researchKeywords, static fn(array $row): bool => (int)($row['is_selected'] ?? 0) === 1));
         if (!$selectedKeywords) $selectedKeywords = $researchKeywords;
