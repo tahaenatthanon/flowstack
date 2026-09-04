@@ -570,7 +570,7 @@ export default function SkillsTriggerTab() {
                         <Zap className="h-4 w-4 text-amber-600" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">{getTriggerDisplayLabel(tr.command.replace(/^\"|\"$/g, ''))}</p>
+                        <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">{getTriggerDisplayLabel(tr.command.replace(/^"|"$/g, ''))}</p>
                         {tr.skill_name && (
                           <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
                             <Bot className="h-3 w-3" />→ {tr.skill_name}

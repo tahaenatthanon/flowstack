@@ -820,8 +820,9 @@ if ($action === 'generate-plan' && $method === 'POST') {
         $result['day_order']      = $dayOrder;
         $result['scheduled_date'] = $scheduledDate;
         if (!empty($platforms)) {
-            // Store the full selected platform list as publish channels; keep the
-            // first one in 'platform' for backward compatibility.
+            // Platform selection is a user-controlled source of truth. Keep the
+            // complete selected list on the single content item; AI cannot add,
+            // remove, or replace publish platforms.
             $result['platform']  = $platforms[0];
             $result['platforms'] = $platforms;
         }

@@ -20,6 +20,7 @@ export interface ContentItem {
   video_job_id?: string | null;
   article_content?: string | null;
   platform?: string | null;
+  platforms?: string[] | string | null;
   day_label?: string | null;
   scheduled_date?: string | null;
   plan_title?: string | null;

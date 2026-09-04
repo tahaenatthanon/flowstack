@@ -45,6 +45,7 @@ if ($method === 'GET') {
                       COALESCE(NULLIF(ci.image_brief,\'\'), cpi.image_brief) AS image_brief,
                       COALESCE(NULLIF(ci.generated_image_url,\'\'), cpi.generated_image_url) AS generated_image_url,
                       COALESCE(NULLIF(ci.article_content,\'\'), cpi.article_content) AS article_content,
+                      COALESCE(NULLIF(ci.platforms,\'\'), JSON_ARRAY(COALESCE(NULLIF(ci.platform,\'\'), cpi.platform))) AS platforms,
                       COALESCE(NULLIF(ci.platform,\'\'), cpi.platform)       AS platform,
                       COALESCE(cpi.day_label, \'\')              AS day_label,
                       COALESCE(ci.scheduled_date, cpi.scheduled_date) AS scheduled_date,
@@ -73,11 +74,14 @@ if ($method === 'POST') {
     $id = generateUUID();
     $planItemId = $body['plan_item_id'] ?? null;
     $platform = isset($body['platform']) ? strtolower(trim($body['platform'])) : null;
+    $platforms = isset($body['platforms']) && is_array($body['platforms'])
+        ? array_values(array_unique(array_filter(array_map(static fn($p) => strtolower(trim((string)$p)), $body['platforms']))))
+        : ($platform ? [$platform] : []);
     // Validate type against the enum; fall back to 'article' for unknown values
     $type = strtolower(trim((string)($body['type'] ?? 'article')));
     if (!in_array($type, ['article', 'image', 'video'], true)) $type = 'article';
-    $db->prepare('INSERT INTO content_items (id, tenant_id, title, type, status, created_by, plan_item_id, platform, scheduled_date, caption, image_brief, plan_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
-       ->execute([$id, $tenantId, $body['title'], $type, $body['status'] ?? 'draft', $userId, $planItemId, $platform, $body['scheduled_date'] ?? null, $body['caption'] ?? '', $body['image_brief'] ?? '', $body['plan_id'] ?? null]);
+    $db->prepare('INSERT INTO content_items (id, tenant_id, title, type, status, created_by, plan_item_id, platform, platforms, scheduled_date, caption, image_brief, plan_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+       ->execute([$id, $tenantId, $body['title'], $type, $body['status'] ?? 'draft', $userId, $planItemId, $platform, json_encode($platforms), $body['scheduled_date'] ?? null, $body['caption'] ?? '', $body['image_brief'] ?? '', $body['plan_id'] ?? null]);
     $stmt = $db->prepare('SELECT ci.*, cpi.day_label, cp.title AS plan_title, cp.id AS plan_id, cp.week_start FROM content_items ci LEFT JOIN content_plan_items cpi ON cpi.id=ci.plan_item_id LEFT JOIN content_plans cp ON cp.id=COALESCE(ci.plan_id, cpi.plan_id) WHERE ci.id=?');
     $stmt->execute([$id]);
     jsonResponse($stmt->fetch(), 201);
@@ -118,13 +122,18 @@ if ($method === 'PUT') {
             }
         }
     }
-    $allowed = ['title', 'type', 'status', 'views', 'likes', 'caption', 'platform', 'scheduled_date', 'image_brief', 'article_content', 'reject_reason', 'seo_title', 'slug', 'meta_description', 'meta_keywords', 'structured_data', 'og_image'];
+    $allowed = ['title', 'type', 'status', 'views', 'likes', 'caption', 'platform', 'platforms', 'scheduled_date', 'image_brief', 'article_content', 'reject_reason', 'seo_title', 'slug', 'meta_description', 'meta_keywords', 'structured_data', 'og_image'];
     $fields  = []; $values = [];
     foreach ($allowed as $f) {
         if (array_key_exists($f, $body)) {
             $fields[] = "`$f` = ?";
             if ($f === 'platform') {
                 $values[] = strtolower(trim((string)$body[$f]));
+            } elseif ($f === 'platforms') {
+                $platformValues = is_array($body[$f])
+                    ? array_values(array_unique(array_filter(array_map(static fn($p) => strtolower(trim((string)$p)), $body[$f]))))
+                    : [];
+                $values[] = json_encode($platformValues);
             } elseif ($f === 'structured_data' && is_array($body[$f])) {
                 $values[] = json_encode($body[$f], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
             } else {

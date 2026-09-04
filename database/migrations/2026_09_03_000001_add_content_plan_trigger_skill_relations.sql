@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS content_plan_triggers (
     FOREIGN KEY (plan_id) REFERENCES content_plans(id) ON DELETE CASCADE,
   CONSTRAINT fk_content_plan_triggers_trigger
     FOREIGN KEY (trigger_id) REFERENCES content_triggers(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS content_plan_skills (
   plan_id CHAR(36) NOT NULL,
@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS content_plan_skills (
     FOREIGN KEY (plan_id) REFERENCES content_plans(id) ON DELETE CASCADE,
   CONSTRAINT fk_content_plan_skills_skill
     FOREIGN KEY (skill_id) REFERENCES content_skills(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Backfill legacy plan selections when the migration is first applied.
 INSERT IGNORE INTO content_plan_triggers (plan_id, trigger_id)

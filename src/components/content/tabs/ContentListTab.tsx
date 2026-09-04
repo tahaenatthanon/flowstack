@@ -122,11 +122,31 @@ export default function ContentListTab() {
     }
   };
 
+  const getItemPlatforms = (item: ContentItem): string[] => {
+    const raw = (item as ContentItem & { platforms?: unknown }).platforms;
+    if (Array.isArray(raw)) {
+      return Array.from(new Set(raw.filter((p): p is string => typeof p === 'string' && p.trim() !== '').map(p => p.toLowerCase())));
+    }
+    if (typeof raw === 'string' && raw.trim() !== '') {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          return Array.from(new Set(parsed.filter((p): p is string => typeof p === 'string' && p.trim() !== '').map(p => p.toLowerCase())));
+        }
+      } catch {
+        // Fall back to the legacy single-platform field.
+      }
+    }
+    const legacy = (item.platform || '').toLowerCase();
+    return legacy ? [legacy] : [];
+  };
+
   const platformCounts = useMemo(() => {
     const map = new Map<string, number>();
     for (const item of items) {
-      const key = (item.platform || '').toLowerCase() || '__none__';
-      map.set(key, (map.get(key) || 0) + 1);
+      for (const key of getItemPlatforms(item)) {
+        map.set(key, (map.get(key) || 0) + 1);
+      }
     }
     return map;
   }, [items]);
@@ -151,7 +171,7 @@ export default function ContentListTab() {
     items.filter(c => {
       const matchStatus = statusFilter === 'all' || c.status === statusFilter;
       const matchType = typeFilter === 'all' || c.type === typeFilter;
-      const matchPlatform = platformFilter === 'all' || (c.platform || '').toLowerCase() === platformFilter;
+      const matchPlatform = platformFilter === 'all' || getItemPlatforms(c).includes(platformFilter);
       const matchSearch = !search || c.title?.toLowerCase().includes(search.toLowerCase());
       return matchStatus && matchType && matchPlatform && matchSearch;
     }), [items, statusFilter, typeFilter, platformFilter, search]);
@@ -352,18 +372,19 @@ export default function ContentListTab() {
                       )}>
                         {isVideo ? '🎬 วิดีโอ' : '📝 บทความ'}
                       </span>
-                      {item.platform && (() => {
-                        const pc = getPlatformColors(item.platform);
+                      {getItemPlatforms(item).map(platform => {
+                        const pc = getPlatformColors(platform);
                         return (
                           <span
+                            key={platform}
                             className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded font-medium"
                             style={{ backgroundColor: pc.bg, color: pc.text }}
-                            title={PLATFORM_MAP[item.platform]?.label ?? item.platform}
+                            title={PLATFORM_MAP[platform]?.label ?? platform}
                           >
-                            <PlatformIcon platform={item.platform} size={12} />
+                            <PlatformIcon platform={platform} size={12} />
                           </span>
                         );
-                      })()}
+                      })}
                       {hasContent
                         ? <span className="text-[11px] px-1.5 py-0 rounded bg-green-100 dark:bg-green-950 text-green-700 dark:text-green-300 font-medium">AI ✓</span>
                         : <span className="text-[11px] px-1.5 py-0 rounded bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 font-medium">รอสร้าง</span>
