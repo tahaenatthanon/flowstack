@@ -138,7 +138,8 @@ export default function ContentDetailView({
     plan_id: item.plan_id || '',
     topic: item.title || '',
     caption: item.caption || '',
-    platform: item.platform || 'facebook',
+    platform: item.platform || '',
+    platforms: item.platforms ?? null,
     scheduled_date: item.scheduled_date || item.day_label || '',
     day_label: item.day_label || '',
     day_order: 0,
@@ -157,7 +158,7 @@ export default function ContentDetailView({
   };
 
   const handleEditSave = async (data: {
-    topic: string; caption: string; platform: string;
+    topic: string; caption: string; platform: string; platforms?: string[];
     scheduled_date: string; image_brief?: string; article_content?: string;
     seo_title?: string; slug?: string; meta_description?: string; meta_keywords?: string;
     og_image?: string; structured_data?: string;
@@ -168,6 +169,7 @@ export default function ContentDetailView({
         title: data.topic,
         caption: data.caption,
         platform: data.platform,
+        platforms: data.platforms ?? [],
         scheduled_date: data.scheduled_date || null,
         image_brief: data.image_brief || '',
         ...(data.article_content !== undefined && { article_content: data.article_content }),
@@ -269,11 +271,20 @@ export default function ContentDetailView({
             <span className="text-xs text-muted-foreground flex items-center gap-1">
               {isVideo ? <><Play className="h-3 w-3" />วิดีโอ</> : <><FileText className="h-3 w-3" />บทความ</>}
             </span>
-            {item.platform && (
-              <span className={cn('text-xs px-2 py-0.5 rounded font-medium', PLATFORM_MAP[item.platform]?.color ?? 'bg-muted text-muted-foreground')}>
-                {PLATFORM_MAP[item.platform]?.label ?? item.platform}
-              </span>
-            )}
+            {(() => {
+              const raw = item.platforms;
+              const savedPlatforms = Array.isArray(raw)
+                ? raw
+                : typeof raw === 'string' && raw.trim()
+                  ? (() => { try { const parsed = JSON.parse(raw); return Array.isArray(parsed) ? parsed : raw.split(','); } catch { return raw.split(','); } })()
+                  : item.platform ? item.platform.split(',') : [];
+              const normalizedPlatforms = Array.from(new Set(savedPlatforms.map(p => String(p).trim().toLowerCase()).filter(Boolean)));
+              return normalizedPlatforms.map(platform => (
+                <span key={platform} className={cn('text-xs px-2 py-0.5 rounded font-medium', PLATFORM_MAP[platform]?.color ?? 'bg-muted text-muted-foreground')}>
+                  {PLATFORM_MAP[platform]?.label ?? platform}
+                </span>
+              ));
+            })()}
             {(item.scheduled_date || item.day_label) && (
               <span className="text-xs text-muted-foreground flex items-center gap-1">
                 <Clock className="h-3 w-3" />

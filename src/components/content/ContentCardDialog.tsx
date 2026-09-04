@@ -50,6 +50,7 @@ interface Props {
     topic: string;
     caption: string;
     platform: string;
+    platforms?: string[];
     scheduled_date: string;
     image_brief?: string;
     article_content?: string;
@@ -141,7 +142,22 @@ export function ContentCardDialog({
       if (existingItem) {
         setTopic(existingItem.topic || '');
         setCaption(existingItem.caption || '');
-        setPlatforms(existingItem.platform ? existingItem.platform.split(',').map((s: string) => s.trim()).filter(Boolean) : []);
+        const rawPlatforms = (existingItem as PlanItem & { platforms?: string[] | string | null }).platforms;
+        let savedPlatforms: string[] = [];
+        if (Array.isArray(rawPlatforms)) {
+          savedPlatforms = rawPlatforms;
+        } else if (typeof rawPlatforms === 'string' && rawPlatforms.trim() !== '') {
+          try {
+            const parsed = JSON.parse(rawPlatforms);
+            if (Array.isArray(parsed)) savedPlatforms = parsed;
+          } catch {
+            savedPlatforms = rawPlatforms.split(',');
+          }
+        }
+        if (savedPlatforms.length === 0 && existingItem.platform) {
+          savedPlatforms = existingItem.platform.split(',');
+        }
+        setPlatforms(Array.from(new Set(savedPlatforms.map(p => p.trim().toLowerCase()).filter(Boolean))));
         setImageBrief(existingItem.image_brief || '');
       } else {
         setTopic('');
@@ -224,7 +240,8 @@ export function ContentCardDialog({
         ...(existingItem?.id && { item_id: existingItem.id }),
         topic: topic.trim(),
         caption,
-        platform: platforms.length > 0 ? platforms.join(',') : 'facebook',
+        platform: platforms.length > 0 ? platforms.join(',') : '',
+        platforms,
         scheduled_date: scheduledDate || new Date().toISOString().split('T')[0],
         image_brief: imageBrief.trim(),
         ...(updatedArticleContent !== undefined && { article_content: updatedArticleContent }),
@@ -586,20 +603,29 @@ export function ContentCardDialog({
                 <div className="space-y-3">
                   <div className="space-y-1.5">
                     <Label>แพลตฟอร์ม <span className="text-xs text-muted-foreground font-normal">(เลือกได้หลายอัน)</span></Label>
-                    <div className="rounded-md border divide-y">
-                      {Object.entries(PLATFORM_MAP).map(([key, val]) => (
-                        <label key={key} className={`flex items-center gap-2.5 px-3 py-1.5 cursor-pointer hover:bg-muted/50 transition-colors ${platforms.includes(key) ? 'bg-primary/5' : ''}`}>
-                          <Checkbox
-                            checked={platforms.includes(key)}
-                            onCheckedChange={(checked) =>
-                              setPlatforms(prev => checked ? [...prev, key] : prev.filter(p => p !== key))
-                            }
-                          />
-                          <PlatformIcon platform={key} size={13} />
-                          <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded-full ${val.color}`}>{val.label}</span>
-                        </label>
-                      ))}
-                    </div>
+                    {existingItem && platforms.length === 0 ? (
+                      <div className="rounded-md border px-3 py-3 text-xs text-muted-foreground">
+                        ยังไม่ได้กำหนด Platform สำหรับคอนเทนต์นี้
+                      </div>
+                    ) : (
+                      <div className="rounded-md border divide-y">
+                        {(existingItem
+                          ? platforms.map(key => [key, PLATFORM_MAP[key] ?? { label: key, color: 'bg-muted text-muted-foreground' }] as const)
+                          : Object.entries(PLATFORM_MAP)
+                        ).map(([key, val]) => (
+                          <label key={key} className={`flex items-center gap-2.5 px-3 py-1.5 cursor-pointer hover:bg-muted/50 transition-colors ${platforms.includes(key) ? 'bg-primary/5' : ''}`}>
+                            <Checkbox
+                              checked={platforms.includes(key)}
+                              onCheckedChange={(checked) =>
+                                setPlatforms(prev => checked ? [...prev, key] : prev.filter(p => p !== key))
+                              }
+                            />
+                            <PlatformIcon platform={key} size={13} />
+                            <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded-full ${val.color}`}>{val.label}</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className="space-y-1.5">
                     <Label>วันที่โพสต์</Label>

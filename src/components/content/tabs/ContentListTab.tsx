@@ -40,7 +40,8 @@ export default function ContentListTab() {
     plan_id: item.plan_id || '',
     topic: item.title || '',
     caption: item.caption || '',
-    platform: item.platform || 'facebook',
+    platform: item.platform || '',
+    platforms: item.platforms ?? null,
     scheduled_date: item.scheduled_date || '',
     day_label: item.day_label || '',
     day_order: 0,
@@ -63,6 +64,7 @@ export default function ContentListTab() {
     topic: string;
     caption: string;
     platform: string;
+    platforms?: string[];
     scheduled_date: string;
     image_brief?: string;
     article_content?: string;
@@ -80,6 +82,7 @@ export default function ContentListTab() {
         title: data.topic,
         caption: data.caption,
         platform: data.platform,
+        platforms: data.platforms ?? [],
         scheduled_date: data.scheduled_date || null,
         image_brief: data.image_brief || '',
         ...(data.article_content !== undefined && { article_content: data.article_content }),

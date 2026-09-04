@@ -460,7 +460,7 @@ if ($action === 'plans') {
             $stmt->execute([$id, $tenantId]);
             $plan = $stmt->fetch();
             if (!$plan) jsonError('Plan not found', 404);
-            $stmt2 = $db->prepare("SELECT ci.id AS id, ci.plan_id, ci.title AS topic, ci.platform, ci.scheduled_date, ci.caption, ci.image_brief, ci.generated_image_url, COALESCE(ci.image_gen_status, 'none') AS image_gen_status, ci.article_content, ci.id AS content_item_id, ci.type AS content_type, ci.seo_title, ci.slug, ci.meta_description, ci.meta_keywords, ci.structured_data, ci.og_image, COALESCE(cpi.day_label, '') AS day_label, COALESCE(cpi.day_order, 0) AS day_order FROM content_items ci LEFT JOIN content_plan_items cpi ON cpi.id = ci.plan_item_id WHERE ci.plan_id = ? ORDER BY COALESCE(cpi.day_order, 0), ci.scheduled_date");
+            $stmt2 = $db->prepare("SELECT ci.id AS id, ci.plan_id, ci.title AS topic, ci.platform, ci.platforms, ci.scheduled_date, ci.caption, ci.image_brief, ci.generated_image_url, COALESCE(ci.image_gen_status, 'none') AS image_gen_status, ci.article_content, ci.id AS content_item_id, ci.type AS content_type, ci.seo_title, ci.slug, ci.meta_description, ci.meta_keywords, ci.structured_data, ci.og_image, COALESCE(cpi.day_label, '') AS day_label, COALESCE(cpi.day_order, 0) AS day_order FROM content_items ci LEFT JOIN content_plan_items cpi ON cpi.id = ci.plan_item_id WHERE ci.plan_id = ? ORDER BY COALESCE(cpi.day_order, 0), ci.scheduled_date");
             $stmt2->execute([$id]);
             $plan['items'] = $stmt2->fetchAll();
             jsonResponse($plan);
@@ -469,7 +469,7 @@ if ($action === 'plans') {
         $stmt->execute([$tenantId]);
         $plans = $stmt->fetchAll();
         foreach ($plans as &$p) {
-            $stmt2 = $db->prepare("SELECT ci.id AS id, ci.plan_id, ci.title AS topic, ci.platform, ci.scheduled_date, ci.caption, ci.image_brief, ci.generated_image_url, COALESCE(ci.image_gen_status, 'none') AS image_gen_status, ci.article_content, ci.id AS content_item_id, ci.type AS content_type, ci.seo_title, ci.slug, ci.meta_description, ci.meta_keywords, ci.structured_data, ci.og_image, COALESCE(cpi.day_label, '') AS day_label, COALESCE(cpi.day_order, 0) AS day_order FROM content_items ci LEFT JOIN content_plan_items cpi ON cpi.id = ci.plan_item_id WHERE ci.plan_id = ? ORDER BY COALESCE(cpi.day_order, 0), ci.scheduled_date");
+            $stmt2 = $db->prepare("SELECT ci.id AS id, ci.plan_id, ci.title AS topic, ci.platform, ci.platforms, ci.scheduled_date, ci.caption, ci.image_brief, ci.generated_image_url, COALESCE(ci.image_gen_status, 'none') AS image_gen_status, ci.article_content, ci.id AS content_item_id, ci.type AS content_type, ci.seo_title, ci.slug, ci.meta_description, ci.meta_keywords, ci.structured_data, ci.og_image, COALESCE(cpi.day_label, '') AS day_label, COALESCE(cpi.day_order, 0) AS day_order FROM content_items ci LEFT JOIN content_plan_items cpi ON cpi.id = ci.plan_item_id WHERE ci.plan_id = ? ORDER BY COALESCE(cpi.day_order, 0), ci.scheduled_date");
             $stmt2->execute([$p['id']]);
             $p['items'] = $stmt2->fetchAll();
         }
@@ -493,14 +493,21 @@ if ($action === 'plans') {
         // Update a single item field
         if (!empty($body['item_id'])) {
             $itemId  = $body['item_id'];
-            $allowed = ['caption', 'image_brief', 'topic', 'platform', 'day_label', 'day_order', 'scheduled_date'];
+            $allowed = ['caption', 'image_brief', 'topic', 'platform', 'platforms', 'day_label', 'day_order', 'scheduled_date'];
             // Map frontend field names to content_items column names
-            $ciMap = ['topic'=>'title', 'caption'=>'caption', 'image_brief'=>'image_brief', 'platform'=>'platform', 'scheduled_date'=>'scheduled_date'];
+            $ciMap = ['topic'=>'title', 'caption'=>'caption', 'image_brief'=>'image_brief', 'platform'=>'platform', 'platforms'=>'platforms', 'scheduled_date'=>'scheduled_date'];
             $ciSets = []; $ciVals = [];
             foreach ($allowed as $f) {
                 if (array_key_exists($f, $body) && isset($ciMap[$f])) {
                     $ciSets[] = "{$ciMap[$f]}=?";
-                    $ciVals[] = $body[$f];
+                    if ($f === 'platforms') {
+                        $platformValues = is_array($body[$f])
+                            ? array_values(array_unique(array_filter(array_map(static fn($p) => strtolower(trim((string)$p)), $body[$f]))))
+                            : [];
+                        $ciVals[] = json_encode($platformValues);
+                    } else {
+                        $ciVals[] = $body[$f];
+                    }
                 }
             }
             if ($ciSets) {

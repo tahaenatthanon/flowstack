@@ -107,7 +107,7 @@ export type CalendarView = 'month' | 'quarter' | 'year';
 
 export interface PlanItem {
   id: string; plan_id: string; day_label: string; day_order: number;
-  scheduled_date?: string | null; platform: string; topic: string;
+  scheduled_date?: string | null; platform: string; platforms?: string[] | string | null; topic: string;
   caption: string; image_brief: string;
   generated_image_url: string | null; image_gen_status: string;
   article_content?: string | null;
