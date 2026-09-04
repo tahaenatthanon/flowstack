@@ -49,7 +49,7 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { apiFetch } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import type { SeoFields, SeoChecklistResult, SeoRuleLevel, SeoRuleStatus } from '@/components/content/types';
+import type { SeoFields, SeoChecklistResult, AeoChecklistResult, SeoRuleLevel, SeoRuleStatus } from '@/components/content/types';
 import { SEO_GATE_LABEL, SEO_TIER_LABEL } from '@/components/content/types';
 import {
   Bold, Italic, Underline as UnderlineIcon, Strikethrough,
@@ -105,6 +105,9 @@ export default function ArticleEditor({
   const [seoCheck, setSeoCheck] = useState<SeoChecklistResult | null>(null);
   const [seoCheckLoading, setSeoCheckLoading] = useState(false);
   const [seoCheckError, setSeoCheckError] = useState<string | null>(null);
+  const [aeoCheck, setAeoCheck] = useState<AeoChecklistResult | null>(null);
+  const [aeoCheckLoading, setAeoCheckLoading] = useState(false);
+  const [aeoCheckError, setAeoCheckError] = useState<string | null>(null);
   const [linkUrl, setLinkUrl] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [linkOpen, setLinkOpen] = useState(false);
@@ -167,12 +170,29 @@ export default function ArticleEditor({
     }
   }, [contentItemId]);
 
-  // ดึงผลตรวจอัตโนมัติเมื่อเปิดแผง SEO ครั้งแรก (มี id เท่านั้น)
-  useEffect(() => {
-    if (seoOpen && contentItemId && !seoCheck && !seoCheckLoading && !seoCheckError) {
-      runSeoCheck();
+  const runAeoCheck = useCallback(async () => {
+    if (!contentItemId) return;
+    setAeoCheckLoading(true);
+    setAeoCheckError(null);
+    try {
+      const res = await apiFetch<AeoChecklistResult>(
+        '/brand-content.php?action=aeo-checklist&item_id=' + encodeURIComponent(contentItemId),
+      );
+      setAeoCheck(res);
+    } catch {
+      setAeoCheckError('ตรวจ AEO ไม่สำเร็จ — ลองใหม่อีกครั้ง');
+      setAeoCheck(null);
+    } finally {
+      setAeoCheckLoading(false);
     }
-  }, [seoOpen, contentItemId, seoCheck, seoCheckLoading, seoCheckError, runSeoCheck]);
+  }, [contentItemId]);
+
+  // ดึงผลตรวจอัตโนมัติเมื่อเปิดแผง SEO/AEO ครั้งแรก (มี id เท่านั้น)
+  useEffect(() => {
+    if (!seoOpen || !contentItemId) return;
+    if (!seoCheck && !seoCheckLoading && !seoCheckError) runSeoCheck();
+    if (!aeoCheck && !aeoCheckLoading && !aeoCheckError) runAeoCheck();
+  }, [seoOpen, contentItemId, seoCheck, seoCheckLoading, seoCheckError, aeoCheck, aeoCheckLoading, aeoCheckError, runSeoCheck, runAeoCheck]);
 
   // ── Source mode toggle ──────────────────────────────────────────
   const enterSourceMode = useCallback(() => {
@@ -605,12 +625,20 @@ export default function ArticleEditor({
         {seoOpen && (
           <div className="px-4 pb-4 pt-2 border-t space-y-3 bg-muted/10">
             {contentItemId && (
-              <SeoChecklistPanel
-                result={seoCheck}
-                loading={seoCheckLoading}
-                error={seoCheckError}
-                onRecheck={runSeoCheck}
-              />
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <SeoChecklistPanel
+                  result={seoCheck}
+                  loading={seoCheckLoading}
+                  error={seoCheckError}
+                  onRecheck={runSeoCheck}
+                />
+                <AeoChecklistPanel
+                  result={aeoCheck}
+                  loading={aeoCheckLoading}
+                  error={aeoCheckError}
+                  onRecheck={runAeoCheck}
+                />
+              </div>
             )}
             <SeoInput label="SEO Title" value={seoFields.seo_title}
               onChange={v => onSeoChange({ ...seoFields, seo_title: v })}
@@ -643,6 +671,47 @@ export default function ArticleEditor({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function AeoChecklistPanel({ result, loading, error, onRecheck }: {
+  result: AeoChecklistResult | null;
+  loading: boolean;
+  error: string | null;
+  onRecheck: () => void;
+}) {
+  const gateMeta = result ? SEO_GATE_LABEL[result.gate] : undefined;
+  const fails = result?.rules.filter(r => (r.status ?? r.level) === 'failed' || r.level === 'fail') ?? [];
+  return (
+    <div className="rounded-md border bg-background/60 p-3 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">ตรวจ AEO</span>
+          {result && <span className={cn('text-sm font-bold', seoScoreColor(result.score))}>{result.score}<span className="text-[10px] font-normal text-muted-foreground">/100</span></span>}
+          {result && gateMeta && <span className={cn('text-[11px] font-medium', gateMeta.className)}>{gateMeta.label}</span>}
+        </div>
+        <Button type="button" variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={onRecheck} disabled={loading}>
+          {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}ตรวจใหม่
+        </Button>
+      </div>
+      {loading && !result && <div className="flex items-center gap-2 py-1 text-xs text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" />กำลังตรวจ...</div>}
+      {error && <div className="py-1 text-xs text-destructive">{error}</div>}
+      {result && <div className={cn('rounded px-2 py-1.5 text-[11px]', result.gate === 'passed' ? 'bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300' : 'bg-destructive/10 text-destructive')}>
+        {result.gate === 'passed' ? 'AEO ผ่านเกณฑ์บังคับทั้งหมด' : `AEO ยังไม่ผ่าน — มีกฎที่ต้องปรับ ${fails.length} ข้อ`}
+      </div>}
+      {result && <ul className="space-y-1">
+        {result.rules.map(rule => {
+          const status = (rule.status ?? rule.level) as SeoRuleStatus;
+          const meta = SEO_STATUS_META[status] ?? SEO_LEVEL_META.pending;
+          const Icon = meta.icon;
+          return <li key={rule.key} className="flex items-start gap-1.5 text-[11px] leading-relaxed">
+            <Icon className={cn('h-3.5 w-3.5 mt-px shrink-0', meta.className)} />
+            <span>{rule.message}</span>
+          </li>;
+        })}
+      </ul>}
+      {result && <p className="text-[10px] text-muted-foreground/80">* AEO ตรวจจากเนื้อหาที่บันทึกล่าสุด</p>}
     </div>
   );
 }

@@ -5,6 +5,7 @@ set_time_limit(0); // AI calls can take several minutes
 require_once 'config.php';
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/lib/seo-checklist.php';
+require_once __DIR__ . '/lib/aeo-checklist.php';
 require_once __DIR__ . '/lib/ai-creds.php';
 require_once __DIR__ . '/lib/ai-research.php';
 require_once __DIR__ . '/lib/content-plan-prompt.php';
@@ -354,6 +355,27 @@ if ($action === 'seo-checklist') {
 }
 
 // โ”€โ”€โ”€ SKILLS โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
+if ($action === 'aeo-checklist') {
+    if ($method !== 'GET') jsonError('Method not allowed', 405);
+    $itemId = $_GET['item_id'] ?? '';
+    if (!$itemId) jsonError('item_id required', 400);
+    $stmt = $db->prepare('SELECT * FROM content_items WHERE id=? AND tenant_id=?');
+    $stmt->execute([$itemId, $tenantId]);
+    $item = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$item) jsonError('Content not found', 404);
+    $researchBrief = null;
+    $rs = $db->prepare("SELECT analysis FROM content_research_jobs WHERE content_item_id=? AND tenant_id=? AND status='done' ORDER BY created_at DESC LIMIT 1");
+    $rs->execute([$itemId, $tenantId]);
+    $rr = $rs->fetch(PDO::FETCH_ASSOC);
+    if ($rr && !empty($rr['analysis'])) {
+        $decoded = json_decode((string)$rr['analysis'], true);
+        if (is_array($decoded)) $researchBrief = $decoded;
+    }
+    $item['research_brief'] = $researchBrief;
+    $eval = aeo_evaluate($item);
+    jsonResponse(['score' => $eval['score'], 'gate' => $eval['gate'], 'rules' => $eval['rules']]);
+}
+
 if ($action === 'skills') {
     if ($method === 'GET') {
         $stmt = $db->prepare('SELECT * FROM content_skills WHERE tenant_id=? ORDER BY created_at DESC');
@@ -2087,15 +2109,16 @@ if ($action === 'generate-article') {
     if ($isVideo) {
         // Video-first prompt: detailed scene-by-scene script for TikTok/YouTube
         $seoRequirementsText = seo_contract_hints('video');
-        $mainSys = "CRITICAL: ตอบเป็นภาษาไทยเท่านั้น ห้ามใช้ภาษาจีน เกาหลี ญี่ปุ่น (CJK). English OK for technical terms only.\n" .
-                   "คุณเป็น Video Content Creator ผู้เชี่ยวชาญ ตอบกลับเป็น JSON เท่านั้น ไม่มี markdown fence\n" .
+            $mainSys = "CRITICAL: ตอบเป็นภาษาไทยเท่านั้น ห้ามใช้ภาษาจีน เกาหลี ญี่ปุ่น (CJK). English OK for technical terms only.\n" .
+                   "คุณเป็น Video Content Creator ผู้เชี่ยวชาญด้าน SEO และ AEO ตอบกลับเป็น JSON เท่านั้น ไม่มี markdown fence\n" .
                    "โครงสร้าง JSON สำหรับวิดีโอ:\n" .
                    '{"title":"ชื่อวิดีโอ","excerpt":"สรุปเนื้อหาวิดีโอ 1-2 ประโยค","seo_title":"SEO title สำหรับวิดีโอ","slug":"url-friendly-slug","meta_description":"คำอธิบายสำหรับการค้นหา 120-160 ตัวอักษร",' .
                    '"headlines":{"viral_clickbait":[{"title":"หัวข้อ hook","hook":"ประโยคเปิด"}],"storytelling":[{"title":"หัวข้อ","hook":"hook"}],"educational":[{"title":"หัวข้อ","hook":"hook"}]},' .
                    '"scripts":{"tiktok":"Hook 3 วิ: ...\nScene 1 (0:00-0:15): ...\nScene 2 (0:15-0:35): ...\nScene 3 (0:35-0:55): ...\nCTA: ...","youtube":"Intro (0:00-0:30): ...\nSection 1 (0:30-2:00): ...\nSection 2 (2:00-4:00): ...\nOutro (4:00-4:30): ...","facebook":"ประกาศวิดีโอ + caption สำหรับ Facebook","instagram":"caption สำหรับ Reels/Instagram"},' .
                    '"script_sections":{"opening":"Hook 3 วินาทีแรก","bridge":"เนื้อหาหลัก","twist":"จุดพลิกหรือข้อมูลสำคัญ","ending":"CTA + Subscribe/Follow"},' .
                    '"visuals":["Scene 1: คำอธิบายภาพ/การถ่าย","Scene 2: คำอธิบายภาพ/การถ่าย","Scene 3: คำอธิบายภาพ/การถ่าย"],' .
-                   '"hashtags":["#hashtag1","#hashtag2","#hashtag3","#hashtag4","#hashtag5"]}' . "\n\nSEO Checklist Requirements (single source of truth):\n{$seoRequirementsText}";
+                   '"structured_data":{"@context":"https://schema.org","@type":"VideoObject","name":"...","description":"..."},' .
+                   '"hashtags":["#hashtag1","#hashtag2","#hashtag3","#hashtag4","#hashtag5"]}' . "\n\nSEO Checklist Requirements (single source of truth):\n{$seoRequirementsText}\n\nAEO Checklist Requirements (single source of truth):\n" . aeo_generation_requirements();
     } else {
         // Article/social-first prompt with SEO/AEO optimization
         $jsonSchema = '{"title":"ชื่อบทความ (SEO optimized)","excerpt":"สรุป 1-2 ประโยค","seo_title":"SEO Title Tag","slug":"url-friendly-slug","meta_description":"Meta description ภาษาไทย 120-160 chars","meta_keywords":"keyword1, keyword2, ...","full_html":"<article>\\n<h2>heading</h2>\\n<p>content paragraph</p>\\n<h2>heading 2</h2>\\n<p>more content</p>\\n</article> (semantic HTML ใช้ h2,h3,p,ul,ol,blockquote,table ห้ามใช้ h1 เนื่องจากสงวนให้ title)","structured_data":{"@context":"https://schema.org","@type":"Article","headline":"...","description":"..."},"structured_data_faq":{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"คำถาม","acceptedAnswer":{"@type":"Answer","text":"คำตอบ"}}]} (ใส่เฉพาะเมื่อบทความมี Q&A จริง)","headlines":{"viral_clickbait":[{"title":"...","hook":"..."}],"storytelling":[{"title":"...","hook":"..."}],"educational":[{"title":"...","hook":"..."}]},"scripts":{"facebook":"post สั้น","instagram":"caption","tiktok":"script TikTok","youtube":"script YouTube"},"script_sections":{"opening":"hook","bridge":"เนื้อหา","twist":"จุดพลิก","ending":"CTA"},"visuals":["ภาพประกอบ 1","ภาพประกอบ 2"],"hashtags":["#tag1","#tag2","#tag3","#tag4","#tag5"]}';
@@ -2103,11 +2126,12 @@ if ($action === 'generate-article') {
         $mainSys = "CRITICAL: ตอบเป็นภาษาไทยเท่านั้น ห้ามใช้ภาษาจีน เกาหลี ญี่ปุ่น (CJK). English OK for technical terms only.\n" .
                    "คุณเป็นนักเขียน Content Marketing + SEO Specialist ตอบกลับเป็น JSON เท่านั้น ไม่มี markdown fence\n" .
                    "โครงสร้าง JSON ที่ต้องการ:\n{$jsonSchema}\n\n" .
-                   "SEO/AEO Rules (single source of truth จาก SEO Checklist):\n{$seoRequirementsText}\n" .
+                   "SEO Rules (single source of truth จาก SEO Checklist):\n{$seoRequirementsText}\n" .
+                   "AEO Rules (single source of truth จาก AEO Checklist):\n" . aeo_generation_requirements() . "\n" .
                    "- full_html: เขียนด้วย semantic HTML5 (h2, h3, p, ul, ol, blockquote, table) และอย่าเพิ่ม H1 ซ้ำใน body\n" .
-                   "- ใส่ FAQ schema (structured_data_faq) เฉพาะเมื่อบทความมีรูปแบบคำถาม-คำตอบจริง\n" .
-                   "- Answer Engine Optimization: ใช้โครงสร้างคำถาม-คำตอบชัดเจน ย่อหน้าแรกตอบคำถามหลักทันที\n" .
-                   "- HTML ต้อง valid — ปิด tag ครบ, attributes ในเครื่องหมายคำพูดคู่";
+                   "- ใส่ FAQ schema (structured_data_faq) เฉพาะเมื่อบทความมีรูปแบบคำถาม-คำตอบจริง และให้ตรงกับคำถาม/คำตอบในเนื้อหา\n" .
+                   "- Answer Engine Optimization: ย่อหน้าแรกตอบคำถามหลักทันที, ใช้ H2/H3 เป็นคำถาม/ประเด็น, มี answer blocks ที่กระชับและครอบคลุม PAA เมื่อมี Research\n" .
+                   "- HTML ต้อง valid — ปิด tag ครบ, attributes ในเครื่องหมายพูดคู่";
         if ($researchBrief) {
             $mainSys .= "\n- ใช้ primary keyword จาก Research ใน seo_title, slug, meta_description, ย่อหน้าแรก และ headings\n" .
                 "- meta_keywords ต้องเป็น keyword ที่มาจาก Research เท่านั้น ห้ามคิด keyword ใหม่";
@@ -2248,7 +2272,7 @@ if ($action === 'generate-article') {
     // Determine content type from the content item, independent of publish platform.
     $ciType = $isVideo ? 'video' : 'article';
 
-    // SEO post-generation gate: evaluate the exact object that will be persisted.
+    // SEO/AEO post-generation gates: evaluate the exact object that will be persisted.
     // Only `fail` rules trigger a repair attempt; warn/pending/skip never block generation.
     $seoEval = seo_evaluate([
         'type' => $ciType,
@@ -2349,20 +2373,104 @@ if ($action === 'generate-article') {
             break;
         }
     }
-    $seoGate   = seo_gate_status($seoEval);
+    // AEO repair runs after SEO repair, then SEO is re-evaluated because an AEO edit
+    // can change the article body/structured data and therefore affect SEO.
+    $aeoEval = aeo_evaluate([
+        'type' => $ciType,
+        'title' => $artTitle,
+        'seo_title' => $art['seo_title'],
+        'meta_description' => $art['meta_description'],
+        'meta_keywords' => $art['meta_keywords'],
+        'structured_data' => $art['structured_data'],
+        'article_content' => $art,
+        'research_brief' => $researchBrief,
+    ]);
+
+    for ($aeoAttempt = 1; $aeoAttempt < SEO_GEN_MAX_ATTEMPTS && aeo_gate_status($aeoEval) !== 'passed'; $aeoAttempt++) {
+        $aeoIssues = array_values(array_filter($aeoEval['rules'], static fn(array $r): bool => in_array($r['status'] ?? '', ['failed', 'needs_improvement'], true)));
+        usort($aeoIssues, static fn(array $a, array $b): int => ($b['weight'] ?? 0) <=> ($a['weight'] ?? 0));
+        $feedback = implode("\n", array_map(
+            static fn(array $r): string => '- [' . ($r['key'] ?? 'rule') . '] ' . ($r['status'] ?? '') . "\n  message: " . ($r['message'] ?? ''),
+            $aeoIssues
+        ));
+        $repairSystem = "CRITICAL: ตอบเป็นภาษาไทยเท่านั้น ห้ามใช้ภาษาจีน เกาหลี ญี่ปุ่น (CJK). English OK for technical terms only.\n" .
+            "คุณเป็น AEO Content Editor ให้แก้ไข JSON เดิมให้ผ่าน AEO Quality Gate แล้วตอบกลับเป็น JSON object เท่านั้น ไม่มี markdown fence และต้องส่งข้อมูลทุก field กลับมาให้ครบ\n" .
+            "AEO Checklist Requirements:\n" . aeo_generation_requirements() . "\n" .
+            "ห้ามเปลี่ยน Topic, facts หรือสาระสำคัญโดยไม่จำเป็น และห้ามลบ field เดิมที่ผ่านแล้ว";
+        $repairUser = "เนื้อหานี้ยังไม่ผ่าน AEO Quality Gate ให้แก้เฉพาะข้อที่ระบุ แล้วส่ง JSON ฉบับสมบูรณ์กลับมา:\n{$feedback}\n\nJSON ปัจจุบัน:\n" .
+            json_encode($mainData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        try {
+            $aeoRaw = $aiCall($repairSystem, $repairUser);
+            $aeoData = json_decode($aeoRaw, true);
+            if (!is_array($aeoData) && preg_match('/\{.*\}/s', $aeoRaw, $am)) $aeoData = json_decode($am[0], true);
+            if (!is_array($aeoData)) break;
+            $mainData = array_replace_recursive($mainData, $sanitizeArr($aeoData));
+            $artTitle = $mainData['title'] ?? $artTitle;
+            $artExcerpt = $mainData['excerpt'] ?? $artExcerpt;
+            $aiHtml = $mainData['full_html'] ?? '';
+            if (!empty(trim(strip_tags($aiHtml)))) {
+                $fullHtml = '<article class="prose prose-sm max-w-none"><h1>' . htmlspecialchars($artTitle) . '</h1>';
+                if ($artExcerpt) $fullHtml .= '<p class="lead text-muted-foreground italic">' . htmlspecialchars($artExcerpt) . '</p>';
+                $fullHtml .= $aiHtml . '</article>';
+            }
+            $sd = $mainData['structured_data'] ?? null;
+            $faq = $mainData['structured_data_faq'] ?? null;
+            $structuredData = is_array($sd)
+                ? (($faq && is_array($faq) && !empty($faq['mainEntity'])) ? json_encode([$sd, $faq], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : json_encode($sd, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES))
+                : null;
+            $art = [
+                'title' => $artTitle, 'excerpt' => $artExcerpt, 'html' => $fullHtml,
+                'headlines' => $mainData['headlines'] ?? [], 'scripts' => $mainData['scripts'] ?? [],
+                'script_sections' => $mainData['script_sections'] ?? [], 'visuals' => $mainData['visuals'] ?? [],
+                'hashtags' => $mainData['hashtags'] ?? [], 'seo_title' => $mainData['seo_title'] ?? $artTitle,
+                'slug' => $mainData['slug'] ?? '', 'meta_description' => $mainData['meta_description'] ?? $artExcerpt,
+                'meta_keywords' => $researchMetaKeywords !== '' ? $researchMetaKeywords : trim((string)($mainData['meta_keywords'] ?? '')),
+                'structured_data' => $structuredData, 'og_image' => $mainData['og_image'] ?? '',
+            ];
+            $aeoEval = aeo_evaluate([
+                'type' => $ciType, 'title' => $artTitle, 'seo_title' => $art['seo_title'],
+                'meta_description' => $art['meta_description'], 'meta_keywords' => $art['meta_keywords'],
+                'structured_data' => $art['structured_data'], 'article_content' => $art,
+                'research_brief' => $researchBrief,
+            ]);
+        } catch (Throwable $aeoError) {
+            error_log('[brand-content aeo-repair] attempt=' . ($aeoAttempt + 1) . ' error: ' . $aeoError->getMessage());
+            break;
+        }
+    }
+
+    // Final SEO re-check after AEO repairs; both gates must pass.
+    $seoEval = seo_evaluate([
+        'type' => $ciType, 'title' => $artTitle, 'seo_title' => $art['seo_title'], 'slug' => $art['slug'],
+        'meta_description' => $art['meta_description'], 'meta_keywords' => $art['meta_keywords'],
+        'structured_data' => $art['structured_data'], 'og_image' => $art['og_image'],
+        'article_content' => $art, 'research_brief' => $researchBrief,
+    ]);
+    $seoGate = seo_gate_status($seoEval);
+    $aeoGate = aeo_gate_status($aeoEval);
     $seoPassed = $seoGate === 'passed';
-    $generationStatus = $seoPassed ? 'success' : 'failed';
-    // เมื่อ gate ไม่ผ่านหลัง repair ครบ max attempts → เก็บเป็น revision (ไม่ถือเป็นผลสำเร็จ)
-    $finalStatus = $seoPassed ? null : 'revision';
+    $aeoPassed = $aeoGate === 'passed';
+    $generationStatus = ($seoPassed && $aeoPassed) ? 'success' : 'failed';
+    // SEO หรือ AEO ไม่ผ่านหลัง repair ครบ max attempts → revision
+    $finalStatus = ($seoPassed && $aeoPassed) ? null : 'revision';
     // รายการ required rule ที่ fail (key, message, expected) — ให้ผู้ใช้เห็นสาเหตุจริง
     $failedRequired = array_values(array_map(
         static fn(array $r): array => [
             'key' => $r['key'] ?? '',
             'message' => $r['message'] ?? '',
             'expected' => seo_contract_pass_condition($ciType, $r['key'] ?? ''),
+            'quality' => 'SEO',
         ],
         array_filter($seoEval['rules'], static fn(array $r): bool => ($r['tier'] ?? '') === 'required' && ($r['status'] ?? '') === 'failed')
     ));
+    foreach (array_filter($aeoEval['rules'], static fn(array $r): bool => ($r['tier'] ?? '') === 'required' && ($r['status'] ?? '') === 'failed') as $r) {
+        $failedRequired[] = [
+            'key' => $r['key'] ?? '',
+            'message' => $r['message'] ?? '',
+            'expected' => 'AEO: ต้องผ่านกฎ ' . ($r['key'] ?? ''),
+            'quality' => 'AEO',
+        ];
+    }
 
     // Update content_items with article content + SEO columns
     $newCaption = $mainData['caption'] ?? null;
@@ -2400,6 +2508,12 @@ if ($action === 'generate-article') {
             'rules' => $seoEval['rules'],
         ],
         'seo_passed' => $seoPassed,
+        'aeo' => [
+            'score' => (int)$aeoEval['score'],
+            'gate' => $aeoGate,
+            'rules' => $aeoEval['rules'],
+        ],
+        'aeo_passed' => $aeoPassed,
         'generation_status' => $generationStatus,
         'failed_required' => $failedRequired,
     ]);
@@ -2424,10 +2538,27 @@ if ($action === 'publish') {
     $item = $item->fetch();
     if (!$item) jsonError('Item not found', 404);
 
-    // เกต SEO — บล็อกก่อน dispatch ถ้าเปิดเกตและมีกฎ fail/คะแนนต่ำ (ข้อความไทย)
+    // SEO + AEO gate — บล็อกก่อน dispatch ถ้าเปิด quality gate และมี Required failure/คะแนนต่ำ
     $gate = seo_gate_check($db, $tenantId, $item);
     if ($gate['blocked']) {
         jsonError('เผยแพร่ไม่ได้ — ไม่ผ่านเกณฑ์ SEO' . "\n" . $gate['reason'], 422);
+    }
+    $publishResearchBrief = null;
+    $prs = $db->prepare("SELECT analysis FROM content_research_jobs WHERE content_item_id=? AND tenant_id=? AND status='done' ORDER BY created_at DESC LIMIT 1");
+    $prs->execute([$itemId, $tenantId]);
+    $prr = $prs->fetch(PDO::FETCH_ASSOC);
+    if ($prr && !empty($prr['analysis'])) {
+        $publishResearchBrief = json_decode((string)$prr['analysis'], true);
+        if (!is_array($publishResearchBrief)) $publishResearchBrief = null;
+    }
+    $publishGateCfgStmt = $db->prepare('SELECT seo_gate_enabled FROM content_global_settings WHERE tenant_id=?');
+    $publishGateCfgStmt->execute([$tenantId]);
+    $publishGateEnabled = (int)($publishGateCfgStmt->fetchColumn() ?: 0) === 1;
+    $aeoPublish = aeo_evaluate(array_merge($item, ['research_brief' => $publishResearchBrief]));
+    if ($publishGateEnabled && aeo_gate_status($aeoPublish) !== 'passed') {
+        $aeoFails = array_values(array_filter($aeoPublish['rules'], static fn(array $r): bool => ($r['status'] ?? '') === 'failed'));
+        $aeoReason = $aeoFails ? implode("\n", array_map(static fn(array $r): string => '• ' . ($r['message'] ?? ''), $aeoFails)) : 'คะแนน AEO ' . $aeoPublish['score'] . ' ต่ำกว่าเกณฑ์ผ่าน';
+        jsonError('เผยแพร่ไม่ได้ — ไม่ผ่านเกณฑ์ AEO' . "\n" . $aeoReason, 422);
     }
 
     // Load channel
@@ -2756,6 +2887,23 @@ if ($action === 'cron-publish') {
             $db->prepare("UPDATE content_schedules SET status='failed', publish_result=?, updated_at=NOW() WHERE id=?")
                ->execute([json_encode(['seo_gate_blocked' => true, 'reason' => $gate['reason']], JSON_UNESCAPED_UNICODE), $sc['id']]);
             $processed[] = ['id' => $sc['id'], 'status' => 'failed', 'topic' => $sc['topic'], 'reason' => 'SEO gate: ' . $gate['reason']];
+            continue;
+        }
+        $cronResearchBrief = null;
+        $crs = $db->prepare("SELECT analysis FROM content_research_jobs WHERE content_item_id=? AND tenant_id=? AND status='done' ORDER BY created_at DESC LIMIT 1");
+        $crs->execute([$gateItem['id'] ?? '', $tenantId]);
+        $crr = $crs->fetch(PDO::FETCH_ASSOC);
+        if ($crr && !empty($crr['analysis'])) {
+            $cronResearchBrief = json_decode((string)$crr['analysis'], true);
+            if (!is_array($cronResearchBrief)) $cronResearchBrief = null;
+        }
+        $cronAeo = aeo_evaluate(array_merge($gateItem, ['research_brief' => $cronResearchBrief]));
+        if (aeo_gate_status($cronAeo) !== 'passed') {
+            $aeoFails = array_values(array_filter($cronAeo['rules'], static fn(array $r): bool => ($r['status'] ?? '') === 'failed'));
+            $reason = $aeoFails ? implode("\n", array_map(static fn(array $r): string => '• ' . ($r['message'] ?? ''), $aeoFails)) : 'คะแนน AEO ' . $cronAeo['score'] . ' ต่ำกว่าเกณฑ์ผ่าน';
+            $db->prepare("UPDATE content_schedules SET status='failed', publish_result=?, updated_at=NOW() WHERE id=?")
+               ->execute([json_encode(['aeo_gate_blocked' => true, 'reason' => $reason], JSON_UNESCAPED_UNICODE), $sc['id']]);
+            $processed[] = ['id' => $sc['id'], 'status' => 'failed', 'topic' => $sc['topic'], 'reason' => 'AEO gate: ' . $reason];
             continue;
         }
 

@@ -55,6 +55,12 @@ interface Props {
     scheduled_date: string;
     image_brief?: string;
     article_content?: string;
+    seo_title?: string;
+    slug?: string;
+    meta_description?: string;
+    meta_keywords?: string;
+    og_image?: string;
+    structured_data?: string;
   }) => Promise<void>;
   onDelete?: (itemId: string) => Promise<void>;
   onRequestAI?: (data: { topic: string; platform: string; scheduled_date: string }) => Promise<void>;
@@ -152,16 +158,17 @@ export function ContentCardDialog({
           const art = JSON.parse(existingItem.article_content);
           setArticleHtml(art.html || '');
           setSeoFields({
-            seo_title:        art.seo_title        || '',
-            slug:             art.slug             || '',
-            meta_description: art.meta_description || '',
-            meta_keywords:    art.meta_keywords    || '',
-            og_image:         art.og_image         || '',
-            structured_data:  art.structured_data
-              ? (typeof art.structured_data === 'string'
-                  ? art.structured_data
-                  : JSON.stringify(art.structured_data, null, 2))
-              : '',
+            seo_title:        existingItem.seo_title        || art.seo_title        || '',
+            slug:             existingItem.slug             || art.slug             || '',
+            meta_description: existingItem.meta_description || art.meta_description || '',
+            meta_keywords:    existingItem.meta_keywords    || art.meta_keywords    || '',
+            og_image:         existingItem.og_image         || art.og_image         || '',
+            structured_data:  existingItem.structured_data
+              || (art.structured_data
+                ? (typeof art.structured_data === 'string'
+                    ? art.structured_data
+                    : JSON.stringify(art.structured_data, null, 2))
+                : ''),
           });
         } catch {
           setArticleHtml('');
@@ -224,6 +231,12 @@ export function ContentCardDialog({
         scheduled_date: scheduledDate || new Date().toISOString().split('T')[0],
         image_brief: imageBrief.trim(),
         ...(updatedArticleContent !== undefined && { article_content: updatedArticleContent }),
+        seo_title: seoFields.seo_title,
+        slug: seoFields.slug,
+        meta_description: seoFields.meta_description,
+        meta_keywords: seoFields.meta_keywords,
+        og_image: seoFields.og_image,
+        structured_data: seoFields.structured_data,
       });
       if (regenImageOnSave && existingItem?.id && imageBrief.trim()) {
         handleGenerateImage();
@@ -288,7 +301,18 @@ export function ContentCardDialog({
       }
       qc.invalidateQueries({ queryKey: ['content', 'items'] });
       qc.invalidateQueries({ queryKey: ['content', 'plans'] });
-      toast({ title: 'สร้างเนื้อหาสำเร็จ!' });
+      if (res?.generation_status === 'failed') {
+        toast({
+          title: 'สร้างเนื้อหาแล้ว แต่ยังไม่ผ่าน SEO/AEO',
+          description: `SEO ${res?.seo?.score ?? 0}/100 (${res?.seo?.gate ?? 'failed'}) · AEO ${res?.aeo?.score ?? 0}/100 (${res?.aeo?.gate ?? 'failed'}) — บันทึกเป็น “รอแก้ไข”`,
+          variant: 'destructive',
+        });
+      } else {
+        toast({
+          title: 'สร้างเนื้อหาสำเร็จ — SEO + AEO ผ่าน',
+          description: `SEO ${res?.seo?.score ?? 0}/100 · AEO ${res?.aeo?.score ?? 0}/100`,
+        });
+      }
     } catch (e: any) {
       toast({ title: 'สร้างเนื้อหาไม่สำเร็จ', description: e?.message, variant: 'destructive' });
     } finally {

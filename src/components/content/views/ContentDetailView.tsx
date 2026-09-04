@@ -194,6 +194,12 @@ export default function ContentDetailView({
     generated_image_url: item.generated_image_url || '',
     image_gen_status: null,
     article_content: item.article_content || '',
+    seo_title: item.seo_title || '',
+    slug: item.slug || '',
+    meta_description: item.meta_description || '',
+    meta_keywords: item.meta_keywords || '',
+    structured_data: item.structured_data || '',
+    og_image: item.og_image || '',
     content_item_id: item.id,
     content_type: item.type,
   };
@@ -201,6 +207,8 @@ export default function ContentDetailView({
   const handleEditSave = async (data: {
     topic: string; caption: string; platform: string;
     scheduled_date: string; image_brief?: string; article_content?: string;
+    seo_title?: string; slug?: string; meta_description?: string; meta_keywords?: string;
+    og_image?: string; structured_data?: string;
   }) => {
     await apiFetch(`/content-items.php?id=${item.id}`, {
       method: 'PUT',
@@ -211,6 +219,12 @@ export default function ContentDetailView({
         scheduled_date: data.scheduled_date || null,
         image_brief: data.image_brief || '',
         ...(data.article_content !== undefined && { article_content: data.article_content }),
+        seo_title: data.seo_title ?? '',
+        slug: data.slug ?? '',
+        meta_description: data.meta_description ?? '',
+        meta_keywords: data.meta_keywords ?? '',
+        og_image: data.og_image ?? '',
+        structured_data: data.structured_data ?? '',
       }),
     });
     qc.invalidateQueries({ queryKey: ['content', 'items'] });

@@ -109,6 +109,12 @@ export interface PlanItem {
   caption: string; image_brief: string;
   generated_image_url: string | null; image_gen_status: string;
   article_content?: string | null;
+  seo_title?: string | null;
+  slug?: string | null;
+  meta_description?: string | null;
+  meta_keywords?: string | null;
+  structured_data?: string | null;
+  og_image?: string | null;
   content_item_id?: string | null;
   content_type?: string | null;
   reject_reason?: string | null;
@@ -432,6 +438,12 @@ export interface SeoChecklistResult {
   rules: SeoRule[];
   seo_gate_enabled: 0 | 1;
   seo_gate_min_score: number;
+}
+
+export interface AeoChecklistResult {
+  score: number;
+  gate: SeoGateStatus;
+  rules: SeoRule[];
 }
 
 export const SEO_GATE_LABEL: Record<SeoGateStatus, { label: string; className: string }> = {

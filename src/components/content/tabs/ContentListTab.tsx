@@ -49,6 +49,12 @@ export default function ContentListTab() {
     generated_image_url: item.generated_image_url || '',
     image_gen_status: null,
     article_content: item.article_content || '',
+    seo_title: item.seo_title || '',
+    slug: item.slug || '',
+    meta_description: item.meta_description || '',
+    meta_keywords: item.meta_keywords || '',
+    structured_data: item.structured_data || '',
+    og_image: item.og_image || '',
     content_item_id: item.id,
     content_type: item.type,
     reject_reason: item.reject_reason || null,
@@ -60,6 +66,13 @@ export default function ContentListTab() {
     platform: string;
     scheduled_date: string;
     image_brief?: string;
+    article_content?: string;
+    seo_title?: string;
+    slug?: string;
+    meta_description?: string;
+    meta_keywords?: string;
+    og_image?: string;
+    structured_data?: string;
   }) => {
     if (!editItemLatest) return;
     await apiFetch(`/content-items.php?id=${editItemLatest.id}`, {
@@ -70,6 +83,13 @@ export default function ContentListTab() {
         platform: data.platform,
         scheduled_date: data.scheduled_date || null,
         image_brief: data.image_brief || '',
+        ...(data.article_content !== undefined && { article_content: data.article_content }),
+        seo_title: data.seo_title ?? '',
+        slug: data.slug ?? '',
+        meta_description: data.meta_description ?? '',
+        meta_keywords: data.meta_keywords ?? '',
+        og_image: data.og_image ?? '',
+        structured_data: data.structured_data ?? '',
       }),
     });
     qc.invalidateQueries({ queryKey: ['content', 'items'] });
@@ -96,8 +116,10 @@ export default function ContentListTab() {
       qc.invalidateQueries({ queryKey: ['content', 'items'] });
       qc.invalidateQueries({ queryKey: ['content', 'plans'] });
       toast({
-        title: result?.generation_status === 'failed' ? 'สร้างไม่ผ่าน SEO — สถานะ revision' : 'AI เขียนบทความสำเร็จ!',
-        description: result?.generation_status === 'failed' ? `คะแนน SEO ${result?.seo?.score ?? 0} — เนื้อหาถูกบันทึกเป็น revision กรุณาตรวจสอบ SEO Checklist` : undefined,
+        title: result?.generation_status === 'failed' ? 'สร้างไม่ผ่าน SEO/AEO — สถานะ revision' : 'AI เขียนบทความสำเร็จ — SEO + AEO ผ่าน',
+        description: result?.generation_status === 'failed'
+          ? `SEO ${result?.seo?.score ?? 0}/100 (${result?.seo?.gate ?? 'failed'}) · AEO ${result?.aeo?.score ?? 0}/100 (${result?.aeo?.gate ?? 'failed'}) — ตรวจ Checklist เพื่อดูข้อที่ต้องแก้`
+          : `SEO ${result?.seo?.score ?? 0}/100 · AEO ${result?.aeo?.score ?? 0}/100`,
         variant: result?.generation_status === 'failed' ? 'destructive' : undefined,
       });
     } catch (e: any) {
