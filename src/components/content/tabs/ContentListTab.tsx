@@ -5,7 +5,6 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { useState, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
-import { useConfirm } from '@/hooks/useConfirm';
 import { useContentItems } from '@/hooks/useContent';
 import { apiFetch } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -19,7 +18,6 @@ import { getPlatformColors } from '@/lib/platformConfig';
 
 export default function ContentListTab() {
   const { toast } = useToast();
-  const { confirm } = useConfirm();
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'draft' | 'revision' | 'pending_approval' | 'approved' | 'published'>('all');
@@ -29,6 +27,7 @@ export default function ContentListTab() {
   const [generatingImage, setGeneratingImage] = useState(false);
   const [publishDialog, setPublishDialog] = useState<{ contentId: string; contentTitle: string; mode: 'schedule' | 'send_now'; defaultCaption?: string; defaultBody?: string } | null>(null);
   const [imageViewerSrc, setImageViewerSrc] = useState<string | null>(null);
+  const [deleteConfirmItem, setDeleteConfirmItem] = useState<ContentItem | null>(null);
 
   const { data: items = [], isLoading } = useContentItems();
 
@@ -432,38 +431,43 @@ export default function ContentListTab() {
                     <span className="text-xs text-muted-foreground hidden sm:block">
                       {new Date(item.created_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}
                     </span>
+                    {item.status === 'approved' && item.approved_at && (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 w-7 p-0 hover:text-green-600 text-muted-foreground"
+                          onClick={e => {
+                            e.stopPropagation();
+                            setPublishDialog({ contentId: item.id, contentTitle: item.title, mode: 'send_now', defaultCaption: item.caption || '', defaultBody: (() => { try { return JSON.parse(item.article_content || '{}')?.html || ''; } catch { return ''; } })() });
+                          }}
+                          title="ส่งทันที"
+                        >
+                          <Send className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 w-7 p-0 hover:text-primary text-muted-foreground"
+                          onClick={e => {
+                            e.stopPropagation();
+                            setPublishDialog({ contentId: item.id, contentTitle: item.title, mode: 'schedule', defaultCaption: item.caption || '', defaultBody: (() => { try { return JSON.parse(item.article_content || '{}')?.html || ''; } catch { return ''; } })() });
+                          }}
+                          title="ตั้งเวลาโพสต์"
+                        >
+                          <Calendar className="h-3.5 w-3.5" />
+                        </Button>
+                      </>
+                    )}
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 hover:text-green-600 text-muted-foreground"
+                      className="h-7 w-7 p-0 hover:text-destructive text-muted-foreground"
                       onClick={e => {
                         e.stopPropagation();
-                        setPublishDialog({ contentId: item.id, contentTitle: item.title, mode: 'send_now', defaultCaption: item.caption || '', defaultBody: (() => { try { return JSON.parse(item.article_content || '{}')?.html || ''; } catch { return ''; } })() });
+                        setDeleteConfirmItem(item);
                       }}
-                      title="ส่งทันที"
-                    >
-                      <Send className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 hover:text-primary text-muted-foreground"
-                      onClick={e => {
-                        e.stopPropagation();
-                        setPublishDialog({ contentId: item.id, contentTitle: item.title, mode: 'schedule', defaultCaption: item.caption || '', defaultBody: (() => { try { return JSON.parse(item.article_content || '{}')?.html || ''; } catch { return ''; } })() });
-                      }}
-                      title="ตั้งเวลาโพสต์"
-                    >
-                      <Calendar className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 hover:text-destructive text-muted-foreground"
-                      onClick={async e => {
-                        e.stopPropagation();
-                        if (await confirm({ title: 'ลบคอนเทนต์', description: 'ลบคอนเทนต์นี้?', variant: 'destructive' })) handleDelete(item.id);
-                      }}
+                      title="ลบ"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
@@ -474,6 +478,32 @@ export default function ContentListTab() {
           </div>
         )}
       </div>
+
+      {/* Delete confirmation — same confirmation UI as Content Detail */}
+      <Dialog open={!!deleteConfirmItem} onOpenChange={open => { if (!open) setDeleteConfirmItem(null); }}>
+        <DialogContent className="w-full sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>ยืนยันการลบคอนเทนต์</DialogTitle>
+            <DialogDescription>
+              ต้องการลบ "{deleteConfirmItem?.title || 'คอนเทนต์นี้'}" ใช่หรือไม่? การลบไม่สามารถย้อนกลับได้
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setDeleteConfirmItem(null)}>ยกเลิก</Button>
+            <Button
+              variant="destructive"
+              onClick={async () => {
+                if (!deleteConfirmItem) return;
+                const itemId = deleteConfirmItem.id;
+                await handleDelete(itemId);
+                setDeleteConfirmItem(null);
+              }}
+            >
+              ยืนยันการลบ
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Edit dialog */}
       {editItemLatest && (

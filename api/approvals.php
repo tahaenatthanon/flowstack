@@ -84,6 +84,27 @@ if ($method === 'POST') {
       'UPDATE approval_requests SET status=?, decided_at=NOW(), comment=?, updated_at=NOW() WHERE id=?'
     )->execute([$decision, $body['comment'] ?? null, $id]);
 
+    // Keep content_items approval state in sync with the approval chain.
+    if ($req['entity_type'] === 'content_item') {
+      if ($decision === 'rejected') {
+        $db->prepare('UPDATE content_items SET status=\'rejected\', approved_at=NULL, updated_at=NOW() WHERE id=? AND tenant_id=?')
+          ->execute([$req['entity_id'], $tenantId]);
+      } else {
+        $pendingStmt = $db->prepare(
+          'SELECT COUNT(*) FROM approval_requests
+           WHERE tenant_id=? AND entity_type=? AND entity_id=? AND status=\'pending\''
+        );
+        $pendingStmt->execute([$tenantId, $req['entity_type'], $req['entity_id']]);
+        if ((int)$pendingStmt->fetchColumn() === 0) {
+          $db->prepare('UPDATE content_items SET status=\'approved\', approved_at=NOW(), updated_at=NOW() WHERE id=? AND tenant_id=?')
+            ->execute([$req['entity_id'], $tenantId]);
+        } else {
+          $db->prepare('UPDATE content_items SET status=\'pending_approval\', approved_at=NULL, updated_at=NOW() WHERE id=? AND tenant_id=?')
+            ->execute([$req['entity_id'], $tenantId]);
+        }
+      }
+    }
+
     // If rejected, cancel remaining steps in chain for this entity
     if ($decision === 'rejected') {
       $db->prepare(
@@ -103,6 +124,12 @@ if ($method === 'POST') {
 
   if (!$entityType || !$entityId)  jsonError('entity_type and entity_id required', 422);
   if (empty($approvers))           jsonError('approvers array required', 422);
+
+  // A new approval request invalidates any previous approval for this content version.
+  if ($entityType === 'content_item') {
+    $db->prepare('UPDATE content_items SET status=\'pending_approval\', approved_at=NULL, updated_at=NOW() WHERE id=? AND tenant_id=?')
+      ->execute([$entityId, $tenantId]);
+  }
 
   // Cancel any existing pending chain for this entity
   $db->prepare(

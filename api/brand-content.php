@@ -1865,6 +1865,40 @@ if ($action === 'schedules') {
     if ($method === 'POST') {
         $body = getRequestBody();
         if (empty($body['plan_item_id']) || empty($body['channel_id']) || empty($body['scheduled_at'])) jsonError('plan_item_id, channel_id, scheduled_at required', 400);
+
+        // Scheduling is a publish action and therefore requires approval of the
+        // canonical content_items row before a pending schedule can be created.
+        $approvalStmt = $db->prepare('SELECT ci.status, ci.approved_at FROM content_items ci JOIN content_plan_items cpi ON cpi.id=ci.plan_item_id JOIN content_plans cp ON cp.id=cpi.plan_id WHERE ci.plan_item_id=? AND ci.tenant_id=? AND cp.tenant_id=? LIMIT 1');
+        $approvalStmt->execute([$body['plan_item_id'], $tenantId, $tenantId]);
+        $approvalRow = $approvalStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$approvalRow || $approvalRow['status'] !== 'approved' || empty($approvalRow['approved_at'])) {
+            jsonError('ตั้งเวลาไม่ได้ — คอนเทนต์นี้ยังไม่ผ่านการอนุมัติ กรุณาอนุมัติก่อนตั้งเวลา', 422);
+        }
+
+        $contentIdStmt = $db->prepare('SELECT id, platform, platforms FROM content_items WHERE plan_item_id=? AND tenant_id=? LIMIT 1');
+        $contentIdStmt->execute([$body['plan_item_id'], $tenantId]);
+        $scheduledContent = $contentIdStmt->fetch(PDO::FETCH_ASSOC);
+        if ($scheduledContent) {
+            $channelPlatformStmt = $db->prepare('SELECT platform FROM publish_channels WHERE id=? AND tenant_id=? AND is_active=1');
+            $channelPlatformStmt->execute([$body['channel_id'], $tenantId]);
+            $scheduledPlatform = strtolower(trim((string)$channelPlatformStmt->fetchColumn()));
+            if ($scheduledPlatform !== '') {
+                $publishedPlatforms = get_published_content_platforms($db, $tenantId, $scheduledContent['id']);
+                if (in_array($scheduledPlatform, $publishedPlatforms, true)) {
+                    jsonError("ตั้งเวลาไม่ได้ — แพลตฟอร์ม {$scheduledPlatform} ของคอนเทนต์นี้เผยแพร่แล้ว", 422);
+                }
+                $pendingLegacy = $db->prepare(
+                    "SELECT COUNT(*) FROM content_schedules cs
+                     JOIN publish_channels pc ON pc.id=cs.channel_id
+                     WHERE cs.plan_item_id=? AND LOWER(pc.platform)=? AND cs.status IN ('pending','publishing')"
+                );
+                $pendingLegacy->execute([$body['plan_item_id'], $scheduledPlatform]);
+                if ((int)$pendingLegacy->fetchColumn() > 0) {
+                    jsonError("ตั้งเวลาไม่ได้ — แพลตฟอร์ม {$scheduledPlatform} มีรายการเผยแพร่ที่รอดำเนินการอยู่แล้ว", 422);
+                }
+            }
+        }
+
         $id = generateUUID();
         $db->prepare("INSERT INTO content_schedules (id,plan_item_id,channel_id,scheduled_at,status,created_by) VALUES (?,?,?,?,?,?)")
            ->execute([$id, $body['plan_item_id'], $body['channel_id'], $body['scheduled_at'], 'pending', $userId]);
@@ -1875,6 +1909,12 @@ if ($action === 'schedules') {
         $body = getRequestBody();
         $newDt = $body['scheduled_at'] ?? '';
         if (!$id || !$newDt) jsonError('id and scheduled_at required', 400);
+        $approvalStmt = $db->prepare('SELECT ci.status, ci.approved_at FROM content_schedules cs JOIN content_plan_items cpi ON cpi.id=cs.plan_item_id JOIN content_items ci ON ci.plan_item_id=cpi.id JOIN content_plans cp ON cp.id=cpi.plan_id WHERE cs.id=? AND cp.tenant_id=? LIMIT 1');
+        $approvalStmt->execute([$id, $tenantId]);
+        $approvalRow = $approvalStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$approvalRow || $approvalRow['status'] !== 'approved' || empty($approvalRow['approved_at'])) {
+            jsonError('ตั้งเวลาไม่ได้ — คอนเทนต์นี้ยังไม่ผ่านการอนุมัติ กรุณาอนุมัติก่อนตั้งเวลา', 422);
+        }
         $db->prepare("UPDATE content_schedules SET scheduled_at=?, status='pending', updated_at=NOW()
             WHERE id=? AND plan_item_id IN (
                 SELECT cpi.id FROM content_plan_items cpi
@@ -2538,6 +2578,11 @@ if ($action === 'publish') {
     $item = $item->fetch();
     if (!$item) jsonError('Item not found', 404);
 
+    // Direct publish is also a publish action: never allow it to bypass approval.
+    if (($item['status'] ?? '') !== 'approved' || empty($item['approved_at'])) {
+        jsonError('เผยแพร่ไม่ได้ — คอนเทนต์นี้ยังไม่ผ่านการอนุมัติ กรุณาอนุมัติก่อนเผยแพร่', 422);
+    }
+
     // SEO + AEO gate — บล็อกก่อน dispatch ถ้าเปิด quality gate และมี Required failure/คะแนนต่ำ
     $gate = seo_gate_check($db, $tenantId, $item);
     if ($gate['blocked']) {
@@ -2574,7 +2619,30 @@ if ($action === 'publish') {
         if ($plain) $creds = json_decode($plain, true) ?: [];
     }
 
-    $platform = $channel['platform'];
+    $platform = strtolower((string)$channel['platform']);
+
+    // Business rule: 1 content × 1 platform = publish once.
+    // A different platform remains independently publishable.
+    $publishedPlatforms = get_published_content_platforms($db, $tenantId, $itemId);
+    if (in_array($platform, $publishedPlatforms, true)) {
+        jsonError("เผยแพร่ไม่ได้ — แพลตฟอร์ม {$platform} ของคอนเทนต์นี้เผยแพร่แล้ว", 422);
+    }
+    $pendingStmt = $db->prepare(
+        "SELECT COUNT(*) FROM content_publish_queue q
+         JOIN publish_channels pc ON pc.id=q.channel_id
+         WHERE q.tenant_id=? AND q.content_id=? AND LOWER(pc.platform)=? AND q.status IN ('pending','processing')"
+    );
+    $pendingStmt->execute([$tenantId, $itemId, $platform]);
+    if ((int)$pendingStmt->fetchColumn() > 0) {
+        jsonError("เผยแพร่ไม่ได้ — แพลตฟอร์ม {$platform} มีรายการเผยแพร่ที่กำลังดำเนินการอยู่แล้ว", 422);
+    }
+    $publishLockName = 'sp:' . md5($itemId . ':' . $platform);
+    $publishLockStmt = $db->prepare('SELECT GET_LOCK(?, 5) AS got');
+    $publishLockStmt->execute([$publishLockName]);
+    if ((int)($publishLockStmt->fetchColumn() ?: 0) !== 1) {
+        jsonError("เผยแพร่ไม่ได้ — มีคำขอเผยแพร่ {$platform} ของคอนเทนต์นี้กำลังทำงานอยู่", 409);
+    }
+
     $artData  = !empty($item['article_content']) ? json_decode($item['article_content'], true) : null;
     $title    = $artData['title']   ?? $item['topic'];
     $content  = $artData['html']    ?? $item['caption'];
@@ -2783,9 +2851,14 @@ if ($action === 'publish') {
     // แก้บั๊กคีย์: ใช้ WHERE id=? (คีย์เดียวกับที่โหลด $itemId มา) แทน plan_item_id ที่อาจไม่ตรง/เป็น NULL
     // platform: เขียนตาม channel ที่โพสต์จริง — analytics-recalculate group by คอลัมน์นี้
     if (isset($ok) && $ok) {
-        $db->prepare("UPDATE content_items SET status='published', published_at=NOW(), published_url=?, external_post_id=?, updated_at=NOW() WHERE id=? AND tenant_id=?")
+        $db->prepare("UPDATE content_items SET published_url=COALESCE(?, published_url), external_post_id=COALESCE(?, external_post_id), updated_at=NOW() WHERE id=? AND tenant_id=?")
            ->execute([$publishedUrl, $postId, $itemId, $tenantId]);
+        sync_content_publish_status($db, $tenantId, $item);
     }
+
+    // Release only after the publish history has been persisted, so a concurrent
+    // request cannot slip between the external API call and the duplicate check.
+    $db->prepare('SELECT RELEASE_LOCK(?)')->execute([$publishLockName]);
 
     jsonResponse(['ok' => isset($ok) ? $ok : true, 'result' => $result]);
 }
@@ -2865,10 +2938,17 @@ if ($action === 'cron-publish') {
         $excerpt = $artData['excerpt'] ?? '';
         $imgUrl  = $sc['generated_image_url'] ?? '';
 
-        // เกต SEO — โหลด content_items (canonical SEO) ผ่าน plan_item_id; fallback จาก article_content JSON
+        // Approval gate — queued content must still be approved at dispatch time.
+        // This also blocks schedules that were created before the approval gate was deployed.
         $gStmt = $db->prepare("SELECT * FROM content_items WHERE plan_item_id=? AND tenant_id=? LIMIT 1");
         $gStmt->execute([$sc['plan_item_id'], $tenantId]);
         $gateItem = $gStmt->fetch(PDO::FETCH_ASSOC);
+        if ($gateItem && (($gateItem['status'] ?? '') !== 'approved' || empty($gateItem['approved_at']))) {
+            $db->prepare("UPDATE content_schedules SET status='failed', publish_result=?, updated_at=NOW() WHERE id=?")
+               ->execute([json_encode(['approval_gate_blocked' => true, 'reason' => 'คอนเทนต์ยังไม่ผ่านการอนุมัติ'], JSON_UNESCAPED_UNICODE), $sc['id']]);
+            $processed[] = ['id' => $sc['id'], 'status' => 'failed', 'topic' => $sc['topic'], 'reason' => 'Approval gate: คอนเทนต์ยังไม่ผ่านการอนุมัติ'];
+            continue;
+        }
         if (!$gateItem) {
             $gateItem = [
                 'seo_title'        => $artData['seo_title']        ?? '',
@@ -2910,8 +2990,34 @@ if ($action === 'cron-publish') {
         $ok     = false;
         $result = [];
 
+        $cronPlatform = strtolower((string)$sc['platform']);
+        $cronContentIdStmt = $db->prepare('SELECT id, platform, platforms FROM content_items WHERE plan_item_id=? AND tenant_id=? LIMIT 1');
+        $cronContentIdStmt->execute([$sc['plan_item_id'], $tenantId]);
+        $cronContent = $cronContentIdStmt->fetch(PDO::FETCH_ASSOC);
+        if ($cronContent) {
+            $cronPublishedPlatforms = get_published_content_platforms($db, $tenantId, $cronContent['id']);
+            if (in_array($cronPlatform, $cronPublishedPlatforms, true)) {
+                $db->prepare("UPDATE content_schedules SET status='failed', publish_result=?, updated_at=NOW() WHERE id=?")
+                   ->execute([json_encode(['publish_once_blocked' => true, 'reason' => 'แพลตฟอร์มนี้เผยแพร่แล้ว'], JSON_UNESCAPED_UNICODE), $sc['id']]);
+                $processed[] = ['id' => $sc['id'], 'status' => 'failed', 'topic' => $sc['topic'], 'reason' => 'Platform publish-once guard'];
+                continue;
+            }
+        }
+        $cronLockName = 'sp:' . md5(($cronContent['id'] ?? $sc['plan_item_id']) . ':' . $cronPlatform);
+        $cronLockStmt = $db->prepare('SELECT GET_LOCK(?, 5) AS got');
+        $cronLockStmt->execute([$cronLockName]);
+        if ((int)($cronLockStmt->fetchColumn() ?: 0) !== 1) {
+            $db->prepare("UPDATE content_schedules SET status='pending', updated_at=NOW() WHERE id=? AND status='publishing'")->execute([$sc['id']]);
+            continue;
+        }
 
         try {
+            $cronPublishedPlatforms = $cronContent ? get_published_content_platforms($db, $tenantId, $cronContent['id']) : [];
+            if (in_array($cronPlatform, $cronPublishedPlatforms, true)) {
+                $db->prepare("UPDATE content_schedules SET status='failed', publish_result=?, updated_at=NOW() WHERE id=?")
+                   ->execute([json_encode(['publish_once_blocked' => true, 'reason' => 'แพลตฟอร์มนี้เผยแพร่แล้ว'], JSON_UNESCAPED_UNICODE), $sc['id']]);
+                continue;
+            }
             if ($sc['platform'] === 'wordpress') {
                 $wpUrl  = rtrim($sc['endpoint_url'] ?? '', '/');
                 $wpUser = $creds['username'] ?? '';
@@ -3014,6 +3120,8 @@ if ($action === 'cron-publish') {
             }
         } catch (Exception $e) {
             $result = ['error' => $e->getMessage()];
+        } finally {
+            $db->prepare('SELECT RELEASE_LOCK(?)')->execute([$cronLockName]);
         }
 
         // สกัด post id / url จากผล inline curl แต่ละ platform (best-effort — platform ที่ response ไม่มี id คืน null)
@@ -3037,9 +3145,10 @@ if ($action === 'cron-publish') {
         // platform: เขียนตาม channel ของ schedule ที่โพสต์จริง — analytics-recalculate group by คอลัมน์นี้
         if ($ok) {
             $db->prepare(
-                "UPDATE content_items SET status='published', published_at=NOW(), updated_at=NOW()
+                "UPDATE content_items SET published_url=COALESCE(?, published_url), external_post_id=COALESCE(?, external_post_id), updated_at=NOW()
                  WHERE id=(SELECT id FROM (SELECT id FROM content_items WHERE plan_item_id=? AND tenant_id=? LIMIT 1) AS ci_match)"
-            )->execute([$sc['plan_item_id'], $tenantId]);
+            )->execute([$publishedUrl, $postId, $sc['plan_item_id'], $tenantId]);
+            if ($cronContent) sync_content_publish_status($db, $tenantId, $cronContent);
         }
 
         $processed[] = ['id' => $sc['id'], 'status' => $status, 'topic' => $sc['topic']];

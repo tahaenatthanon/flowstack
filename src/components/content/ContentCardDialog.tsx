@@ -19,8 +19,6 @@ import { apiFetch } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
 import { useContentGlobalSettings } from '@/hooks/useContent';
-import { useResearchRun, RESEARCH_STEP_LABELS } from '@/hooks/useResearchRun';
-import { Switch } from '@/components/ui/switch';
 import ArticleEditor from '@/components/content/ArticleEditor';
 import ImageViewer from '@/components/content/ImageViewer';
 import type { SeoFields } from '@/components/content/types';
@@ -85,12 +83,11 @@ export function ContentCardDialog({
   const [imageBrief, setImageBrief] = useState('');
   const [scheduledDate, setScheduledDate] = useState('');
   const [aiGenerating, setAiGenerating] = useState(false);
-  const [researchEnabled, setResearchEnabled] = useState(false);
-  const { run: runResearch, step: researchStep } = useResearchRun();
   const [articleHtml, setArticleHtml] = useState('');
   const [seoFields, setSeoFields] = useState<SeoFields>(emptySeoFields());
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [selectedKbId, setSelectedKbId] = useState('');
   const [kbPickerOpen, setKbPickerOpen] = useState(false);
   const [regenImageOnSave, setRegenImageOnSave] = useState(false);
@@ -279,12 +276,10 @@ export function ContentCardDialog({
     setAiGenerating(true);
     toast({ title: 'AI กำลังเขียนเนื้อหา...', description: 'โปรดรอสักครู่' });
     try {
-      const res: any = researchEnabled
-        ? await runResearch({ topic: topic.trim(), itemId: existingItem.id })
-        : await apiFetch('/brand-content.php?action=generate-article', {
-            method: 'POST',
-            body: JSON.stringify({ item_id: existingItem.id, ...(selectedKbId && { kb_article_id: selectedKbId }) }),
-          });
+      const res: any = await apiFetch('/brand-content.php?action=generate-article', {
+        method: 'POST',
+        body: JSON.stringify({ item_id: existingItem.id, ...(selectedKbId && { kb_article_id: selectedKbId }) }),
+      });
       const art = res?.article;
       if (art) {
         setArticleHtml(art.html || '');
@@ -787,24 +782,14 @@ export function ContentCardDialog({
         {/* Fixed footer */}
         <DialogFooter className="px-6 py-4 border-t shrink-0 gap-2">
           {existingItem && (
-            <Button variant="outline" className="gap-1.5 text-destructive border-destructive/30 mr-auto" disabled={deleting} onClick={handleDelete}>
-              <Trash2 className="h-3.5 w-3.5" />{deleting ? 'กำลังลบ...' : 'ลบ'}
+            <Button variant="outline" className="gap-1.5 text-destructive border-destructive/30 mr-auto" disabled={deleting} onClick={() => setDeleteConfirmOpen(true)}>
+              <Trash2 className="h-3.5 w-3.5" />ลบ
             </Button>
           )}
           <Button variant="outline" onClick={() => onOpenChange(false)}>ยกเลิก</Button>
-          {existingItem && (
-            <label className="flex items-center gap-2 text-xs text-muted-foreground mr-1">
-              <Switch checked={researchEnabled} onCheckedChange={setResearchEnabled} />
-              Research
-            </label>
-          )}
           <Button variant="outline" className="gap-1.5" onClick={handleAI} disabled={!topic.trim() || aiGenerating}>
             {aiGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-            {aiGenerating
-              ? (researchEnabled && researchStep !== 'idle' && researchStep !== 'failed' && researchStep !== 'done'
-                  ? `${RESEARCH_STEP_LABELS[researchStep]}...`
-                  : 'กำลังสร้าง...')
-              : 'AI เขียนให้'}
+            {aiGenerating ? 'กำลังสร้าง...' : 'AI เขียนให้'}
           </Button>
           <Button onClick={handleSave} disabled={saving || !topic.trim()} className="gap-1.5">
             <Save className="h-3.5 w-3.5" />{saving ? 'กำลังบันทึก...' : 'บันทึก'}
@@ -815,6 +800,27 @@ export function ContentCardDialog({
             </Button>
           )}
         </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {/* Delete confirmation — explicit confirmation before destructive action */}
+    <Dialog open={deleteConfirmOpen} onOpenChange={open => { if (!open) setDeleteConfirmOpen(false); }}>
+      <DialogContent className="w-full sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>ยืนยันการลบคอนเทนต์</DialogTitle>
+          <DialogDescription>
+            ต้องการลบ "{topic || existingItem?.topic || 'คอนเทนต์นี้'}" ใช่หรือไม่? การลบไม่สามารถย้อนกลับได้
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>ยกเลิก</Button>
+          <Button variant="destructive" disabled={deleting} onClick={async () => {
+            await handleDelete();
+            setDeleteConfirmOpen(false);
+          }}>
+            {deleting ? 'กำลังลบ...' : 'ยืนยันการลบ'}
+          </Button>
+        </div>
       </DialogContent>
     </Dialog>
 

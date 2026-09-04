@@ -2,20 +2,19 @@
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useState, useRef, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
 import { apiFetch } from '@/lib/api';
-import { usePublishChannels } from '@/hooks/useContent';
+
 import { cn } from '@/lib/utils';
 import type { ContentItem, PlanItem } from '@/components/content/types';
 import { PLATFORM_MAP } from '@/components/content/types';
 import ContentArticleView from './ContentArticleView';
 import ContentVideoView from './ContentVideoView';
 import { ContentCardDialog } from '@/components/content/ContentCardDialog';
+import { SchedulePublishDialog } from '@/components/content/SchedulePublishDialog';
 
 export default function ContentDetailView({
   item,
@@ -33,13 +32,11 @@ export default function ContentDetailView({
   const canApprove = isApproval && item.status === 'pending_approval';
   // Authors send draft/revision work into the approval queue — never from the approver's side
   const canRequestApproval = !isApproval && (item.status === 'draft' || item.status === 'revision');
-  // Publishing is the author's call once an approver has signed off
-  const canPublish = !isApproval && item.status === 'approved';
+  // Publishing/scheduling require an approval timestamp for the current content version.
+  const hasApproval = !!item.approved_at;
+  const canSchedule = !isApproval && item.status === 'approved' && hasApproval;
+  const canPublish = !isApproval && item.status === 'approved' && hasApproval;
 
-  const [schedOpen, setSchedOpen] = useState(false);
-  const [schedChannelId, setSchedChannelId] = useState('');
-  const [schedDt, setSchedDt] = useState('');
-  const [savingSched, setSavingSched] = useState(false);
 
   const [editOpen, setEditOpen] = useState(false);
   const [generatingImage, setGeneratingImage] = useState(false);
@@ -66,34 +63,7 @@ export default function ContentDetailView({
   const [savingRequest, setSavingRequest] = useState(false);
 
   // Publish — author-side action, approved → published
-  const [publishConfirm, setPublishConfirm] = useState(false);
-  const [savingPublish, setSavingPublish] = useState(false);
-
-  const { data: channels = [] } = usePublishChannels(schedOpen);
-
-  const handleSchedule = async () => {
-    if (!schedChannelId || !schedDt) return;
-    if (new Date(schedDt) < new Date()) {
-      toast({ title: 'เวลาที่เลือกผ่านมาแล้ว', description: 'กรุณาเลือกเวลาในอนาคต', variant: 'destructive' });
-      return;
-    }
-    setSavingSched(true);
-    try {
-      await apiFetch('/brand-content.php?action=schedules', {
-        method: 'POST',
-        body: JSON.stringify({ plan_item_id: item.plan_item_id, channel_id: schedChannelId, scheduled_at: schedDt }),
-      });
-      toast({ title: 'ตั้งเวลาโพสต์แล้ว' });
-      setSchedOpen(false);
-      setSchedChannelId('');
-      setSchedDt('');
-      qc.invalidateQueries({ queryKey: ['content', 'schedules'] });
-    } catch (e: any) {
-      toast({ title: 'ตั้งเวลาไม่สำเร็จ', description: e.message, variant: 'destructive' });
-    } finally {
-      setSavingSched(false);
-    }
-  };
+  const [publishDialog, setPublishDialog] = useState<'schedule' | 'send_now' | null>(null);
 
   // Approval decisions — one PUT per decision, then refresh both list views.
   // 'revision' and 'rejected' also persist the approver's reason.
@@ -159,24 +129,6 @@ export default function ContentDetailView({
       toast({ title: 'ส่งอนุมัติไม่สำเร็จ', description: e.message, variant: 'destructive' });
     } finally {
       setSavingRequest(false);
-    }
-  };
-
-  const handlePublish = async () => {
-    setSavingPublish(true);
-    try {
-      await apiFetch(`/content-items.php?id=${item.id}`, {
-        method: 'PUT',
-        body: JSON.stringify({ status: 'published' }),
-      });
-      qc.invalidateQueries({ queryKey: ['content', 'items'] });
-      qc.invalidateQueries({ queryKey: ['content', 'plans'] });
-      toast({ title: 'เผยแพร่แล้ว', description: `"${item.title}" ถูกเผยแพร่เรียบร้อย` });
-      setPublishConfirm(false);
-    } catch (e: any) {
-      toast({ title: 'เผยแพร่ไม่สำเร็จ', description: e.message, variant: 'destructive' });
-    } finally {
-      setSavingPublish(false);
     }
   };
 
@@ -363,7 +315,14 @@ export default function ContentDetailView({
                 <Pencil className="h-3.5 w-3.5" />แก้ไข
               </Button>
               {item.plan_item_id && (
-                <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setSchedOpen(true)}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5"
+                  disabled={!canSchedule}
+                  title={canSchedule ? 'ตั้งเวลาโพสต์' : 'ต้องอนุมัติก่อนจึงจะตั้งเวลาได้'}
+                  onClick={() => setPublishDialog('schedule')}
+                >
                   <Clock className="h-3.5 w-3.5" />ตั้งเวลาโพสต์
                 </Button>
               )}
@@ -373,7 +332,7 @@ export default function ContentDetailView({
                 </Button>
               )}
               {canPublish && (
-                <Button size="sm" variant="default" className="gap-1.5 bg-green-600 hover:bg-green-700 text-white" onClick={() => setPublishConfirm(true)}>
+                <Button size="sm" variant="default" className="gap-1.5 bg-green-600 hover:bg-green-700 text-white" onClick={() => setPublishDialog('send_now')}>
                   <Send className="h-3.5 w-3.5" />เผยแพร่
                 </Button>
               )}
@@ -392,42 +351,6 @@ export default function ContentDetailView({
       )}
 
       {isVideo ? <ContentVideoView item={item} context={context} /> : <ContentArticleView item={item} context={context} />}
-
-      {/* Schedule Dialog */}
-      <Dialog open={schedOpen} onOpenChange={open => { setSchedOpen(open); if (!open) { setSchedChannelId(''); setSchedDt(''); } }}>
-        <DialogContent className="w-full sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><Clock className="h-4 w-4" />ตั้งเวลาโพสต์</DialogTitle>
-            <DialogDescription className="line-clamp-2">{item.title}</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label>ช่องทาง <span className="text-destructive">*</span></Label>
-              <Select value={schedChannelId} onValueChange={setSchedChannelId}>
-                <SelectTrigger><SelectValue placeholder="เลือกช่องทาง" /></SelectTrigger>
-                <SelectContent>
-                  {channels.length === 0 && <SelectItem value="__none__" disabled>ยังไม่มีช่องทาง</SelectItem>}
-                  {channels.map((ch: any) => {
-                    const pm = PLATFORM_MAP[ch.platform] ?? { label: ch.platform };
-                    return <SelectItem key={ch.id} value={ch.id}>[{pm.label}] {ch.name}</SelectItem>;
-                  })}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>วันและเวลา <span className="text-destructive">*</span></Label>
-              <Input type="datetime-local" value={schedDt} onChange={e => setSchedDt(e.target.value)} />
-            </div>
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setSchedOpen(false)}>ยกเลิก</Button>
-            <Button disabled={savingSched || !schedChannelId || !schedDt} onClick={handleSchedule} className="gap-1.5">
-              {savingSched ? <span className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full" /> : null}
-              {savingSched ? 'กำลังบันทึก...' : 'ตั้งเวลา'}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* Approve confirmation — approval context only */}
       <Dialog open={approveConfirm} onOpenChange={open => { if (!open) setApproveConfirm(false); }}>
@@ -465,23 +388,19 @@ export default function ContentDetailView({
         </DialogContent>
       </Dialog>
 
-      {/* Publish confirmation — content context only, approved → published */}
-      <Dialog open={publishConfirm} onOpenChange={open => { if (!open) setPublishConfirm(false); }}>
-        <DialogContent className="w-full sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>ยืนยันการเผยแพร่</DialogTitle>
-            <DialogDescription>
-              ต้องการเผยแพร่ "{item.title}" ใช่หรือไม่? เนื้อหาจะถูกเปลี่ยนสถานะเป็นเผยแพร่แล้ว
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setPublishConfirm(false)}>ยกเลิก</Button>
-            <Button disabled={savingPublish} onClick={handlePublish}>
-              {savingPublish ? 'กำลังบันทึก...' : 'ยืนยันการเผยแพร่'}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {publishDialog && (
+        <SchedulePublishDialog
+          open={!!publishDialog}
+          onOpenChange={open => { if (!open) setPublishDialog(null); }}
+          contentId={item.id}
+          contentTitle={item.title}
+          mode={publishDialog}
+          defaultCaption={item.caption || ''}
+          defaultBody={(() => { try { return JSON.parse(item.article_content || '{}')?.html || ''; } catch { return ''; } })()}
+        />
+      )}
+
+      {/* Legacy publish confirmation removed: publishing must select a platform. */}
 
       {/* Reason dialog — shared by ขอแก้ไข and ปฏิเสธ; reason is optional */}
       <Dialog open={!!reasonDialog} onOpenChange={open => { if (!open) { setReasonDialog(null); setReason(''); } }}>

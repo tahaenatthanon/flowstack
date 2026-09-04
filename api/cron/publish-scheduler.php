@@ -134,6 +134,15 @@ foreach ($entries as $entry) {
     $giStmt->execute([$entry['content_id'], $entry['tenant_id']]);
     $gateItem = $giStmt->fetch(PDO::FETCH_ASSOC);
     if ($gateItem) {
+        // Approval gate — re-check at dispatch time so an approval revoked after
+        // scheduling, or a legacy queue row created before this gate, cannot publish.
+        if (($gateItem['status'] ?? '') !== 'approved' || empty($gateItem['approved_at'])) {
+            $db->prepare("UPDATE content_publish_queue SET status='failed', error_msg=? WHERE id=?")
+               ->execute(['Approval gate: คอนเทนต์ยังไม่ผ่านการอนุมัติ', $queueId]);
+            echo "  [{$queueId}] blocked by approval gate\n";
+            continue;
+        }
+
         // ประเมินด้วยเนื้อหาที่จะเผยแพร่จริง (รวม content_override ถ้ามี)
         $gateItem['caption']         = $content['caption'];
         $gateItem['article_content'] = $content['article_content'];
@@ -146,7 +155,32 @@ foreach ($entries as $entry) {
         }
     }
 
+    // Business rule: 1 content × 1 platform = publish once.
+    $platform = strtolower((string)$entry['platform']);
+    $publishedPlatforms = get_published_content_platforms($db, $entry['tenant_id'], $entry['content_id']);
+    if (in_array($platform, $publishedPlatforms, true)) {
+        $db->prepare("UPDATE content_publish_queue SET status='failed', error_msg=? WHERE id=?")
+           ->execute(['Platform publish-once guard: แพลตฟอร์มนี้เผยแพร่แล้ว', $queueId]);
+        echo "  [{$queueId}] skipped — {$platform} already published for content\n";
+        continue;
+    }
+
+    $platformLockName = 'sp:' . md5($entry['content_id'] . ':' . $platform);
+    $lockStmt = $db->prepare('SELECT GET_LOCK(?, 5) AS got');
+    $lockStmt->execute([$platformLockName]);
+    if ((int)($lockStmt->fetchColumn() ?: 0) !== 1) {
+        $db->prepare("UPDATE content_publish_queue SET status='pending' WHERE id=? AND status='processing'")->execute([$queueId]);
+        echo "  [{$queueId}] skipped — platform lock busy\n";
+        continue;
+    }
+
     try {
+        $publishedPlatforms = get_published_content_platforms($db, $entry['tenant_id'], $entry['content_id']);
+        if (in_array($platform, $publishedPlatforms, true)) {
+            $db->prepare("UPDATE content_publish_queue SET status='failed', error_msg=? WHERE id=?")->execute(['Platform publish-once guard: แพลตฟอร์มนี้เผยแพร่แล้ว', $queueId]);
+            echo "  [{$queueId}] skipped — {$platform} already published after lock\n";
+            continue;
+        }
         $result = dispatch_content($entry['platform'], $channel, $content);
     } catch (Exception $e) {
         $result = ['success' => false, 'error' => $e->getMessage()];
@@ -162,8 +196,11 @@ foreach ($entries as $entry) {
         // บันทึกผลเผยแพร่กลับ content_items (content_id คือ content_items.id)
         // platform: เขียนตาม channel ที่โพสต์จริง — analytics-recalculate group by คอลัมน์นี้
         $db->prepare(
-            "UPDATE content_items SET status='published', published_at=NOW(), published_url=?, external_post_id=? WHERE id=? AND tenant_id=?"
+            "UPDATE content_items SET published_url=COALESCE(?, published_url), external_post_id=COALESCE(?, external_post_id), updated_at=NOW() WHERE id=? AND tenant_id=?"
         )->execute([$meta['published_url'], $meta['platform_post_id'], $entry['content_id'], $entry['tenant_id']]);
+        $contentForStatus = $gateItem ?: $content;
+        $contentForStatus['id'] = $entry['content_id'];
+        sync_content_publish_status($db, $entry['tenant_id'], $contentForStatus);
         echo "  [{$queueId}] sent via {$entry['platform']}\n";
     } else {
         $retryCount = (int)$entry['retry_count'] + 1;
@@ -220,6 +257,10 @@ foreach ($entries as $entry) {
             );
         }
     }
+
+    // Release only after the queue/history state has been persisted. This closes
+    // the race where another worker could publish before the successful row is marked sent.
+    $db->prepare('SELECT RELEASE_LOCK(?)')->execute([$platformLockName]);
 }
 
 echo date('[Y-m-d H:i:s]') . " Done.\n";

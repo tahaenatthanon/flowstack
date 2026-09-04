@@ -69,6 +69,72 @@ function publish_html_to_text(string $html, string $dupTitle = ''): string {
     return trim($text);
 }
 
+function publish_content_platforms(array $content): array {
+    $raw = $content['platforms'] ?? null;
+    if (is_array($raw)) {
+        $platforms = $raw;
+    } elseif (is_string($raw) && trim($raw) !== '') {
+        $decoded = json_decode($raw, true);
+        $platforms = is_array($decoded) ? $decoded : preg_split('/\\s*,\\s*/', $raw);
+    } else {
+        $platforms = preg_split('/\\s*,\\s*/', (string)($content['platform'] ?? ''));
+    }
+    $platforms = array_values(array_unique(array_filter(array_map(
+        static fn($p): string => strtolower(trim((string)$p)),
+        $platforms
+    ))));
+    return $platforms;
+}
+
+/**
+ * Return platforms that have already been successfully published for a content item.
+ * The business key is content + platform, not content + channel: a second channel
+ * on the same platform must not create a second published post.
+ */
+function get_published_content_platforms(PDO $db, string $tenantId, string $contentId): array {
+    $stmt = $db->prepare(
+        "SELECT DISTINCT LOWER(pc.platform) AS platform
+         FROM content_publish_queue q
+         JOIN publish_channels pc ON pc.id = q.channel_id
+         WHERE q.tenant_id=? AND q.content_id=? AND q.status='sent'
+         UNION
+         SELECT DISTINCT LOWER(pc.platform) AS platform
+         FROM content_schedules cs
+         JOIN content_plan_items cpi ON cpi.id=cs.plan_item_id
+         JOIN content_items ci ON ci.plan_item_id=cpi.id
+         JOIN publish_channels pc ON pc.id=cs.channel_id
+         WHERE ci.tenant_id=? AND ci.id=? AND cs.status='sent'"
+    );
+    $stmt->execute([$tenantId, $contentId, $tenantId, $contentId]);
+    return array_values(array_filter(array_map(
+        static fn($row): string => strtolower(trim((string)$row['platform'])),
+        $stmt->fetchAll(PDO::FETCH_ASSOC)
+    )));
+}
+
+/**
+ * Sync content-level status from per-platform publish history.
+ * Approved remains the actionable state while at least one selected platform
+ * is still unpublished. It becomes published only when every selected platform
+ * has a successful publish record.
+ */
+function sync_content_publish_status(PDO $db, string $tenantId, array $content): void {
+    $contentId = (string)($content['id'] ?? '');
+    if ($contentId === '') return;
+    $selected = publish_content_platforms($content);
+    if (!$selected) return;
+    $published = get_published_content_platforms($db, $tenantId, $contentId);
+    $allPublished = count(array_diff($selected, $published)) === 0;
+    $status = $allPublished ? 'published' : 'approved';
+    if ($status === 'published') {
+        $db->prepare("UPDATE content_items SET status='published', published_at=COALESCE(published_at,NOW()), updated_at=NOW() WHERE id=? AND tenant_id=?")
+           ->execute([$contentId, $tenantId]);
+    } else {
+        $db->prepare("UPDATE content_items SET status='approved', updated_at=NOW() WHERE id=? AND tenant_id=? AND status='published'")
+           ->execute([$contentId, $tenantId]);
+    }
+}
+
 function dispatch_content(string $platform, array $channel, array $content): array {
     // Decrypt credentials once
     $creds = [];

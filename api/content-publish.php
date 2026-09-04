@@ -26,6 +26,41 @@ if ($method === 'GET') {
     $contentId = $_GET['content_id'] ?? '';
     if (!$contentId) jsonError('content_id required', 400);
 
+    if ($action === 'platform_status') {
+        $cs = $db->prepare('SELECT id, status, approved_at, platform, platforms FROM content_items WHERE id=? AND tenant_id=?');
+        $cs->execute([$contentId, $tenantId]);
+        $content = $cs->fetch(PDO::FETCH_ASSOC);
+        if (!$content) jsonError('Content not found', 404);
+        $selected = publish_content_platforms($content);
+        $published = get_published_content_platforms($db, $tenantId, $contentId);
+        $pendingStmt = $db->prepare(
+            "SELECT DISTINCT LOWER(pc.platform) AS platform
+             FROM content_publish_queue q
+             JOIN publish_channels pc ON pc.id=q.channel_id
+             WHERE q.tenant_id=? AND q.content_id=? AND q.status IN ('pending','processing')
+             UNION
+             SELECT DISTINCT LOWER(pc.platform) AS platform
+             FROM content_schedules cs
+             JOIN content_plan_items cpi ON cpi.id=cs.plan_item_id
+             JOIN content_items ci ON ci.plan_item_id=cpi.id
+             JOIN publish_channels pc ON pc.id=cs.channel_id
+             WHERE ci.tenant_id=? AND ci.id=? AND cs.status IN ('pending','publishing')"
+        );
+        $pendingStmt->execute([$tenantId, $contentId, $tenantId, $contentId]);
+        $pending = array_values(array_filter(array_map(
+            static fn($row): string => strtolower(trim((string)$row['platform'])),
+            $pendingStmt->fetchAll(PDO::FETCH_ASSOC)
+        )));
+        $result = [];
+        foreach ($selected as $platform) {
+            $result[$platform] = [
+                'published' => in_array($platform, $published, true),
+                'pending' => in_array($platform, $pending, true),
+            ];
+        }
+        jsonResponse(['content_id' => $contentId, 'status' => $content['status'], 'platforms' => $result]);
+    }
+
     $stmt = $db->prepare(
         "SELECT q.*, pc.name AS channel_name, pc.platform
          FROM content_publish_queue q
@@ -56,10 +91,16 @@ if ($method === 'POST') {
             jsonError('scheduled_at must be in the future', 422);
         }
 
-        // Verify content exists and belongs to tenant (allow any status except archived)
-        $cs = $db->prepare("SELECT id FROM content_items WHERE id=? AND tenant_id=? AND status!='archived'");
+        // Verify content exists, belongs to tenant, and has current approval.
+        // Scheduling is a publish action too: it must never create a queue row for
+        // content that has not been approved.
+        $cs = $db->prepare("SELECT id, status, approved_at FROM content_items WHERE id=? AND tenant_id=? AND status!='archived'");
         $cs->execute([$contentId, $tenantId]);
-        if (!$cs->fetch()) jsonError('Content not found', 422);
+        $content = $cs->fetch(PDO::FETCH_ASSOC);
+        if (!$content) jsonError('Content not found', 422);
+        if ($content['status'] !== 'approved' || empty($content['approved_at'])) {
+            jsonError('ตั้งเวลาไม่ได้ — คอนเทนต์นี้ยังไม่ผ่านการอนุมัติ กรุณาอนุมัติก่อนตั้งเวลา', 422);
+        }
 
         // Verify all channels belong to tenant and are active
         $placeholders = implode(',', array_fill(0, count($channelIds), '?'));
@@ -72,6 +113,31 @@ if ($method === 'POST') {
 
         $created = [];
         foreach ($channelIds as $channelId) {
+            $channelPlatformStmt = $db->prepare('SELECT platform FROM publish_channels WHERE id=? AND tenant_id=? AND is_active=1');
+            $channelPlatformStmt->execute([$channelId, $tenantId]);
+            $channelPlatform = strtolower(trim((string)$channelPlatformStmt->fetchColumn()));
+            if ($channelPlatform === '') continue;
+
+            $sentStmt = $db->prepare(
+                "SELECT COUNT(*) FROM content_publish_queue q
+                 JOIN publish_channels pc ON pc.id=q.channel_id
+                 WHERE q.tenant_id=? AND q.content_id=? AND LOWER(pc.platform)=? AND q.status='sent'"
+            );
+            $sentStmt->execute([$tenantId, $contentId, $channelPlatform]);
+            if ((int)$sentStmt->fetchColumn() > 0) {
+                jsonError("ตั้งเวลาไม่ได้ — แพลตฟอร์ม {$channelPlatform} ของคอนเทนต์นี้เผยแพร่แล้ว", 422);
+            }
+
+            $pendingStmt = $db->prepare(
+                "SELECT COUNT(*) FROM content_publish_queue q
+                 JOIN publish_channels pc ON pc.id=q.channel_id
+                 WHERE q.tenant_id=? AND q.content_id=? AND LOWER(pc.platform)=? AND q.status IN ('pending','processing')"
+            );
+            $pendingStmt->execute([$tenantId, $contentId, $channelPlatform]);
+            if ((int)$pendingStmt->fetchColumn() > 0) {
+                jsonError("ตั้งเวลาไม่ได้ — แพลตฟอร์ม {$channelPlatform} มีรายการเผยแพร่ที่รอดำเนินการอยู่แล้ว", 422);
+            }
+
             $id = generateUUID();
             $override = !empty($channelOverrides[$channelId]) ? $channelOverrides[$channelId] : null;
             $db->prepare(
@@ -103,7 +169,7 @@ if ($method === 'POST') {
         // และเป็นเงื่อนไขเด็ดขาดกว่า จึงควรตอบเรื่องอนุมัติก่อนเรื่อง SEO
         // ใช้ approved_at ไม่ใช่ status เพราะเป็นหลักฐานเวลาที่อนุมัติจริง
         // บล็อกก่อนสร้างแถวคิวและก่อน dispatch → ไม่มี request ออกไปยังปลายทางเลย
-        if (empty($content['approved_at'])) {
+        if (($content['status'] ?? '') !== 'approved' || empty($content['approved_at'])) {
             jsonError('เผยแพร่ไม่ได้ — คอนเทนต์นี้ยังไม่ผ่านการอนุมัติ กรุณาอนุมัติก่อนส่ง', 422);
         }
 
@@ -123,11 +189,10 @@ if ($method === 'POST') {
 
         $results = [];
         foreach ($channels as $channel) {
-            // ── idempotency guard ต่อคู่ (content_id, channel_id) ─────────────────
-            // ใช้ advisory lock ไม่ใช่ SELECT ... FOR UPDATE เพราะตารางไม่มี composite index
-            // บน (content_id, channel_id, status) → FOR UPDATE จะ lock ช่วงกว้างเกินจำเป็น
-            // ชื่อ lock ยาว 35 ตัวอักษร (เพดาน MariaDB = 64) — raw uuid สองตัวจะยาว 76 ตัว เกิน
-            $lockName = 'sn:' . md5($contentId . ':' . $channel['id']);
+            // ── idempotency guard ต่อคู่ (content_id, platform) ─────────────────
+                // ใช้ advisory lock เพื่อกัน concurrent requests ของแพลตฟอร์มเดียวกัน
+                // แม้ผู้ใช้จะเลือกหลาย channel ที่อยู่บน platform เดียวกันก็ตาม
+                $lockName = 'sp:' . md5($contentId . ':' . strtolower((string)$channel['platform']));
             $lk = $db->prepare("SELECT GET_LOCK(?, 5) AS got");
             $lk->execute([$lockName]);
             $got = (int) ($lk->fetchColumn() ?: 0);
@@ -141,8 +206,39 @@ if ($method === 'POST') {
             }
 
             try {
-                // เพิ่งส่งคู่นี้ไปในกรอบ 10 นาที และยังไม่ล้มเหลว → ข้าม ไม่สร้างแถว ไม่ dispatch
-                // แถว failed ไม่นับ เพื่อให้ปุ่ม "ลองส่งใหม่" ยังทำงานได้ทันที
+                // Business rule: 1 content × 1 platform = publish once.
+                // Lock by platform, not channel, so two channels on the same platform
+                // cannot race and both publish the same content.
+                $sentStmt = $db->prepare(
+                    "SELECT COUNT(*) FROM content_publish_queue q
+                     JOIN publish_channels pc ON pc.id=q.channel_id
+                     WHERE q.tenant_id=? AND q.content_id=? AND LOWER(pc.platform)=? AND q.status='sent'"
+                );
+                $sentStmt->execute([$tenantId, $contentId, strtolower((string)$channel['platform'])]);
+                if ((int)$sentStmt->fetchColumn() > 0) {
+                    $results[] = [
+                        'channel_id' => $channel['id'], 'platform' => strtolower((string)$channel['platform']), 'success' => false, 'status' => 'skipped',
+                        'reason' => 'แพลตฟอร์มนี้เผยแพร่คอนเทนต์นี้ไปแล้ว — อนุญาตให้เผยแพร่ได้เพียงครั้งเดียวต่อแพลตฟอร์ม',
+                    ];
+                    continue;
+                }
+
+                // Existing pending/processing work also blocks a second request for the same platform.
+                $pendingStmt = $db->prepare(
+                    "SELECT COUNT(*) FROM content_publish_queue q
+                     JOIN publish_channels pc ON pc.id=q.channel_id
+                     WHERE q.tenant_id=? AND q.content_id=? AND LOWER(pc.platform)=? AND q.status IN ('pending','processing')"
+                );
+                $pendingStmt->execute([$tenantId, $contentId, strtolower((string)$channel['platform'])]);
+                if ((int)$pendingStmt->fetchColumn() > 0) {
+                    $results[] = [
+                        'channel_id' => $channel['id'], 'platform' => strtolower((string)$channel['platform']), 'success' => false, 'status' => 'skipped',
+                        'reason' => 'แพลตฟอร์มนี้มีรายการเผยแพร่ที่กำลังดำเนินการอยู่แล้ว',
+                    ];
+                    continue;
+                }
+
+                // Legacy 10-minute guard remains as an additional safety net.
                 $dupe = $db->prepare(
                     "SELECT COUNT(*) FROM content_publish_queue
                      WHERE tenant_id=? AND content_id=? AND channel_id=?
@@ -201,9 +297,10 @@ if ($method === 'POST') {
                     // platform: เขียนตาม channel ที่โพสต์จริง — analytics-recalculate group by คอลัมน์นี้
                     // ถ้าไม่เขียน ค่าจะค้างจากตอนสร้างคอนเทนต์และแจกแจงแพลตฟอร์มผิด
                     $db->prepare(
-                        "UPDATE content_items SET status='published', published_at=NOW(), published_url=?, external_post_id=? WHERE id=? AND tenant_id=?"
+                        "UPDATE content_items SET published_url=COALESCE(?, published_url), external_post_id=COALESCE(?, external_post_id), updated_at=NOW() WHERE id=? AND tenant_id=?"
                     )->execute([$meta['published_url'], $meta['platform_post_id'], $contentId, $tenantId]);
-                    $results[] = ['channel_id' => $channel['id'], 'success' => true, 'status' => 'success'];
+                    sync_content_publish_status($db, $tenantId, $content);
+                    $results[] = ['channel_id' => $channel['id'], 'platform' => strtolower((string)$channel['platform']), 'success' => true, 'status' => 'success'];
                 } else {
                     $errMsg = mb_substr((string) ($result['error'] ?? 'dispatch failed'), 0, 500);
                     $db->prepare(

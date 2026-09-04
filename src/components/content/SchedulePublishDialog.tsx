@@ -7,6 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Loader2 } from 'lucide-react';
 import { usePublishChannels, useScheduleContent, useSendNow } from '@/hooks/useContent';
+import { apiFetch } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import { PlatformIcon } from '@/components/content/PlatformIcon';
 import { PLATFORM_MAP } from '@/components/content/types';
@@ -36,6 +37,7 @@ export function SchedulePublishDialog({ open, onOpenChange, contentId, contentTi
   const [scheduleTime, setScheduleTime] = useState('');
   const [articleBody, setArticleBody] = useState('');
   const [socialCaption, setSocialCaption] = useState('');
+  const [platformStatus, setPlatformStatus] = useState<Record<string, { published: boolean; pending: boolean }>>({});
 
   // Reset state every time dialog opens with new content
   useEffect(() => {
@@ -45,15 +47,28 @@ export function SchedulePublishDialog({ open, onOpenChange, contentId, contentTi
       setScheduleTime('');
       setArticleBody(defaultBody);
       setSocialCaption(defaultCaption);
+      setPlatformStatus({});
+      apiFetch(`/content-publish.php?action=platform_status&content_id=${encodeURIComponent(contentId)}`)
+        .then((res: any) => setPlatformStatus(res?.platforms ?? {}))
+        .catch(() => setPlatformStatus({}));
     }
   }, [open, contentId]);
 
   const activeChannels = (channels as any[]).filter((c: any) => c.is_active);
 
   const toggleChannel = (id: string) => {
-    setSelectedChannels(prev =>
-      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
-    );
+    const channel = activeChannels.find((c: any) => c.id === id);
+    const platform = String(channel?.platform ?? '').toLowerCase();
+    const state = platformStatus[platform];
+    if (state?.published || state?.pending) return;
+    setSelectedChannels(prev => {
+      if (prev.includes(id)) return prev.filter(x => x !== id);
+      const samePlatformSelected = prev.some(selectedId => {
+        const selected = activeChannels.find((c: any) => c.id === selectedId);
+        return String(selected?.platform ?? '').toLowerCase() === platform;
+      });
+      return samePlatformSelected ? prev : [...prev, id];
+    });
   };
 
   const selectedChannelObjs = useMemo(
@@ -156,25 +171,42 @@ export function SchedulePublishDialog({ open, onOpenChange, contentId, contentTi
               <p className="text-xs text-muted-foreground">ยังไม่มี channel — ไปตั้งค่าใน Channel Management</p>
             )}
             <div className="rounded-md border divide-y">
-              {activeChannels.map((ch: any) => (
-                <label
-                  key={ch.id}
-                  className={`flex items-center gap-2.5 px-4 py-2.5 cursor-pointer hover:bg-muted/50 transition-colors ${selectedChannels.includes(ch.id) ? 'bg-primary/5' : ''}`}
-                >
-                  <Checkbox
-                    checked={selectedChannels.includes(ch.id)}
-                    onCheckedChange={() => toggleChannel(ch.id)}
-                  />
-                  <PlatformIcon platform={ch.platform} size={14} />
-                  <span className="text-sm flex-1">{ch.name}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {(PLATFORM_MAP as any)[ch.platform]?.label ?? ch.platform}
-                  </span>
-                </label>
-              ))}
+              {activeChannels.map((ch: any) => {
+                const platform = String(ch.platform ?? '').toLowerCase();
+                const state = platformStatus[platform];
+                const samePlatformSelected = selectedChannels.some(selectedId => {
+                      const selected = activeChannels.find((c: any) => c.id === selectedId);
+                      return selectedId !== ch.id && String(selected?.platform ?? '').toLowerCase() === platform;
+                    });
+                    const locked = !!state?.published || !!state?.pending || samePlatformSelected;
+                return (
+                  <label
+                    key={ch.id}
+                    className={`flex items-center gap-2.5 px-4 py-2.5 transition-colors ${locked ? 'opacity-60 cursor-not-allowed bg-muted/20' : 'cursor-pointer hover:bg-muted/50'} ${selectedChannels.includes(ch.id) ? 'bg-primary/5' : ''}`}
+                  >
+                    <Checkbox
+                      checked={selectedChannels.includes(ch.id)}
+                      disabled={locked}
+                      onCheckedChange={() => toggleChannel(ch.id)}
+                    />
+                    <PlatformIcon platform={ch.platform} size={14} />
+                    <span className="text-sm flex-1">{ch.name}</span>
+                    {state?.published ? (
+                      <span className="text-xs font-medium text-green-600">เผยแพร่แล้ว</span>
+                    ) : state?.pending ? (
+                      <span className="text-xs font-medium text-amber-600">รอดำเนินการ</span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">{(PLATFORM_MAP as any)[ch.platform]?.label ?? ch.platform}</span>
+                    )}
+                  </label>
+                );
+              })}
             </div>
             {selectedChannels.length > 0 && (
               <p className="text-xs text-primary font-medium">เลือก {selectedChannels.length} channel</p>
+            )}
+            {Object.values(platformStatus).some(s => s.published) && (
+              <p className="text-xs text-muted-foreground">แพลตฟอร์มที่เผยแพร่แล้วจะถูกล็อก แต่แพลตฟอร์มอื่นยังสามารถเผยแพร่ต่อได้</p>
             )}
           </div>
 

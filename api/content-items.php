@@ -37,6 +37,7 @@ if ($method === 'GET') {
                       ci.title,
                       ci.type,
                       ci.status,
+                      ci.approved_at,
                       COALESCE(ci.views, 0)             AS views,
                       COALESCE(ci.likes, 0)             AS likes,
                       COALESCE(ci.created_by, \'\')      AS created_by,
@@ -128,6 +129,26 @@ if ($method === 'PUT') {
             }
         }
     }
+
+    // Approval belongs to the exact content version. Editing an approved content
+    // item invalidates that approval and moves it back to revision so it must be
+    // reviewed again before send/schedule. Read-only metric updates do not revoke it.
+    $approvalSensitiveFields = [
+        'title', 'type', 'caption', 'platform', 'platforms', 'scheduled_date',
+        'image_brief', 'article_content', 'seo_title', 'slug', 'meta_description',
+        'meta_keywords', 'structured_data', 'og_image',
+    ];
+    $changesContent = count(array_intersect($approvalSensitiveFields, array_keys($body))) > 0;
+    $requestedStatus = $body['status'] ?? null;
+    if ($changesContent && !in_array($requestedStatus, ['approved', 'published'], true)) {
+        $approvalState = $db->prepare('SELECT approved_at FROM content_items WHERE id=? AND tenant_id=?');
+        $approvalState->execute([$id, $tenantId]);
+        if (!empty($approvalState->fetchColumn())) {
+            $body['status'] = 'revision';
+            $requestedStatus = 'revision';
+        }
+    }
+
     $allowed = ['title', 'type', 'status', 'views', 'likes', 'caption', 'platform', 'platforms', 'scheduled_date', 'image_brief', 'article_content', 'reject_reason', 'seo_title', 'slug', 'meta_description', 'meta_keywords', 'structured_data', 'og_image'];
     $fields  = []; $values = [];
     foreach ($allowed as $f) {
@@ -147,13 +168,27 @@ if ($method === 'PUT') {
             }
         }
     }
+    // Publishing is only valid after an approval timestamp exists.
+    if (($body['status'] ?? null) === 'published') {
+        $approvalCheck = $db->prepare('SELECT approved_at FROM content_items WHERE id=? AND tenant_id=?');
+        $approvalCheck->execute([$id, $tenantId]);
+        if (empty($approvalCheck->fetchColumn())) {
+            jsonError('เผยแพร่ไม่ได้ — คอนเทนต์นี้ยังไม่ผ่านการอนุมัติ กรุณาอนุมัติก่อนเผยแพร่', 422);
+        }
+    }
+
     // Record the moment a request for approval enters the queue
     if (($body['status'] ?? null) === 'pending_approval') {
         $fields[] = '`requested_at` = NOW()';
+        $fields[] = '`approved_at` = NULL';
     }
     // Record the moment the content is approved (for lead-time metrics)
     if (($body['status'] ?? null) === 'approved') {
         $fields[] = '`approved_at` = NOW()';
+    }
+    // Reject/revision invalidate any previous approval.
+    if (in_array(($body['status'] ?? null), ['revision', 'rejected'], true)) {
+        $fields[] = '`approved_at` = NULL';
     }
     if (empty($fields)) jsonError('ไม่มีข้อมูลที่จะอัปเดต');
     $values[] = $id; $values[] = $tenantId;

@@ -11,6 +11,8 @@ export interface ContentItem {
   reject_reason?: string | null;
   // When the item was sent for approval (transition into pending_approval)
   requested_at?: string | null;
+  // When the current content version was approved; required for publishing/scheduling
+  approved_at?: string | null;
   updated_at?: string | null;
   image_brief?: string | null;
   generated_image_url?: string | null;
