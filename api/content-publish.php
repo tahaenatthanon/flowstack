@@ -155,7 +155,7 @@ if ($method === 'POST') {
         $scriptGateByChannel = [];
         foreach ($channelRows as $row) {
             $channelPlatformMap[$row['id']] = strtolower(trim((string)$row['platform']));
-            $scriptGateByChannel[$row['id']] = publish_script_gate($db, $tenantId, $content, $channelPlatformMap[$row['id']]);
+            $scriptGateByChannel[$row['id']] = final_publish_gate_check($db, $tenantId, $content, $channelPlatformMap[$row['id']]);
         }
 
         $created = [];
@@ -229,12 +229,6 @@ if ($method === 'POST') {
             jsonError('เผยแพร่ไม่ได้ — คอนเทนต์นี้ยังไม่ผ่านการอนุมัติ กรุณาอนุมัติก่อนส่ง', 422);
         }
 
-        // เกต SEO — ตรวจครั้งเดียวก่อน dispatch ทุก channel; บล็อกถ้าเปิดเกตและมีกฎ fail/คะแนนต่ำ
-        $gate = seo_gate_check($db, $tenantId, $content);
-        if ($gate['blocked']) {
-            jsonError('เผยแพร่ไม่ได้ — ไม่ผ่านเกณฑ์ SEO' . "\n" . $gate['reason'], 422);
-        }
-
         $placeholders = implode(',', array_fill(0, count($channelIds), '?'));
         $chs = $db->prepare(
             "SELECT * FROM publish_channels WHERE id IN ($placeholders) AND tenant_id=? AND is_active=1"
@@ -248,8 +242,7 @@ if ($method === 'POST') {
         $scriptGateByPlatform = [];
         foreach ($channels as $channel) {
             $platform = strtolower(trim((string)$channel['platform']));
-            $scriptGate = publish_script_gate($db, $tenantId, $content, $platform);
-            $scriptGateByPlatform[$platform] = $scriptGate;
+            $scriptGateByPlatform[$platform] = final_publish_gate_check($db, $tenantId, $content, $platform);
         }
 
         $results = [];

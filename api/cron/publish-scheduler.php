@@ -153,6 +153,40 @@ foreach ($entries as $entry) {
             echo "  [{$queueId}] blocked by SEO gate\n";
             continue;
         }
+    } else {
+        $db->prepare("UPDATE content_publish_queue SET status='failed', error_msg=? WHERE id=?")
+           ->execute(['Final Publish Gate: ไม่พบ Content Item ต้นฉบับ', $queueId]);
+        echo "  [{$queueId}] blocked — content item not found\n";
+        continue;
+    }
+
+    // Final Publish Gate — same gate as immediate/queued publish, evaluated again
+    // immediately before the platform-level publish-once guard and external dispatch.
+    if ($gateItem) {
+        $cronResearchBrief = null;
+        $crs = $db->prepare("SELECT analysis FROM content_research_jobs WHERE content_item_id=? AND tenant_id=? AND status='done' ORDER BY created_at DESC LIMIT 1");
+        $crs->execute([$gateItem['id'], $entry['tenant_id']]);
+        $crr = $crs->fetch(PDO::FETCH_ASSOC);
+        if ($crr && !empty($crr['analysis'])) {
+            $cronResearchBrief = json_decode((string)$crr['analysis'], true);
+            if (!is_array($cronResearchBrief)) $cronResearchBrief = null;
+        }
+        $finalGate = final_publish_gate_check(
+            $db,
+            $entry['tenant_id'],
+            array_merge($gateItem, [
+                'caption' => $content['caption'],
+                'article_content' => $content['article_content'],
+            ]),
+            strtolower((string)$entry['platform']),
+            $cronResearchBrief
+        );
+        if ($finalGate['blocked']) {
+            $db->prepare("UPDATE content_publish_queue SET status='failed', error_msg=? WHERE id=?")
+               ->execute([mb_substr('Final Publish Gate: ' . ($finalGate['reason'] ?? 'ไม่ผ่านเกณฑ์'), 0, 500), $queueId]);
+            echo "  [{$queueId}] blocked by final publish gate\n";
+            continue;
+        }
     }
 
     // Business rule: 1 content × 1 platform = publish once.

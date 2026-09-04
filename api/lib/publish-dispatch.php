@@ -1,4 +1,8 @@
 <?php
+require_once __DIR__ . '/seo-checklist.php';
+require_once __DIR__ . '/aeo-checklist.php';
+require_once __DIR__ . '/script-quality-checklist.php';
+
 /**
  * Platform dispatch functions — real API calls per platform.
  *
@@ -67,6 +71,73 @@ function publish_html_to_text(string $html, string $dupTitle = ''): string {
     $text = preg_replace('/\n{3,}/', "\n\n", $text);        // บรรทัดว่างติดกันไม่เกินหนึ่งบรรทัด
 
     return trim($text);
+}
+
+/**
+ * Final publish gate shared by immediate publish, queued publish and scheduled publish.
+ * Article SEO/AEO are content-level gates; Script SEO/AEO are platform-level gates.
+ * The target platform is evaluated independently so another selected platform cannot
+ * block it. Approval and platform selection are always hard requirements.
+ */
+function final_publish_gate_check(PDO $db, string $tenantId, array $content, string $platform, ?array $researchBrief = null): array {
+    $platform = strtolower(trim($platform));
+    $selected = publish_content_platforms($content);
+
+    if (($content['status'] ?? '') !== 'approved' || empty($content['approved_at'])) {
+        return ['blocked' => true, 'reason' => 'Approval gate: คอนเทนต์นี้ยังไม่ผ่านการอนุมัติ'];
+    }
+    if (!in_array($platform, $selected, true)) {
+        return ['blocked' => true, 'reason' => "Platform gate: {$platform} ไม่ได้ถูกเลือกไว้ใน Content Item"];
+    }
+
+    $brief = $researchBrief;
+    if ($brief === null && !empty($content['research_brief']) && is_array($content['research_brief'])) {
+        $brief = $content['research_brief'];
+    }
+
+    // Article SEO is the existing configurable global gate. Preserve its tenant
+    // setting while returning the latest deterministic evaluation for diagnostics.
+    $seoGate = seo_gate_check($db, $tenantId, array_merge($content, ['research_brief' => $brief]));
+    if ($seoGate['blocked']) {
+        return [
+            'blocked' => true,
+            'reason' => 'Article SEO gate: ' . ($seoGate['reason'] ?? 'ไม่ผ่านเกณฑ์ SEO'),
+            'article' => ['seo' => $seoGate],
+        ];
+    }
+
+    $cfgStmt = $db->prepare('SELECT seo_gate_enabled FROM content_global_settings WHERE tenant_id=?');
+    $cfgStmt->execute([$tenantId]);
+    $gateEnabled = (int)($cfgStmt->fetchColumn() ?: 0) === 1;
+    $articleAeo = aeo_evaluate(array_merge($content, ['research_brief' => $brief]));
+    if ($gateEnabled && aeo_gate_status($articleAeo) !== 'passed') {
+        $fails = array_values(array_filter($articleAeo['rules'] ?? [], static fn(array $r): bool => ($r['status'] ?? '') === 'failed'));
+        $reason = $fails
+            ? implode("\\n", array_map(static fn(array $r): string => '• ' . ($r['message'] ?? ''), $fails))
+            : "คะแนน AEO {$articleAeo['score']}/100 ต่ำกว่าเกณฑ์ผ่าน";
+        return [
+            'blocked' => true,
+            'reason' => 'Article AEO gate: ' . $reason,
+            'article' => ['seo' => $seoGate, 'aeo' => $articleAeo],
+        ];
+    }
+
+    $scriptGate = script_quality_publish_check($content, $platform, $brief);
+    if ($scriptGate['blocked']) {
+        return [
+            'blocked' => true,
+            'reason' => 'Platform Script gate: ' . ($scriptGate['reason'] ?? 'Script SEO/AEO ไม่ผ่าน'),
+            'article' => ['seo' => $seoGate, 'aeo' => $articleAeo],
+            'script' => $scriptGate,
+        ];
+    }
+
+    return [
+        'blocked' => false,
+        'reason' => null,
+        'article' => ['seo' => $seoGate, 'aeo' => $articleAeo],
+        'script' => $scriptGate,
+    ];
 }
 
 function publish_content_platforms(array $content): array {

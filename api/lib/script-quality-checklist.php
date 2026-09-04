@@ -266,9 +266,15 @@ function script_evaluate_aeo(string $platform, string $script, array $item): arr
     elseif (mb_strlen($text) >= 80) $rules[] = script_make_rule(SCRIPT_AEO_WEIGHTS, 'answer_structure', 'needs_improvement', 'ควรจัดคำตอบให้ชัดเจนขึ้นด้วยประโยคสรุปหรือขั้นตอน');
     else $rules[] = script_make_rule(SCRIPT_AEO_WEIGHTS, 'answer_structure', 'failed', 'ไม่พบโครงสร้างคำตอบที่ชัดเจน');
 
-    $entity = $terms[0] ?? '';
+    // Entity clarity should follow the primary topic/keyword, not the longest term.
+    // The previous implementation used $terms[0] after sorting by length, which could
+    // make the full article title the required entity and reject an otherwise relevant script.
+    $entity = script_primary_keyword($item);
+    if ($entity === '') {
+        $entity = trim((string)($item['topic'] ?? ''));
+    }
     if ($entity !== '' && script_contains($text, $entity)) $rules[] = script_make_rule(SCRIPT_AEO_WEIGHTS, 'entity_clarity', 'passed', "ระบุหัวข้อ/เอนทิตีหลักชัดเจน: {$entity}");
-    else $rules[] = script_make_rule(SCRIPT_AEO_WEIGHTS, 'entity_clarity', 'failed', 'ไม่พบชื่อหัวข้อหรือเอนทิตีหลักในสคริปต์');
+    else $rules[] = script_make_rule(SCRIPT_AEO_WEIGHTS, 'entity_clarity', 'failed', 'ไม่พบ primary keyword/topic ซึ่งเป็นเอนทิตีหลักในสคริปต์');
 
     $snippet = mb_strlen($text) >= 40 && mb_strlen($text) <= 1000 && preg_match('/(?:คือ|ได้แก่|หมายถึง|วิธี|ขั้นตอน|สรุป|คำตอบ)/iu', $text);
     if ($snippet) $rules[] = script_make_rule(SCRIPT_AEO_WEIGHTS, 'snippet_readiness', 'passed', 'มีข้อความตอบแบบกระชับที่พร้อมให้ระบบค้นหาดึงไปใช้');

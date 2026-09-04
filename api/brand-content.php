@@ -1883,7 +1883,7 @@ if ($action === 'schedules') {
             jsonError('ตั้งเวลาไม่ได้ — คอนเทนต์นี้ยังไม่ผ่านการอนุมัติ กรุณาอนุมัติก่อนตั้งเวลา', 422);
         }
 
-        $contentIdStmt = $db->prepare('SELECT id, platform, platforms FROM content_items WHERE plan_item_id=? AND tenant_id=? LIMIT 1');
+        $contentIdStmt = $db->prepare('SELECT * FROM content_items WHERE plan_item_id=? AND tenant_id=? LIMIT 1');
         $contentIdStmt->execute([$body['plan_item_id'], $tenantId]);
         $scheduledContent = $contentIdStmt->fetch(PDO::FETCH_ASSOC);
         if ($scheduledContent) {
@@ -1904,6 +1904,13 @@ if ($action === 'schedules') {
                 if ((int)$pendingLegacy->fetchColumn() > 0) {
                     jsonError("ตั้งเวลาไม่ได้ — แพลตฟอร์ม {$scheduledPlatform} มีรายการเผยแพร่ที่รอดำเนินการอยู่แล้ว", 422);
                 }
+
+                // Final gate is checked when the schedule is created as well as at
+                // dispatch time. This prevents invalid schedules from being queued.
+                $scheduleGate = final_publish_gate_check($db, $tenantId, $scheduledContent, $scheduledPlatform);
+                if ($scheduleGate['blocked']) {
+                    jsonError('ตั้งเวลาไม่ได้ — ' . ($scheduleGate['reason'] ?? 'ไม่ผ่าน Final Publish Gate'), 422);
+                }
             }
         }
 
@@ -1923,6 +1930,21 @@ if ($action === 'schedules') {
         if (!$approvalRow || $approvalRow['status'] !== 'approved' || empty($approvalRow['approved_at'])) {
             jsonError('ตั้งเวลาไม่ได้ — คอนเทนต์นี้ยังไม่ผ่านการอนุมัติ กรุณาอนุมัติก่อนตั้งเวลา', 422);
         }
+
+        // Rescheduling is also a publish action: re-check the final gate against
+        // the canonical content and the schedule's target platform.
+        $rescheduleStmt = $db->prepare('SELECT ci.* FROM content_schedules cs JOIN content_plan_items cpi ON cpi.id=cs.plan_item_id JOIN content_items ci ON ci.plan_item_id=cpi.id JOIN publish_channels pc ON pc.id=cs.channel_id WHERE cs.id=? AND ci.tenant_id=? AND pc.tenant_id=? LIMIT 1');
+        $rescheduleStmt->execute([$id, $tenantId, $tenantId]);
+        $rescheduleContent = $rescheduleStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$rescheduleContent) jsonError('ไม่พบคอนเทนต์ของรายการตั้งเวลานี้', 404);
+        $reschedulePlatformStmt = $db->prepare('SELECT pc.platform FROM content_schedules cs JOIN publish_channels pc ON pc.id=cs.channel_id WHERE cs.id=? AND pc.tenant_id=? LIMIT 1');
+        $reschedulePlatformStmt->execute([$id, $tenantId]);
+        $reschedulePlatform = strtolower(trim((string)$reschedulePlatformStmt->fetchColumn()));
+        $rescheduleGate = final_publish_gate_check($db, $tenantId, $rescheduleContent, $reschedulePlatform);
+        if ($rescheduleGate['blocked']) {
+            jsonError('ตั้งเวลาไม่ได้ — ' . ($rescheduleGate['reason'] ?? 'ไม่ผ่าน Final Publish Gate'), 422);
+        }
+
         $db->prepare("UPDATE content_schedules SET scheduled_at=?, status='pending', updated_at=NOW()
             WHERE id=? AND plan_item_id IN (
                 SELECT cpi.id FROM content_plan_items cpi
@@ -2734,11 +2756,8 @@ if ($action === 'publish') {
         jsonError('เผยแพร่ไม่ได้ — คอนเทนต์นี้ยังไม่ผ่านการอนุมัติ กรุณาอนุมัติก่อนเผยแพร่', 422);
     }
 
-    // SEO + AEO gate — บล็อกก่อน dispatch ถ้าเปิด quality gate และมี Required failure/คะแนนต่ำ
-    $gate = seo_gate_check($db, $tenantId, $item);
-    if ($gate['blocked']) {
-        jsonError('เผยแพร่ไม่ได้ — ไม่ผ่านเกณฑ์ SEO' . "\n" . $gate['reason'], 422);
-    }
+    // Resolve the latest Research brief once so the final gate evaluates the same
+    // source of truth used by the generated content.
     $publishResearchBrief = null;
     $prs = $db->prepare("SELECT analysis FROM content_research_jobs WHERE content_item_id=? AND tenant_id=? AND status='done' ORDER BY created_at DESC LIMIT 1");
     $prs->execute([$itemId, $tenantId]);
@@ -2746,15 +2765,6 @@ if ($action === 'publish') {
     if ($prr && !empty($prr['analysis'])) {
         $publishResearchBrief = json_decode((string)$prr['analysis'], true);
         if (!is_array($publishResearchBrief)) $publishResearchBrief = null;
-    }
-    $publishGateCfgStmt = $db->prepare('SELECT seo_gate_enabled FROM content_global_settings WHERE tenant_id=?');
-    $publishGateCfgStmt->execute([$tenantId]);
-    $publishGateEnabled = (int)($publishGateCfgStmt->fetchColumn() ?: 0) === 1;
-    $aeoPublish = aeo_evaluate(array_merge($item, ['research_brief' => $publishResearchBrief]));
-    if ($publishGateEnabled && aeo_gate_status($aeoPublish) !== 'passed') {
-        $aeoFails = array_values(array_filter($aeoPublish['rules'], static fn(array $r): bool => ($r['status'] ?? '') === 'failed'));
-        $aeoReason = $aeoFails ? implode("\n", array_map(static fn(array $r): string => '• ' . ($r['message'] ?? ''), $aeoFails)) : 'คะแนน AEO ' . $aeoPublish['score'] . ' ต่ำกว่าเกณฑ์ผ่าน';
-        jsonError('เผยแพร่ไม่ได้ — ไม่ผ่านเกณฑ์ AEO' . "\n" . $aeoReason, 422);
     }
 
     // Load channel
@@ -2772,10 +2782,11 @@ if ($action === 'publish') {
 
     $platform = strtolower((string)$channel['platform']);
 
-    // Per-platform Script SEO/AEO publish gate. Non-script platforms only need to be selected.
-    $scriptPublishGate = script_quality_publish_check($item, $platform, $publishResearchBrief);
-    if ($scriptPublishGate['blocked']) {
-        jsonError("เผยแพร่ไม่ได้ — {$platform}\n" . $scriptPublishGate['reason'], 422);
+    // Final gate: approval + selected platform + Article SEO/AEO + target Script SEO/AEO.
+    // Every check is evaluated against the latest content immediately before dispatch.
+    $finalGate = final_publish_gate_check($db, $tenantId, $item, $platform, $publishResearchBrief);
+    if ($finalGate['blocked']) {
+        jsonError('เผยแพร่ไม่ได้ — ' . ($finalGate['reason'] ?? 'ไม่ผ่าน Final Publish Gate'), 422);
     }
 
     // Business rule: 1 content × 1 platform = publish once.
