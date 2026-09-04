@@ -25,8 +25,10 @@ const H2_MIN = 1;
 const H1_MAX = 1;
 const SEO_GEN_MAX_ATTEMPTS = 3;
 const SEO_KEYWORD_DENSITY_MAX = 0.04; // 4% — เกินนี้ถือว่า keyword stuffing
-const SEO_GATE_PASS_SCORE = 90;
-const SEO_GATE_WARN_SCORE = 80;
+// Quality gate policy: 80+ is publishable when all required rules pass.
+// 70–79 is needs_improvement; <70 is failed.
+const SEO_GATE_PASS_SCORE = 80;
+const SEO_GATE_WARN_SCORE = 70;
 
 // Research-rule coverage thresholds (fraction of research items that must be covered).
 const SEO_RELATED_MIN  = 0.6; // related_keywords: ≥0.6 passed, =0 failed
@@ -109,7 +111,8 @@ function seo_normalized_score(array $rules): int {
 }
 
 /**
- * กำหนดสถานะ SEO Generation Gate จาก required rules + คะแนนรวม
+ * กำหนดสถานะ SEO Quality Gate จาก required rules + คะแนนรวม
+ * 80+ = passed, 70–79 = needs_improvement, <70 = failed
  *
  * @param array $eval ผลลัพธ์จาก seo_evaluate() รูป ['score' => int, 'rules' => array]
  * @return string 'passed' | 'needs_improvement' | 'failed'
@@ -853,7 +856,7 @@ function seo_gate_check(PDO $db, string $tenantId, array $item): array {
         $parts[] = 'ไม่ผ่านเกณฑ์ SEO ' . count($fails) . ' ข้อ:' . "\n" . implode("\n", $lines);
     }
     if ($gate === 'failed' && $eval['score'] < SEO_GATE_WARN_SCORE) {
-        $parts[] = "คะแนน SEO {$eval['score']} ต่ำกว่าเกณฑ์ผ่าน (" . SEO_GATE_WARN_SCORE . ")";
+        $parts[] = "คะแนน SEO {$eval['score']} ต่ำกว่าเกณฑ์ขั้นต่ำ (" . SEO_GATE_WARN_SCORE . ")";
     }
     if ($lowScore) {
         $parts[] = "คะแนน SEO {$eval['score']} ต่ำกว่าเกณฑ์ขั้นต่ำ {$minScore}";

@@ -4,8 +4,10 @@
  * No DB/network access. Evaluates the exact content object produced by generation.
  */
 
-const AEO_GATE_PASS_SCORE = 90;
-const AEO_GATE_WARN_SCORE = 80;
+// Quality gate policy: 80+ is publishable when all required rules pass.
+// 70–79 is needs_improvement; <70 is failed.
+const AEO_GATE_PASS_SCORE = 80;
+const AEO_GATE_WARN_SCORE = 70;
 const AEO_MIN_ANSWER_CHARS = 40;
 const AEO_MIN_QA = 2;
 
@@ -84,7 +86,24 @@ function aeo_headings(string $html): array {
 }
 
 function aeo_questionish(string $text): bool {
-    return (bool)preg_match('/[?？]|^(อะไร|คืออะไร|ทำไม|อย่างไร|วิธี|เมื่อไร|เท่าไร|ใคร|ที่ไหน|what|why|how|when|where|who|which|can|does|is|are)\b/i', trim($text));
+    $text = trim($text);
+    if ($text === '') return false;
+    if (preg_match('/[?？]/u', $text)) return true;
+
+    // คำถามไทยที่ขึ้นต้นด้วยคำถาม (how-to / why / when / who / where style)
+    $thaiPrefixes = ['วิธี', 'ทำไม', 'เมื่อไร', 'เท่าไร', 'ใคร', 'ที่ไหน'];
+    foreach ($thaiPrefixes as $prefix) {
+        if (mb_stripos($text, $prefix) === 0) return true;
+    }
+
+    // คำถามไทยที่ปรากฏกลาง/ท้ายประโยค เช่น "YouTube คืออะไร", "เลือกแพลตฟอร์มอย่างไร"
+    // (เดิมใช้ \b ซึ่งใช้กับภาษาไทยไม่ได้ — ตรวจด้วย mb_stripos แบบ contains แทน)
+    $thaiAnywhere = ['คืออะไร', 'อะไร', 'อย่างไร', 'ไหม', 'หรือไม่', 'หรือเปล่า'];
+    foreach ($thaiAnywhere as $q) {
+        if (mb_stripos($text, $q) !== false) return true;
+    }
+
+    return (bool)preg_match('/^(what|why|how|when|where|who|which|can|does|is|are)\b/i', $text);
 }
 
 function aeo_answer_blocks(string $html): int {
@@ -92,7 +111,19 @@ function aeo_answer_blocks(string $html): int {
     if (preg_match_all('/<p[^>]*>(.*?)<\/p>/is', $html, $m)) {
         foreach ($m[1] as $p) {
             $text = trim(strip_tags($p));
-            if (mb_strlen($text) >= AEO_MIN_ANSWER_CHARS && preg_match('/(?:^|\s)(คือ|ได้แก่|หมายถึง|สามารถ|วิธี|ขั้นตอน|คำตอบ|โดยสรุป|สรุปคือ|เป็นการ|helps|means|is|are|can)\b/iu', $text)) $count++;
+            if (mb_strlen($text) < AEO_MIN_ANSWER_CHARS) continue;
+
+            $thaiSignals = ['คือ', 'ได้แก่', 'หมายถึง', 'สามารถ', 'วิธี', 'ขั้นตอน', 'คำตอบ', 'โดยสรุป', 'สรุปคือ', 'เป็นการ'];
+            $thaiMatch = false;
+            foreach ($thaiSignals as $signal) {
+                if (mb_stripos($text, $signal) !== false) {
+                    $thaiMatch = true;
+                    break;
+                }
+            }
+
+            $englishMatch = (bool)preg_match('/(?:^|\s)(helps|means|is|are|can)\b/iu', $text);
+            if ($thaiMatch || $englishMatch) $count++;
         }
     }
     return $count;
@@ -107,9 +138,21 @@ function aeo_structured_types(mixed $value): array {
             foreach ((array)$node['@type'] as $type) if (is_string($type)) $types[] = trim($type);
         }
     };
-    if (array_is_list($value)) foreach ($value as $node) if (is_array($node)) $collect($node);
-    else $collect($value);
-    foreach (($value['@graph'] ?? []) as $node) if (is_array($node)) $collect($node);
+    if (array_is_list($value)) {
+        foreach ($value as $node) {
+            if (is_array($node)) {
+                $collect($node);
+            }
+        }
+    } else {
+        $collect($value);
+    }
+
+    foreach (($value['@graph'] ?? []) as $node) {
+        if (is_array($node)) {
+            $collect($node);
+        }
+    }
     return array_values(array_unique($types));
 }
 
