@@ -145,22 +145,27 @@ export default function ContentListTab() {
   };
 
   const getItemPlatforms = (item: ContentItem): string[] => {
+    const normalize = (values: unknown[]): string[] => Array.from(new Set(
+      values
+        .filter((p): p is string => typeof p === 'string' && p.trim() !== '')
+        .flatMap(p => p.split(','))
+        .map(p => p.trim().toLowerCase())
+        .filter(Boolean),
+    ));
+
     const raw = (item as ContentItem & { platforms?: unknown }).platforms;
-    if (Array.isArray(raw)) {
-      return Array.from(new Set(raw.filter((p): p is string => typeof p === 'string' && p.trim() !== '').map(p => p.toLowerCase())));
-    }
+    if (Array.isArray(raw)) return normalize(raw);
+
     if (typeof raw === 'string' && raw.trim() !== '') {
       try {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          return Array.from(new Set(parsed.filter((p): p is string => typeof p === 'string' && p.trim() !== '').map(p => p.toLowerCase())));
-        }
+        if (Array.isArray(parsed)) return normalize(parsed);
       } catch {
-        // Fall back to the legacy single-platform field.
+        // Fall through and normalize the legacy platform field.
       }
     }
-    const legacy = (item.platform || '').toLowerCase();
-    return legacy ? [legacy] : [];
+
+    return normalize([item.platform || '']);
   };
 
   const platformCounts = useMemo(() => {
@@ -201,6 +206,36 @@ export default function ContentListTab() {
   return (
     <>
       <div className="space-y-4">
+        {/* Type filter */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-[11px] text-muted-foreground shrink-0">ประเภท:</span>
+          {([
+            ['all', 'ทั้งหมด', Layers],
+            ['article', 'บทความ', FileText],
+            ['video', 'วีดีโอ', Play],
+            ['image', 'รูปภาพ', Image],
+          ] as const).map(([key, label, Icon]) => {
+            const isActive = typeFilter === key;
+            const count = counts[key];
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setTypeFilter(key)}
+                className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border transition-colors ${
+                  isActive
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'border-border hover:bg-muted'
+                }`}
+              >
+                <Icon className="h-3 w-3" />
+                <span>{label}</span>
+                <span>{count}</span>
+              </button>
+            );
+          })}
+        </div>
+
         {/* Status filter */}
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="text-[11px] text-muted-foreground shrink-0">สถานะ:</span>
@@ -218,36 +253,6 @@ export default function ContentListTab() {
                 key={key}
                 type="button"
                 onClick={() => setStatusFilter(key)}
-                className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border transition-colors ${
-                  isActive
-                    ? 'bg-primary text-primary-foreground border-primary'
-                    : 'border-border hover:bg-muted'
-                }`}
-              >
-                <Icon className="h-3 w-3" />
-                <span>{label}</span>
-                <span>{count}</span>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Type filter */}
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-[11px] text-muted-foreground shrink-0">ประเภท:</span>
-          {([
-            ['all', 'ทั้งหมด', Layers],
-            ['article', 'บทความ', FileText],
-            ['video', 'วีดีโอ', Play],
-            ['image', 'รูปภาพ', Image],
-          ] as const).map(([key, label, Icon]) => {
-            const isActive = typeFilter === key;
-            const count = counts[key];
-            return (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setTypeFilter(key)}
                 className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border transition-colors ${
                   isActive
                     ? 'bg-primary text-primary-foreground border-primary'
@@ -296,7 +301,6 @@ export default function ContentListTab() {
                   title={PLATFORM_MAP[key]?.label ?? key}
                 >
                   <PlatformIcon platform={key} size={12} />
-                  <span>{PLATFORM_MAP[key]?.label ?? key}</span>
                   <span>{count}</span>
                 </button>
               );
@@ -411,12 +415,6 @@ export default function ContentListTab() {
                         ? <span className="text-[11px] px-1.5 py-0 rounded bg-green-100 dark:bg-green-950 text-green-700 dark:text-green-300 font-medium">AI ✓</span>
                         : <span className="text-[11px] px-1.5 py-0 rounded bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 font-medium">รอสร้าง</span>
                       }
-                      {(item.scheduled_date || item.day_label) && (
-                        <span className="text-[11px] text-muted-foreground">{item.scheduled_date || item.day_label}</span>
-                      )}
-                      {item.plan_title && (
-                        <span className="text-[11px] text-muted-foreground/70 truncate max-w-[160px]">{item.plan_title}</span>
-                      )}
                     </div>
                     {item.caption && (
                       <p className="text-[11px] text-muted-foreground/60 mt-0.5 line-clamp-1">
