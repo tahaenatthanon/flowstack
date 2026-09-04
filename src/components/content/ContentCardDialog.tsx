@@ -98,6 +98,7 @@ export function ContentCardDialog({
   const [imageViewerOpen, setImageViewerOpen] = useState(false);
   const [generatingVideo, setGeneratingVideo] = useState(false);
   const [generatingScenes, setGeneratingScenes] = useState(false);
+  const [scriptQuality, setScriptQuality] = useState<Record<string, any>>({});
 
   // Request approval — author sends draft/revision work into the approval queue
   const [requestApprovalConfirm, setRequestApprovalConfirm] = useState(false);
@@ -139,6 +140,7 @@ export function ContentCardDialog({
   useEffect(() => {
     if (open) {
       setLocalImageUrl(null);
+      setScriptQuality({});
       if (existingItem) {
         setTopic(existingItem.topic || '');
         setCaption(existingItem.caption || '');
@@ -299,6 +301,7 @@ export function ContentCardDialog({
       });
       const art = res?.article;
       if (art) {
+        setScriptQuality(res?.script_quality?.platforms ?? {});
         setArticleHtml(art.html || '');
         setSeoFields({
           seo_title:        art.seo_title        || '',
@@ -315,14 +318,14 @@ export function ContentCardDialog({
       qc.invalidateQueries({ queryKey: ['content', 'plans'] });
       if (res?.generation_status === 'failed') {
         toast({
-          title: 'สร้างเนื้อหาแล้ว แต่ยังไม่ผ่าน SEO/AEO',
-          description: `SEO ${res?.seo?.score ?? 0}/100 (${res?.seo?.gate ?? 'failed'}) · AEO ${res?.aeo?.score ?? 0}/100 (${res?.aeo?.gate ?? 'failed'}) — บันทึกเป็น “รอแก้ไข”`,
+          title: 'สร้างเนื้อหาแล้ว แต่ยังไม่ผ่าน Quality Gate',
+          description: `SEO ${res?.seo?.score ?? 0}/100 · AEO ${res?.aeo?.score ?? 0}/100 · Script ${res?.script_passed === false ? 'ไม่ผ่าน' : 'ผ่าน'} — บันทึกเป็น “รอแก้ไข”`,
           variant: 'destructive',
         });
       } else {
         toast({
-          title: 'สร้างเนื้อหาสำเร็จ — SEO + AEO ผ่าน',
-          description: `SEO ${res?.seo?.score ?? 0}/100 · AEO ${res?.aeo?.score ?? 0}/100`,
+          title: 'สร้างเนื้อหาสำเร็จ — SEO + AEO + Script ผ่าน',
+          description: `SEO ${res?.seo?.score ?? 0}/100 · AEO ${res?.aeo?.score ?? 0}/100 · Script ทุก Platform ที่เลือกผ่าน`,
         });
       }
     } catch (e: any) {
@@ -536,6 +539,35 @@ export function ContentCardDialog({
                   </TabsContent>
                 ))}
               </Tabs>
+            </div>
+          )}
+
+          {/* ===== Script SEO/AEO Quality ===== */}
+          {Object.keys(scriptQuality).length > 0 && (
+            <div className="px-6 py-5 border-b space-y-3">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-primary" />
+                <h3 className="text-sm font-semibold">Script SEO / AEO Quality Gate</h3>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {Object.entries(scriptQuality).map(([key, quality]) => {
+                  const passed = !!quality?.passed;
+                  return (
+                    <div key={key} className="rounded-lg border p-3 bg-muted/20">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold">{PLATFORM_MAP[key]?.label ?? key}</span>
+                        <Badge variant={passed ? 'default' : 'destructive'} className="text-[10px]">
+                          {passed ? 'ผ่าน' : 'ไม่ผ่าน'}
+                        </Badge>
+                      </div>
+                      <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
+                        <span>SEO: <b className="text-foreground">{quality?.seo?.score ?? 0}/100</b></span>
+                        <span>AEO: <b className="text-foreground">{quality?.aeo?.score ?? 0}/100</b></span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 

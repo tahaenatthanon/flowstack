@@ -3,12 +3,49 @@ require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/lib/publish-dispatch.php';
 require_once __DIR__ . '/lib/seo-checklist.php';
+require_once __DIR__ . '/lib/script-quality-checklist.php';
 
 $db       = getDB();
 $method   = getMethod();
 $auth     = requireAuth();
 $userId   = $auth['user_id'];
 $tenantId = $auth['tenant_id'];
+
+function publish_load_research_brief(PDO $db, string $tenantId, string $contentId): ?array {
+    $stmt = $db->prepare("SELECT analysis FROM content_research_jobs WHERE content_item_id=? AND tenant_id=? AND status='done' ORDER BY created_at DESC LIMIT 1");
+    $stmt->execute([$contentId, $tenantId]);
+    $analysis = $stmt->fetchColumn();
+    if (!$analysis) return null;
+    $brief = json_decode((string)$analysis, true);
+    return is_array($brief) ? $brief : null;
+}
+
+function publish_script_gate(PDO $db, string $tenantId, array $content, string $platform): array {
+    $platform = strtolower(trim($platform));
+    $selected = publish_content_platforms($content);
+    if (!in_array($platform, $selected, true)) {
+        return ['blocked' => true, 'reason' => "แพลตฟอร์ม {$platform} ไม่ได้ถูกเลือกไว้ใน Content Item"];
+    }
+    if (!in_array($platform, SCRIPT_PLATFORMS, true)) {
+        return ['blocked' => false, 'reason' => null];
+    }
+
+    $brief = publish_load_research_brief($db, $tenantId, (string)$content['id']);
+    $quality = script_quality_check_platform($content, $platform, $brief);
+    if (!empty($quality['passed'])) return ['blocked' => false, 'reason' => null, 'quality' => $quality];
+
+    $reasons = [];
+    foreach (['seo' => 'Script SEO', 'aeo' => 'Script AEO'] as $key => $label) {
+        $failed = array_filter($quality[$key]['rules'] ?? [], static fn(array $r): bool => ($r['status'] ?? '') === 'failed');
+        if ($failed) {
+            $reasons[] = $label . ': ' . implode('; ', array_map(static fn(array $r): string => $r['message'] ?? '', $failed));
+        }
+    }
+    if (!$reasons) {
+        $reasons[] = "Script {$platform} SEO/AEO score ยังไม่ถึง 80 (SEO {$quality['seo']['score']}/100, AEO {$quality['aeo']['score']}/100)";
+    }
+    return ['blocked' => true, 'reason' => implode("\n", $reasons), 'quality' => $quality];
+}
 
 // ── GET ──────────────────────────────────────────────────────────────────────
 if ($method === 'GET') {
@@ -94,7 +131,7 @@ if ($method === 'POST') {
         // Verify content exists, belongs to tenant, and has current approval.
         // Scheduling is a publish action too: it must never create a queue row for
         // content that has not been approved.
-        $cs = $db->prepare("SELECT id, status, approved_at FROM content_items WHERE id=? AND tenant_id=? AND status!='archived'");
+        $cs = $db->prepare("SELECT * FROM content_items WHERE id=? AND tenant_id=? AND status!='archived'");
         $cs->execute([$contentId, $tenantId]);
         $content = $cs->fetch(PDO::FETCH_ASSOC);
         if (!$content) jsonError('Content not found', 422);
@@ -105,14 +142,33 @@ if ($method === 'POST') {
         // Verify all channels belong to tenant and are active
         $placeholders = implode(',', array_fill(0, count($channelIds), '?'));
         $chs = $db->prepare(
-            "SELECT id FROM publish_channels WHERE id IN ($placeholders) AND tenant_id=? AND is_active=1"
+            "SELECT id, platform FROM publish_channels WHERE id IN ($placeholders) AND tenant_id=? AND is_active=1"
         );
         $chs->execute([...$channelIds, $tenantId]);
-        $validIds = array_column($chs->fetchAll(PDO::FETCH_ASSOC), 'id');
+        $channelRows = $chs->fetchAll(PDO::FETCH_ASSOC);
+        $validIds = array_column($channelRows, 'id');
         if (count($validIds) !== count($channelIds)) jsonError('Invalid or inactive channel(s)', 422);
 
+        // Preflight every requested platform independently. A failing platform is
+        // blocked without preventing passing platforms from being scheduled.
+        $channelPlatformMap = [];
+        $scriptGateByChannel = [];
+        foreach ($channelRows as $row) {
+            $channelPlatformMap[$row['id']] = strtolower(trim((string)$row['platform']));
+            $scriptGateByChannel[$row['id']] = publish_script_gate($db, $tenantId, $content, $channelPlatformMap[$row['id']]);
+        }
+
         $created = [];
+        $blocked = [];
         foreach ($channelIds as $channelId) {
+            if (!empty($scriptGateByChannel[$channelId]['blocked'])) {
+                $blocked[] = [
+                    'channel_id' => $channelId,
+                    'platform' => $channelPlatformMap[$channelId] ?? '',
+                    'reason' => $scriptGateByChannel[$channelId]['reason'],
+                ];
+                continue;
+            }
             $channelPlatformStmt = $db->prepare('SELECT platform FROM publish_channels WHERE id=? AND tenant_id=? AND is_active=1');
             $channelPlatformStmt->execute([$channelId, $tenantId]);
             $channelPlatform = strtolower(trim((string)$channelPlatformStmt->fetchColumn()));
@@ -146,7 +202,7 @@ if ($method === 'POST') {
             )->execute([$id, $tenantId, $contentId, $channelId, $scheduledAt, $override]);
             $created[] = $id;
         }
-        jsonResponse(['created' => $created]);
+        jsonResponse(['created' => $created, 'blocked' => $blocked]);
     }
 
     // ── send_now ──────────────────────────────────────────────────────────────
@@ -187,6 +243,15 @@ if ($method === 'POST') {
         $channels = $chs->fetchAll(PDO::FETCH_ASSOC);
         if (count($channels) !== count($channelIds)) jsonError('Invalid or inactive channel(s)', 422);
 
+        // Preflight each requested platform before any external dispatch.
+        // A failed platform is blocked independently; other platforms can still be published.
+        $scriptGateByPlatform = [];
+        foreach ($channels as $channel) {
+            $platform = strtolower(trim((string)$channel['platform']));
+            $scriptGate = publish_script_gate($db, $tenantId, $content, $platform);
+            $scriptGateByPlatform[$platform] = $scriptGate;
+        }
+
         $results = [];
         foreach ($channels as $channel) {
             // ── idempotency guard ต่อคู่ (content_id, platform) ─────────────────
@@ -206,6 +271,18 @@ if ($method === 'POST') {
             }
 
             try {
+                $platform = strtolower((string)$channel['platform']);
+                if (!empty($scriptGateByPlatform[$platform]['blocked'])) {
+                    $results[] = [
+                        'channel_id' => $channel['id'],
+                        'platform' => $platform,
+                        'success' => false,
+                        'status' => 'blocked',
+                        'reason' => $scriptGateByPlatform[$platform]['reason'],
+                    ];
+                    continue;
+                }
+
                 // Business rule: 1 content × 1 platform = publish once.
                 // Lock by platform, not channel, so two channels on the same platform
                 // cannot race and both publish the same content.

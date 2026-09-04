@@ -6,6 +6,7 @@ require_once 'config.php';
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/lib/seo-checklist.php';
 require_once __DIR__ . '/lib/aeo-checklist.php';
+require_once __DIR__ . '/lib/script-quality-checklist.php';
 require_once __DIR__ . '/lib/ai-creds.php';
 require_once __DIR__ . '/lib/ai-research.php';
 require_once __DIR__ . '/lib/content-plan-prompt.php';
@@ -2198,7 +2199,7 @@ if ($action === 'generate-article') {
                    '"script_sections":{"opening":"Hook 3 วินาทีแรก","bridge":"เนื้อหาหลัก","twist":"จุดพลิกหรือข้อมูลสำคัญ","ending":"CTA + Subscribe/Follow"},' .
                    '"visuals":["Scene 1: คำอธิบายภาพ/การถ่าย","Scene 2: คำอธิบายภาพ/การถ่าย","Scene 3: คำอธิบายภาพ/การถ่าย"],' .
                    '"structured_data":{"@context":"https://schema.org","@type":"VideoObject","name":"...","description":"..."},' .
-                   '"hashtags":["#hashtag1","#hashtag2","#hashtag3","#hashtag4","#hashtag5"]}' . "\n\nSEO Checklist Requirements (single source of truth):\n{$seoRequirementsText}\n\nAEO Checklist Requirements (single source of truth):\n" . aeo_generation_requirements();
+                   '"hashtags":["#hashtag1","#hashtag2","#hashtag3","#hashtag4","#hashtag5"]}' . "\n\nSEO Checklist Requirements (single source of truth):\n{$seoRequirementsText}\n\nAEO Checklist Requirements (single source of truth):\n" . aeo_generation_requirements() . "\n\nSCRIPT SEO/AEO Requirements (single source of truth):\n" . script_quality_generation_requirements($scriptPlatforms);
     } else {
         // Article/social-first prompt with SEO/AEO optimization
         $scriptExamples = [];
@@ -2222,6 +2223,7 @@ if ($action === 'generate-article') {
                    "โครงสร้าง JSON ที่ต้องการ:\n{$jsonSchema}\n\n" .
                    "SEO Rules (single source of truth จาก SEO Checklist):\n{$seoRequirementsText}\n" .
                    "AEO Rules (single source of truth จาก AEO Checklist):\n" . aeo_generation_requirements() . "\n" .
+                   "SCRIPT SEO/AEO Rules (single source of truth):\n" . script_quality_generation_requirements($scriptPlatforms) . "\n" .
                    "- full_html: เขียนด้วย semantic HTML5 (h2, h3, p, ul, ol, blockquote, table) และอย่าเพิ่ม H1 ซ้ำใน body\n" .
                    "- ใส่ FAQ schema (structured_data_faq) เฉพาะเมื่อบทความมีรูปแบบคำถาม-คำตอบจริง และให้ตรงกับคำถาม/คำตอบในเนื้อหา\n" .
                    "- Answer Engine Optimization: ย่อหน้าแรกตอบคำถามหลักทันที, ใช้ H2/H3 เป็นคำถาม/ประเด็น, มี answer blocks ที่กระชับและครอบคลุม PAA เมื่อมี Research\n" .
@@ -2297,6 +2299,64 @@ if ($action === 'generate-article') {
     // platforms selected on this Content Item. This is the final source-of-truth boundary.
     $generatedScripts = is_array($mainData['scripts'] ?? null) ? $mainData['scripts'] : [];
     $mainData['scripts'] = array_intersect_key($generatedScripts, array_flip($scriptPlatforms));
+
+    // Per-platform Script SEO/AEO gate. Repair only the failing platform, then re-evaluate it.
+    $scriptQualityContext = [
+        'topic' => $item['topic'],
+        'title' => $item['topic'],
+        'meta_keywords' => $researchBrief['primary_keyword'] ?? ($item['meta_keywords'] ?? ''),
+        'research_brief' => $researchBrief,
+        'knowledge_base' => $kbContext,
+        'brand_context' => $brandText,
+    ];
+    $scriptQuality = script_quality_evaluate($mainData['scripts'], $scriptPlatforms, $scriptQualityContext);
+
+    foreach ($scriptPlatforms as $scriptPlatform) {
+        if (!empty($scriptQuality['platforms'][$scriptPlatform]['passed'])) continue;
+        $currentScript = trim((string)($mainData['scripts'][$scriptPlatform] ?? ''));
+        if ($currentScript === '') continue;
+
+        for ($scriptAttempt = 1; $scriptAttempt <= 2; $scriptAttempt++) {
+            $platformEval = $scriptQuality['platforms'][$scriptPlatform] ?? null;
+            if ($platformEval && !empty($platformEval['passed'])) break;
+            $seoIssues = array_values(array_filter($platformEval['seo']['rules'] ?? [], static fn(array $r): bool => ($r['status'] ?? '') !== 'passed'));
+            $aeoIssues = array_values(array_filter($platformEval['aeo']['rules'] ?? [], static fn(array $r): bool => ($r['status'] ?? '') !== 'passed'));
+            $issueText = implode("\n", array_map(static fn(array $r): string => '- SEO [' . ($r['key'] ?? '') . '] ' . ($r['message'] ?? ''), $seoIssues));
+            if ($issueText !== '') $issueText .= "\n";
+            $issueText .= implode("\n", array_map(static fn(array $r): string => '- AEO [' . ($r['key'] ?? '') . '] ' . ($r['message'] ?? ''), $aeoIssues));
+
+            $scriptRepairSystem = "CRITICAL: แก้เฉพาะ Script ของ platform {$scriptPlatform} เท่านั้น\n" .
+                "ห้ามสร้าง/แก้ script ของ platform อื่น ห้ามเปลี่ยน Topic และห้ามสร้างข้อเท็จจริงใหม่\n" .
+                "คุณเป็น Social SEO + AEO Editor ตอบเป็น JSON object เท่านั้น: {\"script\":\"...\"}\n" .
+                "ข้อกำหนด:\n" . script_quality_generation_requirements([$scriptPlatform]);
+            $scriptRepairUser = "แก้ script นี้ให้ผ่าน Script SEO/AEO Gate ของ {$scriptPlatform}\n" .
+                "ปัญหาที่ตรวจพบ:\n{$issueText}\n\n" .
+                "Topic Source of Truth: {$item['topic']}\n" .
+                "Current Script:\n{$currentScript}";
+
+            try {
+                $repairRaw = $aiCall($scriptRepairSystem, $scriptRepairUser);
+                $repairData = json_decode($repairRaw, true);
+                if (!is_array($repairData) && preg_match('/\\{.*\\}/s', $repairRaw, $rm)) $repairData = json_decode($rm[0], true);
+                $newScript = is_array($repairData) ? trim((string)($repairData['script'] ?? '')) : '';
+                if ($newScript !== '') {
+                    $mainData['scripts'][$scriptPlatform] = sanitizeAIOutput($newScript);
+                    $currentScript = $mainData['scripts'][$scriptPlatform];
+                }
+                $scriptQuality = script_quality_evaluate($mainData['scripts'], $scriptPlatforms, $scriptQualityContext);
+            } catch (Throwable $scriptRepairError) {
+                error_log('[brand-content script-quality-repair] platform=' . $scriptPlatform . ' attempt=' . $scriptAttempt . ' error: ' . $scriptRepairError->getMessage());
+                break;
+            }
+        }
+    }
+
+    // Final platform boundary + re-evaluation after every repair.
+    $mainData['scripts'] = array_intersect_key(
+        is_array($mainData['scripts'] ?? null) ? $mainData['scripts'] : [],
+        array_flip($scriptPlatforms)
+    );
+    $scriptQuality = script_quality_evaluate($mainData['scripts'], $scriptPlatforms, $scriptQualityContext);
 
     $artTitle   = $mainData['title']   ?? $item['topic'];
     $artExcerpt = $mainData['excerpt'] ?? '';
@@ -2548,6 +2608,11 @@ if ($action === 'generate-article') {
     $finalScripts = is_array($mainData['scripts'] ?? null) ? $mainData['scripts'] : [];
     $mainData['scripts'] = array_intersect_key($finalScripts, array_flip($scriptPlatforms));
 
+    // SEO/AEO article repairs can replace the scripts field, so always re-evaluate
+    // the final scripts immediately before persistence. This makes the final gate
+    // describe the exact content that will be saved/published.
+    $scriptQuality = script_quality_evaluate($mainData['scripts'], $scriptPlatforms, $scriptQualityContext);
+
     // Final SEO re-check after AEO repairs; both gates must pass.
     $seoEval = seo_evaluate([
         'type' => $ciType, 'title' => $artTitle, 'seo_title' => $art['seo_title'], 'slug' => $art['slug'],
@@ -2559,9 +2624,10 @@ if ($action === 'generate-article') {
     $aeoGate = aeo_gate_status($aeoEval);
     $seoPassed = $seoGate === 'passed';
     $aeoPassed = $aeoGate === 'passed';
-    $generationStatus = ($seoPassed && $aeoPassed) ? 'success' : 'failed';
-    // SEO หรือ AEO ไม่ผ่านหลัง repair ครบ max attempts → revision
-    $finalStatus = ($seoPassed && $aeoPassed) ? null : 'revision';
+    $scriptPassed = $scriptQuality['passed'];
+    $generationStatus = ($seoPassed && $aeoPassed && $scriptPassed) ? 'success' : 'failed';
+    // SEO, AEO หรือ Script ต่อ platform ไม่ผ่านหลัง repair ครบ max attempts → revision
+    $finalStatus = ($seoPassed && $aeoPassed && $scriptPassed) ? null : 'revision';
     // รายการ required rule ที่ fail (key, message, expected) — ให้ผู้ใช้เห็นสาเหตุจริง
     $failedRequired = array_values(array_map(
         static fn(array $r): array => [
@@ -2579,6 +2645,20 @@ if ($action === 'generate-article') {
             'expected' => 'AEO: ต้องผ่านกฎ ' . ($r['key'] ?? ''),
             'quality' => 'AEO',
         ];
+    }
+    foreach ($scriptQuality['platforms'] as $platform => $quality) {
+        if (!empty($quality['passed'])) continue;
+        foreach (['seo' => 'Script SEO', 'aeo' => 'Script AEO'] as $qualityKey => $label) {
+            foreach (array_filter($quality[$qualityKey]['rules'] ?? [], static fn(array $r): bool => ($r['tier'] ?? '') === 'required' && ($r['status'] ?? '') === 'failed') as $r) {
+                $failedRequired[] = [
+                    'key' => $r['key'] ?? '',
+                    'message' => "{$platform}: " . ($r['message'] ?? ''),
+                    'expected' => "{$label}: ต้องผ่านกฎ " . ($r['key'] ?? ''),
+                    'quality' => $label,
+                    'platform' => $platform,
+                ];
+            }
+        }
     }
 
     // Update content_items with article content + SEO columns
@@ -2623,6 +2703,8 @@ if ($action === 'generate-article') {
             'rules' => $aeoEval['rules'],
         ],
         'aeo_passed' => $aeoPassed,
+        'script_quality' => $scriptQuality,
+        'script_passed' => $scriptPassed,
         'generation_status' => $generationStatus,
         'failed_required' => $failedRequired,
     ]);
@@ -2689,6 +2771,12 @@ if ($action === 'publish') {
     }
 
     $platform = strtolower((string)$channel['platform']);
+
+    // Per-platform Script SEO/AEO publish gate. Non-script platforms only need to be selected.
+    $scriptPublishGate = script_quality_publish_check($item, $platform, $publishResearchBrief);
+    if ($scriptPublishGate['blocked']) {
+        jsonError("เผยแพร่ไม่ได้ — {$platform}\n" . $scriptPublishGate['reason'], 422);
+    }
 
     // Business rule: 1 content × 1 platform = publish once.
     // A different platform remains independently publishable.
@@ -3060,9 +3148,18 @@ if ($action === 'cron-publish') {
         $result = [];
 
         $cronPlatform = strtolower((string)$sc['platform']);
-        $cronContentIdStmt = $db->prepare('SELECT id, platform, platforms FROM content_items WHERE plan_item_id=? AND tenant_id=? LIMIT 1');
+        $cronContentIdStmt = $db->prepare('SELECT * FROM content_items WHERE plan_item_id=? AND tenant_id=? LIMIT 1');
         $cronContentIdStmt->execute([$sc['plan_item_id'], $tenantId]);
         $cronContent = $cronContentIdStmt->fetch(PDO::FETCH_ASSOC);
+        if ($cronContent) {
+            $cronScriptGate = script_quality_publish_check($cronContent, $cronPlatform, $cronResearchBrief);
+            if ($cronScriptGate['blocked']) {
+                $db->prepare("UPDATE content_schedules SET status='failed', publish_result=?, updated_at=NOW() WHERE id=?")
+                   ->execute([json_encode(['script_quality_gate_blocked' => true, 'platform' => $cronPlatform, 'reason' => $cronScriptGate['reason']], JSON_UNESCAPED_UNICODE), $sc['id']]);
+                $processed[] = ['id' => $sc['id'], 'status' => 'failed', 'topic' => $sc['topic'], 'reason' => 'Script SEO/AEO gate: ' . $cronScriptGate['reason']];
+                continue;
+            }
+        }
         if ($cronContent) {
             $cronPublishedPlatforms = get_published_content_platforms($db, $tenantId, $cronContent['id']);
             if (in_array($cronPlatform, $cronPublishedPlatforms, true)) {
