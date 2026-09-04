@@ -402,7 +402,15 @@ export function ContentCardDialog({
   };
 
   const headlines = articleData?.headlines;
-  const scripts = articleData?.scripts;
+  // Show only scripts belonging to the Content Item's selected platforms.
+  // This also hides legacy scripts that were generated before platform scoping was enforced.
+  const scripts = useMemo(() => {
+    const rawScripts = articleData?.scripts;
+    if (!rawScripts || typeof rawScripts !== 'object') return {};
+    return Object.fromEntries(
+      Object.entries(rawScripts).filter(([key]) => platforms.includes(key.toLowerCase())),
+    );
+  }, [articleData?.scripts, platforms]);
   const scriptSections = articleData?.script_sections;
   const visuals: string[] = articleData?.visuals ?? [];
   const hashtags: string[] = articleData?.hashtags ?? [];
@@ -502,11 +510,11 @@ export function ContentCardDialog({
           )}
 
           {/* ===== Multi-platform Scripts ===== */}
-          {scripts && Object.keys(scripts).length > 0 && (
+          {Object.keys(scripts).length > 0 && (
             <div className="px-6 py-5 border-b space-y-4">
               <div className="flex items-center gap-2">
                 <MessageSquare className="h-4 w-4 text-muted-foreground" />
-                <h3 className="text-sm font-semibold">Multi-platform Scripts</h3>
+                <h3 className="text-sm font-semibold">Scripts สำหรับ Platform ที่เลือก</h3>
               </div>
               <Tabs defaultValue={Object.keys(scripts)[0]}>
                 <TabsList className="w-full justify-start gap-1 bg-transparent p-0 h-auto flex-wrap">

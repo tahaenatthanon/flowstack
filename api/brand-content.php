@@ -2134,9 +2134,26 @@ if ($action === 'generate-article') {
         return $v;
     };
 
-    $itemPlatform = $item['platform'] ?? 'facebook';
+    // Platform Source of Truth: scripts may only be generated for platforms selected on this Content Item.
+    // Never default to facebook and never let the AI invent additional script platforms.
+    $rawItemPlatforms = $item['platforms'] ?? null;
+    if (is_array($rawItemPlatforms)) {
+        $itemPlatforms = $rawItemPlatforms;
+    } elseif (is_string($rawItemPlatforms) && trim($rawItemPlatforms) !== '') {
+        $decodedItemPlatforms = json_decode($rawItemPlatforms, true);
+        $itemPlatforms = is_array($decodedItemPlatforms) ? $decodedItemPlatforms : preg_split('/\\s*,\\s*/', $rawItemPlatforms);
+    } else {
+        $itemPlatforms = preg_split('/\\s*,\\s*/', (string)($item['platform'] ?? ''));
+    }
+    $itemPlatforms = array_values(array_unique(array_filter(array_map(
+        static fn($p): string => strtolower(trim((string)$p)),
+        $itemPlatforms
+    ))));
+    $scriptCapablePlatforms = ['facebook', 'instagram', 'tiktok', 'youtube', 'lineoa', 'linkedin', 'twitter'];
+    $scriptPlatforms = array_values(array_intersect($itemPlatforms, $scriptCapablePlatforms));
+    $itemPlatform = $itemPlatforms[0] ?? '';
     $isVideo = strtolower((string)($item['type'] ?? 'article')) === 'video';
-    $itemCtx = "หัวข้อ (Source of Truth): {$item['topic']}\nแพลตฟอร์ม: {$itemPlatform}\nแคปชั่น:\n{$item['caption']}";
+    $itemCtx = "หัวข้อ (Source of Truth): {$item['topic']}\nแพลตฟอร์มที่เลือก: " . ($itemPlatforms ? implode(', ', $itemPlatforms) : 'ไม่ได้กำหนด') . "\nแคปชั่น:\n{$item['caption']}";
     if ($researchBrief && $researchJob) {
         $selectedKeywords = array_values(array_filter($researchKeywords, static fn(array $row): bool => (int)($row['is_selected'] ?? 0) === 1));
         if (!$selectedKeywords) $selectedKeywords = $researchKeywords;
@@ -2156,19 +2173,49 @@ if ($action === 'generate-article') {
     if ($isVideo) {
         // Video-first prompt: detailed scene-by-scene script for TikTok/YouTube
         $seoRequirementsText = seo_contract_hints('video');
-            $mainSys = "CRITICAL: ตอบเป็นภาษาไทยเท่านั้น ห้ามใช้ภาษาจีน เกาหลี ญี่ปุ่น (CJK). English OK for technical terms only.\n" .
+            $scriptExamples = [];
+        foreach ($scriptPlatforms as $scriptPlatform) {
+            $scriptExamples[$scriptPlatform] = match ($scriptPlatform) {
+                'tiktok' => 'Hook 3 วิ: ...\\nScene 1: ...\\nScene 2: ...\\nCTA: ...',
+                'youtube' => 'Intro: ...\\nSection 1: ...\\nSection 2: ...\\nOutro: ...',
+                'instagram' => 'Caption/Reels: ...\\nCTA: ...',
+                'facebook' => 'Post caption: ...\\nCTA: ...',
+                'linkedin' => 'Professional post: ...\\nCTA: ...',
+                'twitter' => 'Post: ...',
+                'lineoa' => 'ข้อความ LINE OA: ...\\nCTA: ...',
+                default => 'Platform-specific script: ...',
+            };
+        }
+        $scriptSchema = json_encode($scriptExamples, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $mainSys = "CRITICAL: ตอบเป็นภาษาไทยเท่านั้น ห้ามใช้ภาษาจีน เกาหลี ญี่ปุ่น (CJK). English OK for technical terms only.\n" .
                    "คุณเป็น Video Content Creator ผู้เชี่ยวชาญด้าน SEO และ AEO ตอบกลับเป็น JSON เท่านั้น ไม่มี markdown fence\n" .
+                   "Platform Script Constraint: สร้าง scripts เฉพาะ platform ที่ผู้ใช้เลือกไว้เท่านั้น ห้ามสร้าง key ของ platform อื่น ห้ามเดา platform เพิ่ม และถ้าไม่มี platform ที่รองรับ script ให้ส่ง scripts เป็น {}\n" .
+                   "Selected script platforms: " . ($scriptPlatforms ? implode(', ', $scriptPlatforms) : 'none') . "\n" .
                    "โครงสร้าง JSON สำหรับวิดีโอ:\n" .
                    '{"title":"ชื่อวิดีโอ","excerpt":"สรุปเนื้อหาวิดีโอ 1-2 ประโยค","seo_title":"SEO title สำหรับวิดีโอ","slug":"url-friendly-slug","meta_description":"คำอธิบายสำหรับการค้นหา 120-160 ตัวอักษร",' .
                    '"headlines":{"viral_clickbait":[{"title":"หัวข้อ hook","hook":"ประโยคเปิด"}],"storytelling":[{"title":"หัวข้อ","hook":"hook"}],"educational":[{"title":"หัวข้อ","hook":"hook"}]},' .
-                   '"scripts":{"tiktok":"Hook 3 วิ: ...\nScene 1 (0:00-0:15): ...\nScene 2 (0:15-0:35): ...\nScene 3 (0:35-0:55): ...\nCTA: ...","youtube":"Intro (0:00-0:30): ...\nSection 1 (0:30-2:00): ...\nSection 2 (2:00-4:00): ...\nOutro (4:00-4:30): ...","facebook":"ประกาศวิดีโอ + caption สำหรับ Facebook","instagram":"caption สำหรับ Reels/Instagram"},' .
+                   '"scripts":' . $scriptSchema . ',' .
                    '"script_sections":{"opening":"Hook 3 วินาทีแรก","bridge":"เนื้อหาหลัก","twist":"จุดพลิกหรือข้อมูลสำคัญ","ending":"CTA + Subscribe/Follow"},' .
                    '"visuals":["Scene 1: คำอธิบายภาพ/การถ่าย","Scene 2: คำอธิบายภาพ/การถ่าย","Scene 3: คำอธิบายภาพ/การถ่าย"],' .
                    '"structured_data":{"@context":"https://schema.org","@type":"VideoObject","name":"...","description":"..."},' .
                    '"hashtags":["#hashtag1","#hashtag2","#hashtag3","#hashtag4","#hashtag5"]}' . "\n\nSEO Checklist Requirements (single source of truth):\n{$seoRequirementsText}\n\nAEO Checklist Requirements (single source of truth):\n" . aeo_generation_requirements();
     } else {
         // Article/social-first prompt with SEO/AEO optimization
-        $jsonSchema = '{"title":"ชื่อบทความ (SEO optimized)","excerpt":"สรุป 1-2 ประโยค","seo_title":"SEO Title Tag","slug":"url-friendly-slug","meta_description":"Meta description ภาษาไทย 120-160 chars","meta_keywords":"keyword1, keyword2, ...","full_html":"<article>\\n<h2>heading</h2>\\n<p>content paragraph</p>\\n<h2>heading 2</h2>\\n<p>more content</p>\\n</article> (semantic HTML ใช้ h2,h3,p,ul,ol,blockquote,table ห้ามใช้ h1 เนื่องจากสงวนให้ title)","structured_data":{"@context":"https://schema.org","@type":"Article","headline":"...","description":"..."},"structured_data_faq":{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"คำถาม","acceptedAnswer":{"@type":"Answer","text":"คำตอบ"}}]} (ใส่เฉพาะเมื่อบทความมี Q&A จริง)","headlines":{"viral_clickbait":[{"title":"...","hook":"..."}],"storytelling":[{"title":"...","hook":"..."}],"educational":[{"title":"...","hook":"..."}]},"scripts":{"facebook":"post สั้น","instagram":"caption","tiktok":"script TikTok","youtube":"script YouTube"},"script_sections":{"opening":"hook","bridge":"เนื้อหา","twist":"จุดพลิก","ending":"CTA"},"visuals":["ภาพประกอบ 1","ภาพประกอบ 2"],"hashtags":["#tag1","#tag2","#tag3","#tag4","#tag5"]}';
+        $scriptExamples = [];
+        foreach ($scriptPlatforms as $scriptPlatform) {
+            $scriptExamples[$scriptPlatform] = match ($scriptPlatform) {
+                'tiktok' => 'Hook 3 วิ: ...\\nScene 1: ...\\nScene 2: ...\\nCTA: ...',
+                'youtube' => 'Intro: ...\\nSection 1: ...\\nSection 2: ...\\nOutro: ...',
+                'instagram' => 'Caption/Reels: ...\\nCTA: ...',
+                'facebook' => 'Post caption: ...\\nCTA: ...',
+                'linkedin' => 'Professional post: ...\\nCTA: ...',
+                'twitter' => 'Post: ...',
+                'lineoa' => 'ข้อความ LINE OA: ...\\nCTA: ...',
+                default => 'Platform-specific script: ...',
+            };
+        }
+        $scriptSchema = json_encode($scriptExamples, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $jsonSchema = '{"title":"ชื่อบทความ (SEO optimized)","excerpt":"สรุป 1-2 ประโยค","seo_title":"SEO Title Tag","slug":"url-friendly-slug","meta_description":"Meta description ภาษาไทย 120-160 chars","meta_keywords":"keyword1, keyword2, ...","full_html":"<article>\\n<h2>heading</h2>\\n<p>content paragraph</p>\\n<h2>heading 2</h2>\\n<p>more content</p>\\n</article> (semantic HTML ใช้ h2,h3,p,ul,ol,blockquote,table ห้ามใช้ h1 เนื่องจากสงวนให้ title)","structured_data":{"@context":"https://schema.org","@type":"Article","headline":"...","description":"..."},"structured_data_faq":{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"คำถาม","acceptedAnswer":{"@type":"Answer","text":"คำตอบ"}}]} (ใส่เฉพาะเมื่อบทความมี Q&A จริง)","headlines":{"viral_clickbait":[{"title":"...","hook":"..."}],"storytelling":[{"title":"...","hook":"..."}],"educational":[{"title":"...","hook":"..."}]},"scripts":' . $scriptSchema . ',"script_sections":{"opening":"hook","bridge":"เนื้อหา","twist":"จุดพลิก","ending":"CTA"},"visuals":["ภาพประกอบ 1","ภาพประกอบ 2"],"hashtags":["#tag1","#tag2","#tag3","#tag4","#tag5"]}';
         $seoRequirementsText = seo_contract_hints('article');
         $mainSys = "CRITICAL: ตอบเป็นภาษาไทยเท่านั้น ห้ามใช้ภาษาจีน เกาหลี ญี่ปุ่น (CJK). English OK for technical terms only.\n" .
                    "คุณเป็นนักเขียน Content Marketing + SEO Specialist ตอบกลับเป็น JSON เท่านั้น ไม่มี markdown fence\n" .
@@ -2245,6 +2292,11 @@ if ($action === 'generate-article') {
         jsonError('AI ไม่สามารถสร้าง content ได้ โมเดล: ' . $modelName . ' (' . $jsonErr . ') — Raw: ' . $preview, 500);
     }
     $mainData = $sanitizeArr($mainData);
+
+    // Hard guard: even if the model ignores the prompt, persist only scripts for
+    // platforms selected on this Content Item. This is the final source-of-truth boundary.
+    $generatedScripts = is_array($mainData['scripts'] ?? null) ? $mainData['scripts'] : [];
+    $mainData['scripts'] = array_intersect_key($generatedScripts, array_flip($scriptPlatforms));
 
     $artTitle   = $mainData['title']   ?? $item['topic'];
     $artExcerpt = $mainData['excerpt'] ?? '';
@@ -2364,6 +2416,9 @@ if ($action === 'generate-article') {
             if (!is_array($repairData)) break;
             $repairData = $sanitizeArr($repairData);
             $mainData = array_replace_recursive($mainData, $repairData);
+            // Repair models must obey the same platform boundary as the main generation call.
+            $repairedScripts = is_array($mainData['scripts'] ?? null) ? $mainData['scripts'] : [];
+            $mainData['scripts'] = array_intersect_key($repairedScripts, array_flip($scriptPlatforms));
 
             // Rebuild the persisted article fields from the repaired JSON.
             $artTitle = $mainData['title'] ?? $artTitle;
@@ -2452,6 +2507,9 @@ if ($action === 'generate-article') {
             if (!is_array($aeoData) && preg_match('/\{.*\}/s', $aeoRaw, $am)) $aeoData = json_decode($am[0], true);
             if (!is_array($aeoData)) break;
             $mainData = array_replace_recursive($mainData, $sanitizeArr($aeoData));
+            // Keep AEO repair from reintroducing scripts for unselected platforms.
+            $repairedScripts = is_array($mainData['scripts'] ?? null) ? $mainData['scripts'] : [];
+            $mainData['scripts'] = array_intersect_key($repairedScripts, array_flip($scriptPlatforms));
             $artTitle = $mainData['title'] ?? $artTitle;
             $artExcerpt = $mainData['excerpt'] ?? $artExcerpt;
             $aiHtml = $mainData['full_html'] ?? '';
@@ -2485,6 +2543,10 @@ if ($action === 'generate-article') {
             break;
         }
     }
+
+    // Final hard guard before persistence/response. No unselected platform script may survive any repair pass.
+    $finalScripts = is_array($mainData['scripts'] ?? null) ? $mainData['scripts'] : [];
+    $mainData['scripts'] = array_intersect_key($finalScripts, array_flip($scriptPlatforms));
 
     // Final SEO re-check after AEO repairs; both gates must pass.
     $seoEval = seo_evaluate([
@@ -2657,7 +2719,7 @@ if ($action === 'publish') {
     $imageUrl = $item['generated_image_url'] ?? '';
     $publishCaption = $item['caption'] ?? '';
     $publishScripts = is_array($artData['scripts'] ?? null) ? $artData['scripts'] : [];
-    if (in_array($platform, ['facebook', 'instagram', 'tiktok', 'lineoa', 'linkedin', 'twitter'], true)
+    if (in_array($platform, ['facebook', 'instagram', 'tiktok', 'youtube', 'lineoa', 'linkedin', 'twitter'], true)
         && !empty($publishScripts[$platform])) {
         $publishCaption = trim((string)$publishScripts[$platform]);
     }
