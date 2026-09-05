@@ -512,6 +512,19 @@ if ($action === 'plans') {
                 }
             }
             if ($ciSets) {
+                // Topic/platform/other plan-item edits can make a persisted Script
+                // Quality result stale. Invalidate it atomically with this update.
+                $qualityStmt = $db->prepare('SELECT article_content FROM content_items WHERE id=? AND tenant_id=?');
+                $qualityStmt->execute([$itemId, $tenantId]);
+                $currentArticleContent = (string)($qualityStmt->fetchColumn() ?: '');
+                if ($currentArticleContent !== '') {
+                    $qualityArticle = json_decode($currentArticleContent, true);
+                    if (is_array($qualityArticle) && array_key_exists('script_quality', $qualityArticle)) {
+                        unset($qualityArticle['script_quality']);
+                        array_unshift($ciSets, 'article_content=?');
+                        array_unshift($ciVals, json_encode($qualityArticle, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+                    }
+                }
                 $ciVals[] = $itemId;
                 $ciVals[] = $tenantId;
                 $db->prepare('UPDATE content_items SET ' . implode(',', $ciSets) . ',updated_at=NOW() WHERE id=? AND tenant_id=?')->execute($ciVals);
@@ -2334,41 +2347,64 @@ if ($action === 'generate-article') {
     $scriptQuality = script_quality_evaluate($mainData['scripts'], $scriptPlatforms, $scriptQualityContext);
 
     foreach ($scriptPlatforms as $scriptPlatform) {
-        if (!empty($scriptQuality['platforms'][$scriptPlatform]['passed'])) continue;
-        $currentScript = trim((string)($mainData['scripts'][$scriptPlatform] ?? ''));
-        if ($currentScript === '') continue;
+        $platformEval = $scriptQuality['platforms'][$scriptPlatform] ?? null;
+        if ($platformEval && !empty($platformEval['passed'])) continue;
 
-        for ($scriptAttempt = 1; $scriptAttempt <= 2; $scriptAttempt++) {
+        // A selected Script platform must never silently remain empty/failed.
+        // Start with the generated value when available; if it is missing, ask the
+        // same content model to create that platform-specific Script first.
+        $currentScript = trim((string)($mainData['scripts'][$scriptPlatform] ?? ''));
+
+        for ($scriptAttempt = 1; $scriptAttempt < SCRIPT_GATE_MAX_ATTEMPTS; $scriptAttempt++) {
             $platformEval = $scriptQuality['platforms'][$scriptPlatform] ?? null;
             if ($platformEval && !empty($platformEval['passed'])) break;
-            $seoIssues = array_values(array_filter($platformEval['seo']['rules'] ?? [], static fn(array $r): bool => ($r['status'] ?? '') !== 'passed'));
-            $aeoIssues = array_values(array_filter($platformEval['aeo']['rules'] ?? [], static fn(array $r): bool => ($r['status'] ?? '') !== 'passed'));
-            $issueText = implode("\n", array_map(static fn(array $r): string => '- SEO [' . ($r['key'] ?? '') . '] ' . ($r['message'] ?? ''), $seoIssues));
-            if ($issueText !== '') $issueText .= "\n";
-            $issueText .= implode("\n", array_map(static fn(array $r): string => '- AEO [' . ($r['key'] ?? '') . '] ' . ($r['message'] ?? ''), $aeoIssues));
 
-            $scriptRepairSystem = "CRITICAL: แก้เฉพาะ Script ของ platform {$scriptPlatform} เท่านั้น\n" .
+            $seoIssues = array_values(array_filter(
+                $platformEval['seo']['rules'] ?? [],
+                static fn(array $r): bool => in_array(($r['status'] ?? ''), ['failed', 'needs_improvement'], true)
+            ));
+            $aeoIssues = array_values(array_filter(
+                $platformEval['aeo']['rules'] ?? [],
+                static fn(array $r): bool => in_array(($r['status'] ?? ''), ['failed', 'needs_improvement'], true)
+            ));
+            $issueText = implode("\n", array_map(
+                static fn(array $r): string => '- SEO [' . ($r['key'] ?? '') . '] ' . ($r['message'] ?? ''),
+                $seoIssues
+            ));
+            if ($issueText !== '') $issueText .= "\n";
+            $issueText .= implode("\n", array_map(
+                static fn(array $r): string => '- AEO [' . ($r['key'] ?? '') . '] ' . ($r['message'] ?? ''),
+                $aeoIssues
+            ));
+            if ($issueText === '') $issueText = '- Script ไม่มีผล Quality ที่ผ่านเกณฑ์ หรือไม่มี Script สำหรับ platform นี้';
+
+            $scriptRepairSystem = "CRITICAL: สร้าง/แก้เฉพาะ Script ของ platform {$scriptPlatform} เท่านั้น\n" .
                 "ห้ามสร้าง/แก้ script ของ platform อื่น ห้ามเปลี่ยน Topic และห้ามสร้างข้อเท็จจริงใหม่\n" .
+                "เป้าหมายคือ Script SEO/AEO Gate ต้องเป็น passed ทั้ง SEO และ AEO (คะแนนอย่างน้อย 80 และ required rules ทุกข้อผ่าน)\n" .
                 "คุณเป็น Social SEO + AEO Editor ตอบเป็น JSON object เท่านั้น: {\"script\":\"...\"}\n" .
-                "ข้อกำหนด:\n" . script_quality_generation_requirements([$scriptPlatform]);
-            $scriptRepairUser = "แก้ script นี้ให้ผ่าน Script SEO/AEO Gate ของ {$scriptPlatform}\n" .
-                "ปัญหาที่ตรวจพบ:\n{$issueText}\n\n" .
+                "ข้อกำหนด:\n" . script_quality_generation_requirements([$scriptPlatform]) . "\n" .
+                "ตรวจ checklist ในคำสั่งนี้ด้วยตนเองก่อนตอบ และอย่าส่ง Script ที่ยังไม่ตรงข้อกำหนด";
+            $scriptRepairUser = "สร้างหรือแก้ Script นี้ให้ผ่าน Script SEO/AEO Gate ของ {$scriptPlatform}\n" .
+                "ปัญหาที่ตรวจพบจากรอบล่าสุด:\n{$issueText}\n\n" .
                 "Topic Source of Truth: {$item['topic']}\n" .
-                "Current Script:\n{$currentScript}";
+                "Current Script:\n" . ($currentScript !== '' ? $currentScript : '(ไม่มี Script — ต้องสร้างใหม่)');
 
             try {
                 $repairRaw = $aiCall($scriptRepairSystem, $scriptRepairUser);
                 $repairData = json_decode($repairRaw, true);
                 if (!is_array($repairData) && preg_match('/\\{.*\\}/s', $repairRaw, $rm)) $repairData = json_decode($rm[0], true);
                 $newScript = is_array($repairData) ? trim((string)($repairData['script'] ?? '')) : '';
-                if ($newScript !== '') {
-                    $mainData['scripts'][$scriptPlatform] = sanitizeAIOutput($newScript);
-                    $currentScript = $mainData['scripts'][$scriptPlatform];
+                if ($newScript === '') {
+                    error_log('[brand-content script-quality-repair] platform=' . $scriptPlatform . ' attempt=' . $scriptAttempt . ' returned empty script');
+                    continue;
                 }
+
+                $mainData['scripts'][$scriptPlatform] = sanitizeAIOutput($newScript);
+                $currentScript = $mainData['scripts'][$scriptPlatform];
                 $scriptQuality = script_quality_evaluate($mainData['scripts'], $scriptPlatforms, $scriptQualityContext);
             } catch (Throwable $scriptRepairError) {
                 error_log('[brand-content script-quality-repair] platform=' . $scriptPlatform . ' attempt=' . $scriptAttempt . ' error: ' . $scriptRepairError->getMessage());
-                break;
+                continue;
             }
         }
     }
@@ -2634,6 +2670,28 @@ if ($action === 'generate-article') {
     // the final scripts immediately before persistence. This makes the final gate
     // describe the exact content that will be saved/published.
     $scriptQuality = script_quality_evaluate($mainData['scripts'], $scriptPlatforms, $scriptQualityContext);
+
+    // A generated Content Item is considered successful only when every selected
+    // script-capable platform passes both Script SEO and Script AEO. Do not persist
+    // a newly generated failed Script as if it were a successful generation.
+    if (!$scriptQuality['passed']) {
+        $failedPlatforms = [];
+        foreach ($scriptQuality['platforms'] as $platform => $quality) {
+            if (empty($quality['passed'])) {
+                $failedPlatforms[] = $platform . ' (SEO ' . ($quality['seo']['score'] ?? 0) . '/100, AEO ' . ($quality['aeo']['score'] ?? 0) . '/100)';
+            }
+        }
+        jsonError(
+            'AI สร้าง Script แล้วแต่ยังไม่ผ่าน SEO/AEO Quality Gate หลังแก้ไขอัตโนมัติครบ ' .
+            (SCRIPT_GATE_MAX_ATTEMPTS - 1) . ' รอบ: ' . implode(', ', $failedPlatforms) .
+            ' — ระบบยังไม่บันทึก Script เวอร์ชันที่ไม่ผ่าน',
+            422
+        );
+    }
+
+    // Persist the Quality result together with the exact script snapshot it evaluates.
+    // This makes Content Dialog reloads independent from the original AI response.
+    $art['script_quality'] = $scriptQuality;
 
     // Final SEO re-check after AEO repairs; both gates must pass.
     $seoEval = seo_evaluate([

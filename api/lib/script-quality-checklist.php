@@ -8,6 +8,9 @@
 
 const SCRIPT_GATE_PASS_SCORE = 80;
 const SCRIPT_GATE_WARN_SCORE = 70;
+// Generation may automatically repair a Script until it passes both SEO/AEO gates.
+// The initial generation is evaluated first, followed by up to 3 targeted repairs.
+const SCRIPT_GATE_MAX_ATTEMPTS = 4;
 
 const SCRIPT_PLATFORMS = [
     'facebook', 'instagram', 'tiktok', 'youtube', 'lineoa', 'linkedin', 'twitter',

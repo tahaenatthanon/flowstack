@@ -32,10 +32,10 @@ const ALL_PLATFORM_SCRIPTS: Record<string, string> = {
   twitter: 'X script',
 };
 
-function makeItem(overrides: Partial<PlanItem> & { scripts?: Record<string, string> }): PlanItem {
-  const { scripts, ...rest } = overrides;
+function makeItem(overrides: Partial<PlanItem> & { scripts?: Record<string, string>; scriptQuality?: Record<string, any> }): PlanItem {
+  const { scripts, scriptQuality, ...rest } = overrides;
   const article_content = scripts
-    ? JSON.stringify({ title: 'หัวข้อทดสอบ', scripts })
+    ? JSON.stringify({ title: 'หัวข้อทดสอบ', scripts, ...(scriptQuality ? { script_quality: { platforms: scriptQuality } } : {}) })
     : '';
   return {
     id: 'item-1',
@@ -148,5 +148,35 @@ describe('ContentCardDialog — Scripts จำกัดตาม Platform ที
     await absent('YouTube');
     await absent('LinkedIn');
     await absent('Twitter / X');
+  });
+
+  it('TC9: Content เดิมมี persisted Script Quality → โหลดและแสดงผลได้หลังเปิด Dialog ใหม่', async () => {
+    const quality = {
+      facebook: {
+        seo: { score: 85, gate: 'passed', rules: [{ key: 'topic_relevance', status: 'passed', tier: 'required', weight: 20, score: 20, message: 'ตรงกับหัวข้อ' }] },
+        aeo: { score: 82, gate: 'passed', rules: [{ key: 'direct_value', status: 'passed', tier: 'required', weight: 20, score: 20, message: 'ตอบประเด็นหลัก' }] },
+        passed: true,
+      },
+      instagram: {
+        seo: { score: 65, gate: 'failed', rules: [{ key: 'topic_relevance', status: 'failed', tier: 'required', weight: 20, score: 0, message: 'ไม่ตรงกับหัวข้อ' }] },
+        aeo: { score: 75, gate: 'needs_improvement', rules: [{ key: 'direct_value', status: 'needs_improvement', tier: 'required', weight: 20, score: 10, message: 'ควรตอบเร็วขึ้น' }] },
+        passed: false,
+      },
+    };
+    renderDialog(makeItem({ platform: 'facebook', platforms: ['facebook'], scripts: { ...ALL_PLATFORM_SCRIPTS }, scriptQuality: quality }));
+    await present('ตรวจ SEO');
+    await present('ตรวจ AEO');
+    await present('85');
+    await present('82');
+    await present('ผ่าน');
+    await absent('65');
+    await absent('Instagram');
+  });
+
+  it('TC10: มี Script ปัจจุบันแต่ไม่มี Quality → แสดง รอตรวจ และไม่สร้าง Score ปลอม', async () => {
+    renderDialog(makeItem({ platform: 'facebook', platforms: ['facebook'], scripts: { facebook: 'FB script' } }));
+    await present('รอตรวจ');
+    await present('—');
+    await absent('0/100');
   });
 });

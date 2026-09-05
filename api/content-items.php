@@ -140,6 +140,27 @@ if ($method === 'PUT') {
     ];
     $changesContent = count(array_intersect($approvalSensitiveFields, array_keys($body))) > 0;
     $requestedStatus = $body['status'] ?? null;
+
+    // Script Quality is version-specific. Any change to content fields that can
+    // affect the script's Source of Truth invalidates the persisted quality result.
+    // Do this even when the caller does not send a new article_content payload,
+    // e.g. changing the topic/platform must not keep a score from the old version.
+    if ($changesContent) {
+        $currentArticleStmt = $db->prepare('SELECT article_content FROM content_items WHERE id=? AND tenant_id=?');
+        $currentArticleStmt->execute([$id, $tenantId]);
+        $currentArticleContent = (string)($currentArticleStmt->fetchColumn() ?: '');
+        $qualityArticleContent = array_key_exists('article_content', $body)
+            ? (string)($body['article_content'] ?? '')
+            : $currentArticleContent;
+        if ($qualityArticleContent !== '') {
+            $qualityArticle = json_decode($qualityArticleContent, true);
+            if (is_array($qualityArticle) && array_key_exists('script_quality', $qualityArticle)) {
+                unset($qualityArticle['script_quality']);
+                $body['article_content'] = json_encode($qualityArticle, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            }
+        }
+    }
+
     if ($changesContent && !in_array($requestedStatus, ['approved', 'published'], true)) {
         $approvalState = $db->prepare('SELECT approved_at FROM content_items WHERE id=? AND tenant_id=?');
         $approvalState->execute([$id, $tenantId]);

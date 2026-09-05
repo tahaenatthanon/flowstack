@@ -12,7 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import type { PlanItem } from '@/components/content/types';
 import { PLATFORM_MAP } from '@/components/content/types';
 import { getThaiDayName, formatThaiDate } from './calendarUtils';
-import { CalendarDays, Save, Trash2, Sparkles, ImagePlus, RefreshCw, Loader2, Image as ImageIcon, FileText, Hash, Lightbulb, Clapperboard, MessageSquare, Share2, BookOpen, ChevronDown, Video, Play, Send } from 'lucide-react';
+import { CalendarDays, Save, Trash2, Sparkles, ImagePlus, RefreshCw, Loader2, Image as ImageIcon, FileText, Hash, Lightbulb, Clapperboard, MessageSquare, Share2, BookOpen, ChevronDown, Video, Play, Send, CheckCircle2, AlertTriangle, XCircle, MinusCircle, Clock } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { apiFetch } from '@/lib/api';
@@ -33,6 +33,134 @@ function CollapsibleSection({ title, defaultOpen = false, children }: { title: s
         {title}
       </button>
       {open && children}
+    </div>
+  );
+}
+
+function scriptQualityScoreColor(score: number) {
+  if (score >= 80) return 'text-green-600';
+  if (score >= 70) return 'text-amber-500';
+  return 'text-destructive';
+}
+
+function scriptQualityStatusMeta(status: string) {
+  switch (status) {
+    case 'passed':
+      return { label: 'ผ่าน', icon: CheckCircle2, className: 'text-green-600' };
+    case 'needs_improvement':
+      return { label: 'ควรปรับปรุง', icon: AlertTriangle, className: 'text-amber-500' };
+    case 'failed':
+      return { label: 'ไม่ผ่าน', icon: XCircle, className: 'text-destructive' };
+    case 'n/a':
+    case 'skip':
+      return { label: 'ไม่เกี่ยวข้อง', icon: MinusCircle, className: 'text-muted-foreground/50' };
+    default:
+      return { label: 'รอตรวจ', icon: Clock, className: 'text-muted-foreground' };
+  }
+}
+
+function ScriptQualityChecklist({ label, result }: { label: 'SEO' | 'AEO'; result: any }) {
+  const rules = Array.isArray(result?.rules) ? result.rules : [];
+  const fails = rules.filter((r: any) => (r.status ?? r.level) === 'failed' || r.level === 'fail');
+  const gate = result?.gate ?? 'pending';
+  const gateMeta = scriptQualityStatusMeta(gate);
+  const GateIcon = gateMeta.icon;
+
+  return (
+    <div className="rounded-md border bg-background/60 p-3 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">ตรวจ {label}</span>
+          {Number.isFinite(Number(result?.score)) && result?.score !== null && result?.score !== undefined ? (
+            <span className={cn('text-sm font-bold leading-none', scriptQualityScoreColor(Number(result.score)))}>
+              {result.score}<span className="text-[10px] font-normal text-muted-foreground">/100</span>
+            </span>
+          ) : (
+            <span className="text-sm font-bold leading-none text-muted-foreground">—<span className="text-[10px] font-normal">/100</span></span>
+          )}
+          <span className={cn('text-[11px] font-medium leading-none', gateMeta.className)}>{gateMeta.label}</span>
+        </div>
+      </div>
+
+      <div className={cn(
+        'flex items-start gap-1.5 rounded px-2 py-1.5 text-[11px] leading-relaxed',
+        gate === 'failed'
+          ? 'bg-destructive/10 text-destructive'
+          : gate === 'needs_improvement'
+            ? 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+            : gate === 'pending'
+              ? 'bg-muted text-muted-foreground'
+              : 'bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300',
+      )}>
+        <GateIcon className="h-3.5 w-3.5 mt-px shrink-0" />
+        <span>
+          {gate === 'failed'
+            ? `${label} ยังไม่ผ่าน — มีกฎไม่ผ่าน ${fails.length} ข้อ`
+            : gate === 'needs_improvement'
+              ? `${label} ควรปรับปรุงก่อนเผยแพร่`
+              : gate === 'pending'
+                ? `${label} รอตรวจ — ยังไม่มีผล Quality ของ Script ปัจจุบัน`
+                : `${label} ผ่านเกณฑ์บังคับทั้งหมด`}
+        </span>
+      </div>
+
+      {rules.length > 0 && (
+        <ul className="space-y-1">
+          {rules.map((rule: any) => {
+            const status = rule.status ?? rule.level ?? 'pending';
+            const meta = scriptQualityStatusMeta(status);
+            const Icon = meta.icon;
+            const showScore = ['passed', 'needs_improvement', 'failed'].includes(status) && Number(rule.weight ?? 0) > 0;
+            return (
+              <li key={rule.key} className="flex items-start gap-1.5 text-[11px] leading-relaxed">
+                <Icon className={cn('h-3.5 w-3.5 mt-px shrink-0', meta.className)} />
+                <span className={cn((status === 'skip' || status === 'pending' || status === 'n/a') && 'text-muted-foreground/70')}>
+                  {rule.message}
+                  {rule.tier && rule.tier !== 'required' && (
+                    <span className="ml-1 text-[9px] uppercase text-muted-foreground/60">({rule.tier === 'optional' ? 'แนะนำ' : 'ข้อมูล'})</span>
+                  )}
+                  {showScore && (
+                    <span className="ml-1 text-muted-foreground/70">({rule.score}/{rule.weight})</span>
+                  )}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      <p className="text-[10px] text-muted-foreground/80 leading-relaxed">
+        * ผลตรวจ Script {label} จาก Quality Gate ล่าสุด
+      </p>
+    </div>
+  );
+}
+
+function ScriptQualityPlatform({ platform, quality }: { platform: string; quality: any }) {
+  return (
+    <div className="rounded-lg border bg-muted/10 p-3 space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <PlatformIcon platform={platform} size={14} />
+          <span className="text-sm font-semibold">{PLATFORM_MAP[platform]?.label ?? platform}</span>
+        </div>
+        {(() => {
+          const status = quality?.passed === true
+            ? 'passed'
+            : quality?.seo?.gate || quality?.aeo?.gate || 'pending';
+          const meta = scriptQualityStatusMeta(status);
+          const Icon = meta.icon;
+          return (
+            <span className={cn('inline-flex items-center gap-1 text-[10px] font-medium', meta.className)}>
+              <Icon className="h-3 w-3" />{meta.label}
+            </span>
+          );
+        })()}
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <ScriptQualityChecklist label="SEO" result={quality?.seo} />
+        <ScriptQualityChecklist label="AEO" result={quality?.aeo} />
+      </div>
     </div>
   );
 }
@@ -414,6 +542,25 @@ export function ContentCardDialog({
       Object.entries(rawScripts).filter(([key]) => platforms.includes(key.toLowerCase())),
     );
   }, [articleData?.scripts, platforms]);
+
+  // Persisted by the backend together with the exact script JSON. This is the
+  // Source of Truth for the current Content Item; never derive a score/gate in UI.
+  const persistedScriptQuality = useMemo(() => {
+    const raw = articleData?.script_quality;
+    if (!raw || typeof raw !== 'object') return {};
+    const rawPlatforms = (raw as any).platforms;
+    if (!rawPlatforms || typeof rawPlatforms !== 'object') return {};
+    return Object.fromEntries(
+      Object.entries(rawPlatforms).filter(([key]) => platforms.includes(key.toLowerCase())),
+    );
+  }, [articleData?.script_quality, platforms]);
+
+  useEffect(() => {
+    // Reset first so opening another Content Item can never show the previous
+    // item's quality. Then hydrate from the persisted backend result for the
+    // current script; generation may update it immediately below as well.
+    setScriptQuality(persistedScriptQuality);
+  }, [persistedScriptQuality]);
   const scriptSections = articleData?.script_sections;
   const visuals: string[] = articleData?.visuals ?? [];
   const hashtags: string[] = articleData?.hashtags ?? [];
@@ -532,42 +679,17 @@ export function ContentCardDialog({
                   })}
                 </TabsList>
                 {Object.entries(scripts).map(([key, text]) => (
-                  <TabsContent key={key} value={key} className="mt-3">
+                  <TabsContent key={key} value={key} className="mt-3 space-y-3">
                     <div className="bg-muted/30 rounded-lg p-4 max-h-64 overflow-y-auto">
                       <p className="text-sm leading-relaxed whitespace-pre-wrap">{text || `— ไม่มี script สำหรับ ${PLATFORM_MAP[key]?.label ?? key} —`}</p>
                     </div>
+                    <ScriptQualityPlatform
+                      platform={key}
+                      quality={scriptQuality[key] ?? null}
+                    />
                   </TabsContent>
                 ))}
               </Tabs>
-            </div>
-          )}
-
-          {/* ===== Script SEO/AEO Quality ===== */}
-          {Object.keys(scriptQuality).length > 0 && (
-            <div className="px-6 py-5 border-b space-y-3">
-              <div className="flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-primary" />
-                <h3 className="text-sm font-semibold">Script SEO / AEO Quality Gate</h3>
-              </div>
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {Object.entries(scriptQuality).map(([key, quality]) => {
-                  const passed = !!quality?.passed;
-                  return (
-                    <div key={key} className="rounded-lg border p-3 bg-muted/20">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-semibold">{PLATFORM_MAP[key]?.label ?? key}</span>
-                        <Badge variant={passed ? 'default' : 'destructive'} className="text-[10px]">
-                          {passed ? 'ผ่าน' : 'ไม่ผ่าน'}
-                        </Badge>
-                      </div>
-                      <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
-                        <span>SEO: <b className="text-foreground">{quality?.seo?.score ?? 0}/100</b></span>
-                        <span>AEO: <b className="text-foreground">{quality?.aeo?.score ?? 0}/100</b></span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
             </div>
           )}
 
@@ -649,10 +771,7 @@ export function ContentCardDialog({
                       </div>
                     ) : (
                       <div className="rounded-md border divide-y">
-                        {(existingItem
-                          ? platforms.map(key => [key, PLATFORM_MAP[key] ?? { label: key, color: 'bg-muted text-muted-foreground' }] as const)
-                          : Object.entries(PLATFORM_MAP)
-                        ).map(([key, val]) => (
+                        {Object.entries(PLATFORM_MAP).map(([key, val]) => (
                           <label key={key} className={`flex items-center gap-2.5 px-3 py-1.5 cursor-pointer hover:bg-muted/50 transition-colors ${platforms.includes(key) ? 'bg-primary/5' : ''}`}>
                             <Checkbox
                               checked={platforms.includes(key)}
