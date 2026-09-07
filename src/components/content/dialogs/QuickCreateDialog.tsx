@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import { useContentSkills, useBrandContexts, useContentTriggers } from '@/hooks/useContent';
-import { useResearchRun, RESEARCH_STEP_LABELS } from '@/hooks/useResearchRun';
+import { useResearchRun, RESEARCH_STEP_LABELS, researchSeedTopic } from '@/hooks/useResearchRun';
 import type { ContentPlan } from '@/components/content/types';
 import { getTriggerDisplayLabel, PLATFORM_MAP } from '@/components/content/types';
 import { Input } from '@/components/ui/input';
@@ -84,7 +84,8 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
       if (item) {
         // Research is mandatory for every AI content generation.
         // The research runner reuses valid cached data and fetches a fresh job when needed.
-        const art = await runResearch({ topic: topic.trim(), itemId: item.id });
+        // Seed = Original User Topic ที่เพิ่งส่งไปเป็น source_topic (ไม่ใช่ title ที่ AI ตั้งให้)
+        const art = await runResearch({ topic: researchSeedTopic(item.source_topic, topic), itemId: item.id });
         setDoneTitle(art?.article?.title ?? item.topic);
         if (art?.generation_status === 'failed') {
           toast({

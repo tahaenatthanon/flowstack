@@ -224,7 +224,44 @@ if ($action === 'fetch') {
         if ($db->inTransaction()) $db->rollBack();
         $message = mb_substr($e->getMessage(), 0, 500);
         $db->prepare('UPDATE content_research_jobs SET status=\'failed\', error_msg=?, updated_at=NOW() WHERE id=? AND tenant_id=?')->execute([$message, $jobId, $tenantId]);
-        jsonError('ดึงข้อมูล Research ไม่สำเร็จ: ' . $message, 502);
+
+        // Mandatory Research fallback: if a fresh fetch fails, reuse the newest
+        // matching Research job that is still usable under the same cache semantics.
+        // This is especially important for force_refresh and cache_hours=0 runs,
+        // where the normal cache lookup above intentionally does not reuse it first.
+        $fallbackAgeSeconds = research_max_age_seconds($settings['cache_hours']);
+        $fallbackStmt = $db->prepare("SELECT * FROM content_research_jobs
+            WHERE tenant_id=?
+              AND provider=?
+              AND location_code=?
+              AND language_code=?
+              AND seed_keyword=?
+              AND status='done'
+              AND fetched_at >= DATE_SUB(NOW(), INTERVAL {$fallbackAgeSeconds} SECOND)
+              AND id != ?
+            ORDER BY fetched_at DESC
+            LIMIT 1");
+        $fallbackStmt->execute([
+            $tenantId,
+            $provider,
+            $settings['location_code'],
+            $settings['language_code'],
+            $seed,
+            $jobId,
+        ]);
+        $fallbackJob = $fallbackStmt->fetch(PDO::FETCH_ASSOC);
+        if ($fallbackJob) {
+            jsonResponse(array_merge(
+                research_job_response($db, $fallbackJob, $tenantId, false),
+                [
+                    'fallback' => true,
+                    'fallback_reason' => 'fresh_fetch_failed',
+                    'fetch_error' => $message,
+                ]
+            ));
+        }
+
+        jsonError('ดึงข้อมูล Research ไม่สำเร็จ: ' . $message . ' และไม่พบ Research เดิมที่ยังใช้งานได้', 502);
     }
 }
 

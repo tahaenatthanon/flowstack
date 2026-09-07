@@ -11,7 +11,7 @@ import { apiFetch } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import type { ContentItem, PlanItem } from '@/components/content/types';
 import { PLATFORM_MAP } from '@/components/content/types';
-import { useResearchRun, RESEARCH_STEP_LABELS } from '@/hooks/useResearchRun';
+import { useResearchRun, RESEARCH_STEP_LABELS, researchSeedTopic } from '@/hooks/useResearchRun';
 import ContentArticleView from './ContentArticleView';
 import ContentVideoView from './ContentVideoView';
 import { ContentCardDialog } from '@/components/content/ContentCardDialog';
@@ -140,6 +140,8 @@ export default function ContentDetailView({
     id: item.id || '',
     plan_id: item.plan_id || '',
     topic: item.title || '',
+    // Original User Topic — Research seed ต้องมาจากค่านี้ ไม่ใช่ title ที่แก้ไขได้
+    source_topic: item.source_topic ?? null,
     caption: item.caption || '',
     platform: item.platform || '',
     platforms: item.platforms ?? null,
@@ -198,14 +200,15 @@ export default function ContentDetailView({
   };
 
   const handleEditAI = async (data: { topic: string; platform: string; scheduled_date: string }) => {
-    const topic = (data.topic || item.title || '').trim();
-    if (!topic) {
+    // Research seed = Original User Topic เสมอ — title ที่ AI/ผู้ใช้แก้ไปแล้วใช้เป็น seed ไม่ได้
+    const seedTopic = researchSeedTopic(item.source_topic, data.topic || item.title);
+    if (!seedTopic) {
       toast({ title: 'สร้างบทความไม่สำเร็จ', description: 'ต้องมีหัวข้อก่อนเริ่ม Research', variant: 'destructive' });
       return;
     }
     toast({ title: 'AI กำลังค้นข้อมูลและเขียนบทความ...', description: 'Research → วิเคราะห์ → เขียนบทความ' });
     try {
-      const result = await runResearch({ topic, itemId: item.id });
+      const result = await runResearch({ topic: seedTopic, itemId: item.id });
       qc.invalidateQueries({ queryKey: ['content', 'items'] });
       qc.invalidateQueries({ queryKey: ['content', 'plans'] });
       toast({
@@ -219,15 +222,16 @@ export default function ContentDetailView({
   };
 
   const handleGenerateArticle = async () => {
-    const topic = (item.title || '').trim();
-    if (!topic) {
+    // Research seed = Original User Topic เสมอ — title ที่ AI/ผู้ใช้แก้ไปแล้วใช้เป็น seed ไม่ได้
+    const seedTopic = researchSeedTopic(item.source_topic, item.title);
+    if (!seedTopic) {
       toast({ title: 'สร้างเนื้อหาไม่สำเร็จ', description: 'ต้องมีหัวข้อก่อนเริ่ม Research', variant: 'destructive' });
       return;
     }
     setGeneratingArticle(true);
     toast({ title: 'AI กำลังค้นข้อมูลและเขียนเนื้อหา...', description: 'Research → วิเคราะห์ → เขียนบทความ' });
     try {
-      const result = await runResearch({ topic, itemId: item.id });
+      const result = await runResearch({ topic: seedTopic, itemId: item.id });
       qc.invalidateQueries({ queryKey: ['content', 'items'] });
       qc.invalidateQueries({ queryKey: ['content', 'plans'] });
       toast({

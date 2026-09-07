@@ -24,6 +24,17 @@ export interface ResearchRunParams {
   kbArticleId?: string | null;
 }
 
+/**
+ * Research seed ต้องเป็น Original User Topic (`source_topic`) เสมอ
+ * เพราะ title/topic แก้ไขภายหลังได้และอาจถูก AI rewrite
+ * ไม่มี `source_topic` (ข้อมูลเก่า) จึง fallback ไปใช้ Topic ปัจจุบัน
+ *
+ * ทุก Generation Entry Point ต้องเรียกฟังก์ชันนี้ ห้าม resolve seed เองซ้ำ
+ */
+export function researchSeedTopic(sourceTopic?: string | null, currentTopic?: string | null): string {
+  return (sourceTopic ?? '').trim() || (currentTopic ?? '').trim();
+}
+
 export function useResearchRun() {
   const [step, setStep] = useState<ResearchStep>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -38,6 +49,8 @@ export function useResearchRun() {
     try {
       // The fetch endpoint is responsible for cache reuse: a valid Research Data
       // within the configured TTL is returned instead of fetching again.
+      // ถ้า Fetch ใหม่ล้มเหลว endpoint จะคืน Research เดิมที่ยังใช้ได้เป็น Fallback
+      // (`fallback: true`) และจะ error 502 เมื่อไม่มี Fallback — flow นี้จึงหยุดเอง
       setStep('fetching');
       const job: any = await apiFetch('/content-research.php?action=fetch', {
         method: 'POST',

@@ -19,7 +19,7 @@ import { apiFetch } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
 import { useContentGlobalSettings } from '@/hooks/useContent';
-import { useResearchRun, RESEARCH_STEP_LABELS } from '@/hooks/useResearchRun';
+import { useResearchRun, RESEARCH_STEP_LABELS, researchSeedTopic } from '@/hooks/useResearchRun';
 import ArticleEditor from '@/components/content/ArticleEditor';
 import ImageViewer from '@/components/content/ImageViewer';
 import type { SeoFields } from '@/components/content/types';
@@ -427,7 +427,7 @@ export function ContentCardDialog({
     toast({ title: 'AI กำลังค้นข้อมูลและเขียนเนื้อหา...', description: 'Research → วิเคราะห์ → เขียนบทความ' });
     try {
       // Research must always use the immutable Original User Topic, never the editable title/topic.
-      const researchTopic = existingItem.source_topic?.trim() || topic.trim();
+      const researchTopic = researchSeedTopic(existingItem.source_topic, topic);
       const res: any = await runResearch({
         topic: researchTopic,
         itemId: existingItem.id,

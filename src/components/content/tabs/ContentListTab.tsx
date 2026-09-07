@@ -7,7 +7,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
 import { useContentItems } from '@/hooks/useContent';
 import { apiFetch } from '@/lib/api';
-import { useResearchRun } from '@/hooks/useResearchRun';
+import { useResearchRun, researchSeedTopic } from '@/hooks/useResearchRun';
 import { cn } from '@/lib/utils';
 import type { ContentItem, PlanItem } from '@/components/content/types';
 import { TYPE_MAP, PLATFORM_MAP, STATUS_MAP } from '@/components/content/types';
@@ -42,6 +42,8 @@ export default function ContentListTab() {
     id: item.id,
     plan_id: item.plan_id || '',
     topic: item.title || '',
+    // Original User Topic — Research seed ต้องมาจากค่านี้ ไม่ใช่ title ที่แก้ไขได้
+    source_topic: item.source_topic ?? null,
     caption: item.caption || '',
     platform: item.platform || '',
     platforms: item.platforms ?? null,
@@ -112,14 +114,15 @@ export default function ContentListTab() {
 
   const handleRequestAI = async (data: { topic: string; platform: string; scheduled_date: string }) => {
     if (!editItemLatest) return;
-    const topic = (data.topic || editItemLatest.title || '').trim();
-    if (!topic) {
+    // Research seed = Original User Topic เสมอ — title ที่ AI/ผู้ใช้แก้ไปแล้วใช้เป็น seed ไม่ได้
+    const seedTopic = researchSeedTopic(editItemLatest.source_topic, data.topic || editItemLatest.title);
+    if (!seedTopic) {
       toast({ title: 'สร้างบทความไม่สำเร็จ', description: 'ต้องมีหัวข้อก่อนเริ่ม Research', variant: 'destructive' });
       return;
     }
     toast({ title: 'AI กำลังค้นข้อมูลและเขียนบทความ...', description: 'Research → วิเคราะห์ → เขียนบทความ' });
     try {
-      const result = await runResearch({ topic, itemId: editItemLatest.id });
+      const result = await runResearch({ topic: seedTopic, itemId: editItemLatest.id });
       qc.invalidateQueries({ queryKey: ['content', 'items'] });
       qc.invalidateQueries({ queryKey: ['content', 'plans'] });
       toast({
