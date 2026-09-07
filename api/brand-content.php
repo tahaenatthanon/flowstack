@@ -2075,6 +2075,9 @@ if ($action === 'generate-article') {
         $expectedProvider = trim((string)($researchSettings['research_provider'] ?? ''));
         $expectedLocation = (int)($researchSettings['research_location_code'] ?? 2764);
         $expectedLanguage = trim((string)($researchSettings['research_language_code'] ?? 'th'));
+        if ((string)($researchJob['content_item_id'] ?? '') !== (string)$itemId) {
+            jsonError('Research ไม่ได้ผูกกับ Content นี้', 422);
+        }
         if ($expectedSeed !== '' && strcasecmp(trim((string)$researchJob['seed_keyword']), $expectedSeed) !== 0) {
             jsonError('Research ไม่ตรงกับ Topic ของ Content นี้', 422);
         }
@@ -2825,11 +2828,6 @@ if ($action === 'generate-article') {
 
     // Also update content_plan_items for backward compat
     $db->prepare("UPDATE content_plan_items SET article_content=? WHERE id=(SELECT plan_item_id FROM content_items WHERE id=?)")->execute([json_encode($art), $itemId]);
-
-    if ($researchJobId !== '') {
-        $db->prepare('UPDATE content_research_jobs SET content_item_id=?, updated_at=NOW() WHERE id=? AND tenant_id=? AND status=\'done\'')
-            ->execute([$itemId, $researchJobId, $tenantId]);
-    }
 
     jsonResponse([
         'article' => $art,

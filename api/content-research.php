@@ -181,18 +181,17 @@ if ($action === 'fetch') {
     $provider = $settings['provider'];
     if ($provider !== 'ai' && $provider !== 'dataforseo') jsonError('ยังไม่ได้ตั้งค่า provider', 400);
     if ($provider === 'dataforseo' && ($settings['login'] === '' || $settings['password'] === '')) jsonError('กรุณาตั้งค่า DataForSEO login และ password', 400);
-    $contentItemId = trim((string)($body['content_item_id'] ?? '')) ?: null;
-    if ($contentItemId !== null) {
-        $itemStmt = $db->prepare('SELECT id FROM content_items WHERE id=? AND tenant_id=?');
-        $itemStmt->execute([$contentItemId, $tenantId]);
-        if (!$itemStmt->fetchColumn()) jsonError('ไม่พบ content item ใน tenant นี้', 404);
-    }
+    $contentItemId = trim((string)($body['content_item_id'] ?? ''));
+    if ($contentItemId === '') jsonError('ต้องระบุ content_item_id เพื่อผูก Research กับ Content', 422);
+    $itemStmt = $db->prepare('SELECT id FROM content_items WHERE id=? AND tenant_id=?');
+    $itemStmt->execute([$contentItemId, $tenantId]);
+    if (!$itemStmt->fetchColumn()) jsonError('ไม่พบ content item ใน tenant นี้', 404);
     $forceRefresh = !empty($body['force_refresh']);
     if (!$forceRefresh && research_cache_enabled($settings['cache_hours'])) {
         $hours = $settings['cache_hours'];
-        $cacheSql = "SELECT * FROM content_research_jobs WHERE tenant_id=? AND provider=? AND location_code=? AND language_code=? AND seed_keyword=? AND status='done' AND fetched_at >= DATE_SUB(NOW(), INTERVAL {$hours} HOUR) ORDER BY fetched_at DESC LIMIT 1";
+        $cacheSql = "SELECT * FROM content_research_jobs WHERE tenant_id=? AND content_item_id=? AND provider=? AND location_code=? AND language_code=? AND seed_keyword=? AND status='done' AND fetched_at >= DATE_SUB(NOW(), INTERVAL {$hours} HOUR) ORDER BY fetched_at DESC LIMIT 1";
         $cacheStmt = $db->prepare($cacheSql);
-        $cacheStmt->execute([$tenantId, $settings['provider'], $settings['location_code'], $settings['language_code'], $seed]);
+        $cacheStmt->execute([$tenantId, $contentItemId, $settings['provider'], $settings['location_code'], $settings['language_code'], $seed]);
         $cachedJob = $cacheStmt->fetch(PDO::FETCH_ASSOC);
         if ($cachedJob) jsonResponse(research_job_response($db, $cachedJob, $tenantId, true));
     }
@@ -232,6 +231,7 @@ if ($action === 'fetch') {
         $fallbackAgeSeconds = research_max_age_seconds($settings['cache_hours']);
         $fallbackStmt = $db->prepare("SELECT * FROM content_research_jobs
             WHERE tenant_id=?
+              AND content_item_id=?
               AND provider=?
               AND location_code=?
               AND language_code=?
@@ -243,6 +243,7 @@ if ($action === 'fetch') {
             LIMIT 1");
         $fallbackStmt->execute([
             $tenantId,
+            $contentItemId,
             $provider,
             $settings['location_code'],
             $settings['language_code'],
