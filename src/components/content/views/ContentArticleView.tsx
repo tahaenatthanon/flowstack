@@ -82,6 +82,7 @@ export default function ContentArticleView({
 }) {
   // Approvers review only — publishing stays with the content authors
   const isApproval = context === 'approval';
+  const isApproved = item.status === 'approved' && Boolean(item.approved_at);
   const [sendDialogOpen, setSendDialogOpen] = useState(false);
   const [publishDialogOpen, setPublishDialogOpen] = useState(false);
   const [publishMode, setPublishMode] = useState<'schedule' | 'send_now'>('send_now');
@@ -211,7 +212,7 @@ export default function ContentArticleView({
       {/* Action bar */}
       <div className="flex items-center gap-2 flex-wrap border-t pt-4">
         <CopyButton text={isSocial ? (displayCaption || '') : (art.html || '')} label={isSocial ? 'คัดลอกแคปชั่น' : 'คัดลอกบทความ'} />
-        {!isApproval && (
+        {!isApproval && isApproved && (
           <>
             <Button size="sm" variant="default" className="gap-1.5" onClick={() => { setPublishMode('send_now'); setPublishDialogOpen(true); }}>
               <Share2 className="h-3.5 w-3.5" />
