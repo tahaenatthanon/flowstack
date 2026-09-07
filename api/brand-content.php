@@ -922,7 +922,7 @@ if ($action === 'generate-plan' && $method === 'POST') {
     $stmt = $db->prepare('SELECT * FROM content_plans WHERE id=? AND tenant_id=?');
     $stmt->execute([$planId, $tenantId]);
     $plan = $stmt->fetch();
-    $stmt2 = $db->prepare("SELECT ci.id AS id, ci.plan_id, ci.title AS topic, ci.platform, ci.scheduled_date, ci.caption, ci.image_brief, ci.generated_image_url, COALESCE(ci.image_gen_status, 'none') AS image_gen_status, ci.article_content, ci.id AS content_item_id, ci.type AS content_type, ci.seo_title, ci.slug, ci.meta_description, ci.meta_keywords, ci.structured_data, ci.og_image, COALESCE(cpi.day_label, '') AS day_label, COALESCE(cpi.day_order, 0) AS day_order FROM content_items ci LEFT JOIN content_plan_items cpi ON cpi.id = ci.plan_item_id WHERE ci.plan_id = ? ORDER BY COALESCE(cpi.day_order, 0), ci.scheduled_date");
+    $stmt2 = $db->prepare("SELECT ci.id AS id, ci.plan_id, ci.title AS topic, ci.source_topic, ci.platform, ci.platforms, ci.scheduled_date, ci.caption, ci.image_brief, ci.generated_image_url, COALESCE(ci.image_gen_status, 'none') AS image_gen_status, ci.article_content, ci.id AS content_item_id, ci.type AS content_type, ci.seo_title, ci.slug, ci.meta_description, ci.meta_keywords, ci.structured_data, ci.og_image, COALESCE(cpi.day_label, '') AS day_label, COALESCE(cpi.day_order, 0) AS day_order FROM content_items ci LEFT JOIN content_plan_items cpi ON cpi.id = ci.plan_item_id WHERE ci.plan_id = ? ORDER BY COALESCE(cpi.day_order, 0), ci.scheduled_date");
     $stmt2->execute([$planId]);
     $plan['items'] = $stmt2->fetchAll();
     jsonResponse($plan, 201);

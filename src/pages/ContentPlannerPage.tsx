@@ -165,9 +165,16 @@ export default function ContentPlannerPage() {
       toast({ title: 'กรุณาบันทึกก่อนใช้ AI เขียน', variant: 'destructive' });
       return;
     }
+    // Research must always use the immutable Original User Topic.
+    // The editable card topic may have been rewritten by AI or changed by the user.
+    const seedTopic = (item.source_topic ?? '').trim() || data.topic.trim();
+    if (!seedTopic) {
+      toast({ title: 'สร้างบทความไม่สำเร็จ', description: 'ต้องมีหัวข้อก่อนเริ่ม Research', variant: 'destructive' });
+      return;
+    }
     toast({ title: 'AI กำลังเขียนบทความ...', description: 'โปรดรอสักครู่ (อาจใช้เวลา 30-60 วินาที)' });
     try {
-      await runResearch({ topic: data.topic, itemId: item.id });
+      await runResearch({ topic: seedTopic, itemId: item.id });
       qc.invalidateQueries({ queryKey: ['content', 'plans'] });
       qc.invalidateQueries({ queryKey: ['content', 'items'] });
       toast({ title: 'AI เขียนบทความสำเร็จ!', description: 'ไปที่หน้า "บทความทั้งหมด" เพื่อดูผลลัพธ์' });
@@ -229,7 +236,8 @@ export default function ContentPlannerPage() {
         for (const item of items) {
           done++;
           setGenerateProgress(`${done}/${total}`);
-          const itemTopic = (item.topic || '').trim();
+          // Research seed must be the immutable Original User Topic, never an AI-rewritten item.topic.
+          const itemTopic = (item.source_topic ?? '').trim() || (item.topic || '').trim();
           if (!itemTopic) {
             toast({ title: `ข้าม "${item.topic}" — ไม่มีหัวข้อสำหรับ Research`, variant: 'destructive' });
             continue;

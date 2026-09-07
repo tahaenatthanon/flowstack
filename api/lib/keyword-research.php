@@ -352,12 +352,42 @@ if (!function_exists('research_parse_ai_json')) {
     }
 }
 
+if (!function_exists('research_extract_ai_citations')) {
+    /**
+     * OpenRouter/Perplexity citations อยู่ที่
+     * choices[0].message.annotations[].url_citation.url
+     * ต้องมีอย่างน้อย 1 URL ที่เป็น http/https จึงถือว่า FETCH ผ่าน Web Search validation
+     */
+    function research_extract_ai_citations(array $response): array {
+        $annotations = $response['choices'][0]['message']['annotations'] ?? [];
+        if (!is_array($annotations)) return [];
+
+        $citations = [];
+        $seen = [];
+        foreach ($annotations as $annotation) {
+            if (!is_array($annotation)) continue;
+            $citation = $annotation['url_citation'] ?? null;
+            if (!is_array($citation)) continue;
+            $url = trim((string)($citation['url'] ?? ''));
+            if ($url === '' || !preg_match('#^https?://#i', $url) || filter_var($url, FILTER_VALIDATE_URL) === false) continue;
+            $key = strtolower($url);
+            if (isset($seen[$key])) continue;
+            $seen[$key] = true;
+            $citations[] = [
+                'url' => $url,
+                'title' => trim((string)($citation['title'] ?? $annotation['text'] ?? '')),
+            ];
+        }
+        return $citations;
+    }
+}
+
 if (!function_exists('research_normalize_ai')) {
     /**
-     * แปลง structured JSON จาก AI → shape กลาง { serp, keywords, raw }
+     * แปลง structured JSON จาก AI → shape กลาง { serp, keywords, raw, citations }
      * metric ปริมาณ (search_volume/competition/cpc/difficulty) เป็น null เสมอ — AI ไม่ให้ตัวเลข
      */
-    function research_normalize_ai(array $decoded, string $seed): array {
+    function research_normalize_ai(array $decoded, string $seed, array $citations = [], ?array $providerResponse = null): array {
         $organic = [];
         foreach (($decoded['organic'] ?? []) as $i => $item) {
             if (is_string($item)) {
@@ -422,7 +452,10 @@ if (!function_exists('research_normalize_ai')) {
                 'related_searches' => array_values(array_unique($related)),
             ],
             'keywords' => $keywords,
-            'raw' => ['serp' => $decoded],
+            'citations' => array_values($citations),
+            // Preserve the complete provider response for audit/debugging,
+            // including message.annotations[].url_citation.
+            'raw' => ['serp' => $providerResponse ?? $decoded],
         ];
     }
 }
@@ -455,8 +488,15 @@ if (!function_exists('research_fetch_ai')) {
         if (!is_string($content) || trim($content) === '') {
             throw new RuntimeException('Research AI ไม่ได้คืนเนื้อหาการค้นหา');
         }
+        // A HTTP 200 response is not sufficient evidence that Web Search happened.
+        // Perplexity/sonar exposes the source URLs in message.annotations[].url_citation.
+        $citations = research_extract_ai_citations($response);
+        if (!$citations) {
+            throw new RuntimeException('Research AI ไม่พบแหล่งข้อมูลจาก Web Search');
+        }
+
         $decoded = research_parse_ai_json($content);
-        $normalized = research_normalize_ai($decoded, $seed);
+        $normalized = research_normalize_ai($decoded, $seed, $citations, $response);
 
         return [
             'ok' => true,
@@ -464,6 +504,7 @@ if (!function_exists('research_fetch_ai')) {
             'cost_usd' => null,
             'serp' => $normalized['serp'],
             'keywords' => research_merge_keywords($seed, $normalized['keywords'], [], $normalized['serp']),
+            'citations' => $normalized['citations'],
             'raw' => $normalized['raw'],
         ];
     }

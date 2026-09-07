@@ -48,6 +48,7 @@ function research_keyword_rows(PDO $db, string $jobId, string $tenantId): array 
 function research_job_response(PDO $db, array $job, string $tenantId, bool $cached = false): array {
     $rawSerp = json_decode((string)($job['raw_serp'] ?? ''), true);
     $serp = is_array($rawSerp['normalized'] ?? null) ? $rawSerp['normalized'] : ['organic' => [], 'people_also_ask' => [], 'related_searches' => []];
+    $citations = is_array($rawSerp['citations'] ?? null) ? $rawSerp['citations'] : [];
     return [
         'job_id' => $job['id'],
         'status' => $job['status'],
@@ -61,6 +62,7 @@ function research_job_response(PDO $db, array $job, string $tenantId, bool $cach
         'analyzed_at' => $job['analyzed_at'],
         'analysis' => $job['analysis'] ? json_decode((string)$job['analysis'], true) : null,
         'serp' => $serp,
+        'citations' => $citations,
         'keywords' => research_keyword_rows($db, (string)$job['id'], $tenantId),
     ];
 }
@@ -201,7 +203,7 @@ if ($action === 'fetch') {
     try {
         if ($provider === 'ai') {
             $result = research_fetch_ai($db, $seed, $settings['location_code'], $settings['language_code']);
-            $rawSerp = json_encode(['normalized' => $result['serp'], 'provider' => $result['raw']['serp']], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $rawSerp = json_encode(['normalized' => $result['serp'], 'citations' => $result['citations'] ?? [], 'provider' => $result['raw']['serp']], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
             $rawKeywords = json_encode(['provider' => ['ai' => $result['raw']['serp']]], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         } else {
             $result = research_fetch_dataforseo($settings['login'], $settings['password'], $seed, $settings['location_code'], $settings['language_code']);

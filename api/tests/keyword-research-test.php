@@ -58,4 +58,36 @@ try {
 }
 test_assert($failed, 'Provider task error was not surfaced');
 
+// Research AI Web Search citation extraction.
+$withCitations = [
+    'choices' => [[
+        'message' => [
+            'annotations' => [
+                ['url_citation' => ['url' => 'https://example.com/source-a', 'title' => 'Source A']],
+                ['url_citation' => ['url' => 'https://example.com/source-a', 'title' => 'Duplicate']],
+                ['url_citation' => ['url' => 'http://example.org/source-b', 'title' => 'Source B']],
+                ['url_citation' => ['url' => 'javascript:alert(1)', 'title' => 'Invalid scheme']],
+                ['url_citation' => ['url' => 'not-a-url', 'title' => 'Invalid URL']],
+                ['url_citation' => ['url' => '', 'title' => 'Empty URL']],
+            ],
+        ],
+    ]],
+];
+$citations = research_extract_ai_citations($withCitations);
+test_assert(count($citations) === 2, 'Citation extraction must keep only unique valid HTTP/HTTPS URLs');
+test_assert($citations[0]['url'] === 'https://example.com/source-a', 'First citation URL mismatch');
+test_assert($citations[1]['url'] === 'http://example.org/source-b', 'Second citation URL mismatch');
+test_assert($citations[0]['title'] === 'Source A', 'Citation title was not preserved');
+
+$missingCitations = [
+    'choices' => [[
+        'message' => [
+            'content' => '{"organic":[],"people_also_ask":[],"related_searches":[],"keywords":[]}',
+        ],
+    ]],
+];
+test_assert(research_extract_ai_citations($missingCitations) === [], 'Missing annotations must produce zero citations');
+
+test_assert(research_extract_ai_citations(['choices' => []]) === [], 'Missing choices must produce zero citations');
+
 echo "keyword-research tests passed\n";

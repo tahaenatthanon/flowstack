@@ -20,16 +20,21 @@
 - **AND** หากไม่มี Research Data ที่ใช้งานได้ ระบบต้องไม่ Generate Content และคืน error
 
 ### Requirement: Every generation entry point runs the Research flow
-ทุกจุดใน UI ที่สั่งสร้างเนื้อหา (Content Planner, Card Dialog, Detail View, Content List, Quick Create, Batch Generate) SHALL เรียก `generate-article` ผ่าน Mandatory Research flow เดียวกัน (Fetch/Reuse → Analyze → Generate) และ SHALL ไม่เรียก `generate-article` โดยตรง
+ทุกจุดใน UI ที่สั่งสร้างเนื้อหาใน Phase 2 SHALL เรียกใช้ Mandatory Research flow เดียวกัน (Fetch/Reuse → Analyze → Generate) และ SHALL ไม่เรียก `generate-article` โดยตรงเพื่อ bypass Research
 
 #### Scenario: Research is expired when the user presses generate
-- **WHEN** ผู้ใช้กดสร้างเนื้อหาจากจุดใดก็ได้ใน UI และ Research เดิมหมดอายุ
+- **WHEN** ผู้ใช้กดสร้างเนื้อหาจากจุดใดก็ได้ใน Phase 2 และ Research เดิมหมดอายุ
 - **THEN** ระบบ Fetch Research ใหม่ให้อัตโนมัติแล้วจึง Generate
 - **AND** ผู้ใช้ไม่พบ error ที่ต้องแก้ด้วยการไป Fetch Research เองก่อน
 
 #### Scenario: A generation entry point has no topic
 - **WHEN** รายการที่จะสร้างไม่มี Topic/หัวข้อ
 - **THEN** ระบบไม่เรียก `generate-article` และแจ้งผู้ใช้ว่าต้องมีหัวข้อก่อนเริ่ม Research
+
+#### Scenario: Entry points are kept within Phase 2 scope
+- **WHEN** ตรวจสอบ Generation Entry Point
+- **THEN** ต้องครอบคลุม Normal Content Generation เช่น Quick Create, Content Planner, Card Dialog, Detail View และ Content List
+- **AND** Batch/Video ไม่ถือเป็น acceptance scope ของ Phase 2 เว้นแต่มี requirement แยกกำหนดเพิ่มเติม
 
 ### Requirement: Existing valid Research Data is reused
 Research Fetch SHALL ตรวจสอบ Research Data ของ tenant เดียวกันที่ตรงกับ provider, location, language และ normalized seed/topic และยังอยู่ใน TTL ก่อน Fetch ใหม่
@@ -49,7 +54,7 @@ Research Fetch SHALL ตรวจสอบ Research Data ของ tenant เด
 
 #### Scenario: No Research exists
 - **WHEN** ไม่พบ Research Data ที่ตรง Topic
-- **THEN** ระบบ Fetch Research ใหม่ก่อน Generate Content
+- **THEN** ระบบ Fetch Research ใหม่ก่อน Generate
 
 ### Requirement: Research Topic is the source of truth
 ระบบ SHALL เก็บ Original User Topic ไว้ใน `content_items.source_topic` เป็น source of truth แบบคงที่ และ Research SHALL ใช้ค่านี้เป็น seed โดยไม่ใช้ `title`/`topic` ที่ AI rewrite หรือผู้ใช้แก้ไขภายหลังมาแทน
@@ -109,3 +114,54 @@ Research Job ที่ใช้ Generate SHALL มีสถานะ `done`, ม
 #### Scenario: Cached job already has a brief
 - **WHEN** Fetch endpoint คืน cached job ที่มี `analysis`
 - **THEN** generation flow ข้าม Analyze และใช้ brief เดิม
+
+### Requirement: Direct mode cannot bypass Research
+Direct Mode SHALL เป็นเพียงรูปแบบการสร้าง Content และ SHALL ไม่เป็นช่องทาง bypass Mandatory Research
+
+#### Scenario: Direct mode generation
+- **WHEN** ผู้ใช้สร้าง Content ด้วย Direct Mode
+- **THEN** ระบบยังต้องผ่าน Fetch/Reuse → Analyze → Generate
+- **AND** Direct Mode ต้องไม่ส่ง weekly/day-of-week context ที่ไม่เกี่ยวข้องกับ Topic
+
+### Requirement: Research settings are consistent with the mandatory flow
+Research Settings SHALL ระบุ provider และ model ที่ใช้จริงอย่างชัดเจน และต้องไม่เปิด configuration ที่ทำให้ Normal Content Generation bypass Research
+
+#### Scenario: AI Research provider is configured
+- **WHEN** tenant เลือก provider `ai`
+- **THEN** ระบบใช้ Research AI model ที่ผ่านการยืนยัน และ Writing AI ต้องแยกจาก Research AI ตามบทบาท
+
+### Requirement: End-to-end Research flow is verifiable
+ระบบ SHALL สามารถตรวจสอบ flow ตั้งแต่ Research Settings → Provider Test → FETCH → Cache → ANALYZE → Research Brief → Generate Content → SEO/AEO → Approval → Schedule/Publish โดยใช้ endpoint เดิม
+
+#### Scenario: AI provider end-to-end succeeds
+- **WHEN** tenant มี credential และ model ที่พร้อมใช้ และสร้าง Content ด้วย Research
+- **THEN** Fetch สำเร็จ, Web Search มีหลักฐาน citation/URL ที่ตรวจสอบได้, Analyze สำเร็จ, Content ใช้ Research Brief จริง และ linkage ถูกบันทึก
+
+#### Scenario: Cache behavior is verified
+- **WHEN** fetch seed เดิมภายใน TTL โดยไม่ส่ง `force_refresh`
+- **THEN** ระบบ reuse Job เดิม
+- **AND** เมื่อส่ง `force_refresh=true` หรือข้อมูลหมดอายุ ระบบ Fetch ใหม่
+
+#### Scenario: Failure behavior is verified
+- **WHEN** provider timeout, HTTP error, malformed response หรือ credential ไม่พร้อม
+- **THEN** ระบบไม่รายงาน Research เป็นสำเร็จปลอม
+- **AND** หากไม่มี Research fallback ที่ใช้งานได้ ระบบต้องหยุด Generation
+
+#### Scenario: Tenant isolation is verified
+- **WHEN** ผู้ใช้ส่ง Research Job ที่เป็นของ tenant อื่น
+- **THEN** API ปฏิเสธ request และไม่คืน Research data ของ tenant อื่น
+
+### Requirement: Research is not an optional bypass
+เอกสารและ UI ของ Phase 2 SHALL สอดคล้องกับสถาปัตยกรรมปัจจุบันที่ Research เป็น Mandatory และ SHALL ไม่อ้างว่า Content Generation แบบไม่ใช้ Research เป็น supported flow
+
+#### Scenario: Documentation is checked
+- **WHEN** ตรวจ Specification และ Test ของ Research
+- **THEN** ต้องไม่มี acceptance criterion ที่ขัดกับ Mandatory Research เช่น "Content generation without research still works"
+- **AND** Legacy/optional Research behavior ที่ไม่ใช่ architecture ปัจจุบันต้องถูกลบหรือระบุว่าอยู่นอก Phase 2
+
+### Requirement: No separate content pipeline is introduced
+Phase 2 SHALL ใช้ Content Generation Flow เดิม และ SHALL ไม่สร้าง route, menu, permission หรือหน้า wizard สำหรับ `/content-pipeline`
+
+#### Scenario: No separate pipeline route is added
+- **WHEN** ตรวจ source หลัง implement
+- **THEN** ไม่พบ `ContentPipelinePage`, route `/content-pipeline`, menu item "สายการผลิตคอนเทนต์" หรือ permission `content_pipeline`
