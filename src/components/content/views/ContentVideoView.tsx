@@ -13,6 +13,10 @@ const SCENE_LABELS: Record<string, string> = {
   opening: 'Opening Hook', bridge: 'Bridge', twist: 'Twist', ending: 'CTA',
 };
 
+export function allVideoScenesHaveImages(scenes: Array<{ image_url?: string | null }> | null | undefined): boolean {
+  return Array.isArray(scenes) && scenes.length > 0 && scenes.every((scene) => Boolean(scene?.image_url?.trim()));
+}
+
 const PLATFORM_COLORS: Record<string, string> = {
   tiktok: 'bg-black text-white', youtube: 'bg-red-600 text-white',
   instagram: 'bg-pink-500 text-white', facebook: 'bg-indigo-600 text-white',
@@ -156,6 +160,8 @@ export default function ContentVideoView({
   }
 
   const platformLabel: Record<string, string> = { tiktok: 'TikTok', youtube: 'YouTube', instagram: 'Instagram', facebook: 'Facebook' };
+  const videoScenes = Array.isArray(art?.scenes) ? art.scenes : [];
+  const allScenesHaveImages = allVideoScenesHaveImages(videoScenes);
 
   return (
     <div className="space-y-6">
@@ -308,11 +314,14 @@ export default function ContentVideoView({
               {generatingScenes ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Image className="h-3.5 w-3.5 mr-1.5" />}
               สร้างภาพทุกฉาก
             </Button>
-            <Button variant="default" size="sm" disabled={generatingVideo || pollingVideo}
-              onClick={handleGenerateVideo}>
+            <Button variant="default" size="sm" disabled={generatingVideo || pollingVideo || !allScenesHaveImages}
+              onClick={handleGenerateVideo} title={!allScenesHaveImages ? 'กรุณาสร้างภาพให้ครบทุก Scene ก่อน' : undefined}>
               {generatingVideo ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Video className="h-3.5 w-3.5 mr-1.5" />}
               {item.video_gen_status === 'generating' || pollingVideo ? 'กำลังสร้าง...' : 'สร้างวิดีโอ'}
             </Button>
+            {!allScenesHaveImages && videoScenes.length > 0 && (
+              <span className="text-xs text-destructive">กรุณาสร้างภาพให้ครบทุก Scene ก่อนสร้างวิดีโอ</span>
+            )}
           </>
         )}
       </div>

@@ -392,6 +392,13 @@ export interface ArticleContent {
   };
   script_sections?: { opening?: string; bridge?: string; twist?: string; ending?: string };
   visuals?: string[];
+  scenes?: Array<{
+    visual_prompt?: string;
+    shot?: string;
+    narration?: string;
+    duration_sec?: number;
+    image_url?: string | null;
+  }>;
   hashtags?: string[];
   // SEO / AEO fields
   seo_title?: string;

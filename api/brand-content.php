@@ -3717,8 +3717,18 @@ if ($action === 'generate-video' && $method === 'POST') {
 
     if (empty($scenes)) jsonError('ไม่มี scenes หรือ visuals ใน article_content — กรุณาสร้างสคริปต์ก่อน');
 
-    $scenesWithImages = array_values(array_filter($scenes, fn($s) => !empty($s['image_url'])));
-    if (empty($scenesWithImages)) jsonError('ไม่มี scene ที่มี image_url — กรุณากด "สร้างภาพทุกฉาก" ก่อน');
+    // Video generation requires an image for EVERY scene. Never allow a partial
+    // scene list to reach the video provider: the backend is the final source of truth.
+    $missingSceneIndexes = [];
+    foreach ($scenes as $idx => $scene) {
+        if (!is_array($scene) || trim((string)($scene['image_url'] ?? '')) === '') {
+            $missingSceneIndexes[] = $idx + 1;
+        }
+    }
+    if ($missingSceneIndexes) {
+        $missingLabels = implode(', ', array_map(static fn(int $n): string => 'Scene ' . $n, $missingSceneIndexes));
+        jsonError('สร้างวิดีโอไม่ได้ — ' . $missingLabels . ' ยังไม่มี Image กรุณากด "สร้างภาพทุกฉาก" ให้ครบก่อน', 422);
+    }
 
     // Resolve video model from ai_content_video_model_id → ai_models → ai_providers
     $videoModelName = 'veo-3';

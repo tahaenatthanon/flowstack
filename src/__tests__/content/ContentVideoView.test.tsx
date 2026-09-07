@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import ContentVideoView from '@/components/content/views/ContentVideoView';
+import ContentVideoView, { allVideoScenesHaveImages } from '@/components/content/views/ContentVideoView';
 import type { ContentItem } from '@/components/content/types';
 
 function wrap(ui: React.ReactElement) {
@@ -31,6 +31,19 @@ const mockVideoItem: ContentItem = {
 };
 
 describe('ContentVideoView', () => {
+  it('requires every scene to have an image', () => {
+    expect(allVideoScenesHaveImages([
+      { image_url: 'https://example.com/1.png' },
+      { image_url: 'https://example.com/2.png' },
+    ])).toBe(true);
+    expect(allVideoScenesHaveImages([
+      { image_url: 'https://example.com/1.png' },
+      { image_url: '' },
+    ])).toBe(false);
+    expect(allVideoScenesHaveImages([{ image_url: null }])).toBe(false);
+    expect(allVideoScenesHaveImages([])).toBe(false);
+  });
+
   it('renders scene cards with sections', () => {
     wrap(<ContentVideoView item={mockVideoItem} />);
     expect(screen.getByText('Hook 3 วิ')).toBeTruthy();
