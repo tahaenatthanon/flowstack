@@ -52,11 +52,13 @@ Research Fetch SHALL ตรวจสอบ Research Data ของ tenant เด
 - **THEN** ระบบ Fetch Research ใหม่ก่อน Generate Content
 
 ### Requirement: Research Topic is the source of truth
-Research SHALL ใช้ Original User Topic/Seed เป็น source และ SHALL ไม่ใช้ topic ที่ AI rewrite จาก plan มาแทน
+ระบบ SHALL เก็บ Original User Topic ไว้ใน `content_items.source_topic` เป็น source of truth แบบคงที่ และ Research SHALL ใช้ค่านี้เป็น seed โดยไม่ใช้ `title`/`topic` ที่ AI rewrite หรือผู้ใช้แก้ไขภายหลังมาแทน
 
 #### Scenario: User enters YouTube
-- **WHEN** ผู้ใช้กรอก Topic `YouTube`
-- **THEN** Research Fetch ใช้ seed `YouTube` หลัง trim/normalize
+- **WHEN** ผู้ใช้กรอก Topic `YouTube` และระบบสร้าง Content Item
+- **THEN** ระบบบันทึก `content_items.source_topic = YouTube`
+- **AND** Research Fetch ใช้ `source_topic` เป็น seed หลัง trim/normalize
+- **AND** การแก้ไข `title`/`topic` ภายหลังต้องไม่เปลี่ยน `source_topic`
 - **AND** ห้ามใช้ AI-rewritten topic แทน seed เดิม
 
 ### Requirement: Research brief must be usable before generation

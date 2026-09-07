@@ -426,8 +426,10 @@ export function ContentCardDialog({
     setAiGenerating(true);
     toast({ title: 'AI กำลังค้นข้อมูลและเขียนเนื้อหา...', description: 'Research → วิเคราะห์ → เขียนบทความ' });
     try {
+      // Research must always use the immutable Original User Topic, never the editable title/topic.
+      const researchTopic = (existingItem as PlanItem & { source_topic?: string | null }).source_topic?.trim() || topic.trim();
       const res: any = await runResearch({
-        topic: topic.trim(),
+        topic: researchTopic,
         itemId: existingItem.id,
         kbArticleId: selectedKbId || null,
       });
@@ -764,6 +766,11 @@ export function ContentCardDialog({
                 <div className="space-y-1.5">
                   <Label>หัวข้อ <span className="text-destructive">*</span></Label>
                   <Input value={topic} onChange={e => setTopic(e.target.value)} placeholder="หัวข้อคอนเทนต์..." />
+                  {existingItem && (existingItem as PlanItem & { source_topic?: string | null }).source_topic && (
+                    <p className="text-[10px] text-muted-foreground">
+                      Research ใช้ Original User Topic: <span className="font-medium text-foreground">{(existingItem as PlanItem & { source_topic?: string | null }).source_topic}</span>
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-3">

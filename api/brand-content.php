@@ -461,7 +461,7 @@ if ($action === 'plans') {
             $stmt->execute([$id, $tenantId]);
             $plan = $stmt->fetch();
             if (!$plan) jsonError('Plan not found', 404);
-            $stmt2 = $db->prepare("SELECT ci.id AS id, ci.plan_id, ci.title AS topic, ci.platform, ci.platforms, ci.scheduled_date, ci.caption, ci.image_brief, ci.generated_image_url, COALESCE(ci.image_gen_status, 'none') AS image_gen_status, ci.article_content, ci.id AS content_item_id, ci.type AS content_type, ci.seo_title, ci.slug, ci.meta_description, ci.meta_keywords, ci.structured_data, ci.og_image, COALESCE(cpi.day_label, '') AS day_label, COALESCE(cpi.day_order, 0) AS day_order FROM content_items ci LEFT JOIN content_plan_items cpi ON cpi.id = ci.plan_item_id WHERE ci.plan_id = ? ORDER BY COALESCE(cpi.day_order, 0), ci.scheduled_date");
+            $stmt2 = $db->prepare("SELECT ci.id AS id, ci.plan_id, ci.title AS topic, ci.source_topic, ci.platform, ci.platforms, ci.scheduled_date, ci.caption, ci.image_brief, ci.generated_image_url, COALESCE(ci.image_gen_status, 'none') AS image_gen_status, ci.article_content, ci.id AS content_item_id, ci.type AS content_type, ci.seo_title, ci.slug, ci.meta_description, ci.meta_keywords, ci.structured_data, ci.og_image, COALESCE(cpi.day_label, '') AS day_label, COALESCE(cpi.day_order, 0) AS day_order FROM content_items ci LEFT JOIN content_plan_items cpi ON cpi.id = ci.plan_item_id WHERE ci.plan_id = ? ORDER BY COALESCE(cpi.day_order, 0), ci.scheduled_date");
             $stmt2->execute([$id]);
             $plan['items'] = $stmt2->fetchAll();
             jsonResponse($plan);
@@ -470,7 +470,7 @@ if ($action === 'plans') {
         $stmt->execute([$tenantId]);
         $plans = $stmt->fetchAll();
         foreach ($plans as &$p) {
-            $stmt2 = $db->prepare("SELECT ci.id AS id, ci.plan_id, ci.title AS topic, ci.platform, ci.platforms, ci.scheduled_date, ci.caption, ci.image_brief, ci.generated_image_url, COALESCE(ci.image_gen_status, 'none') AS image_gen_status, ci.article_content, ci.id AS content_item_id, ci.type AS content_type, ci.seo_title, ci.slug, ci.meta_description, ci.meta_keywords, ci.structured_data, ci.og_image, COALESCE(cpi.day_label, '') AS day_label, COALESCE(cpi.day_order, 0) AS day_order FROM content_items ci LEFT JOIN content_plan_items cpi ON cpi.id = ci.plan_item_id WHERE ci.plan_id = ? ORDER BY COALESCE(cpi.day_order, 0), ci.scheduled_date");
+            $stmt2 = $db->prepare("SELECT ci.id AS id, ci.plan_id, ci.title AS topic, ci.source_topic, ci.platform, ci.platforms, ci.scheduled_date, ci.caption, ci.image_brief, ci.generated_image_url, COALESCE(ci.image_gen_status, 'none') AS image_gen_status, ci.article_content, ci.id AS content_item_id, ci.type AS content_type, ci.seo_title, ci.slug, ci.meta_description, ci.meta_keywords, ci.structured_data, ci.og_image, COALESCE(cpi.day_label, '') AS day_label, COALESCE(cpi.day_order, 0) AS day_order FROM content_items ci LEFT JOIN content_plan_items cpi ON cpi.id = ci.plan_item_id WHERE ci.plan_id = ? ORDER BY COALESCE(cpi.day_order, 0), ci.scheduled_date");
             $stmt2->execute([$p['id']]);
             $p['items'] = $stmt2->fetchAll();
         }
@@ -896,8 +896,8 @@ if ($action === 'generate-plan' && $method === 'POST') {
         // Also create content_items row as primary content store
         $ciId = generateUUID();
         $platformsJson = !empty($item['platforms']) && is_array($item['platforms']) ? json_encode($item['platforms']) : null;
-        $db->prepare('INSERT INTO content_items (id, tenant_id, title, type, status, created_by, plan_item_id, plan_id, platform, platforms, scheduled_date, caption, image_brief) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
-           ->execute([$ciId, $tenantId, $item['topic'] ?? '', $type, 'draft', $userId, $itemId, $planId, $item['platform'] ?? '', $platformsJson, $item['scheduled_date'] ?? null, $item['caption'] ?? '', $item['image_brief'] ?? '']);
+        $db->prepare('INSERT INTO content_items (id, tenant_id, title, source_topic, type, status, created_by, plan_item_id, plan_id, platform, platforms, scheduled_date, caption, image_brief) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+           ->execute([$ciId, $tenantId, $item['topic'] ?? '', $originalTopic, $type, 'draft', $userId, $itemId, $planId, $item['platform'] ?? '', $platformsJson, $item['scheduled_date'] ?? null, $item['caption'] ?? '', $item['image_brief'] ?? '']);
     }
 
     $stmt = $db->prepare('SELECT * FROM content_plans WHERE id=? AND tenant_id=?');
@@ -1993,7 +1993,7 @@ if ($action === 'generate-article') {
     $researchJobId = trim((string)($body['research_job_id'] ?? ''));
     if (!$itemId) jsonError('item_id required', 400);
 
-    $item = $db->prepare("SELECT ci.*, ci.title AS topic, cp.title AS source_topic, cp.trigger_command, cp.skill_id, cp.brand_context_ids, cpi.day_label, cpi.day_order FROM content_items ci LEFT JOIN content_plans cp ON cp.id = ci.plan_id LEFT JOIN content_plan_items cpi ON cpi.id = ci.plan_item_id WHERE ci.id = ? AND ci.tenant_id = ?");
+    $item = $db->prepare("SELECT ci.*, ci.title AS topic, ci.source_topic, cp.trigger_command, cp.skill_id, cp.brand_context_ids, cpi.day_label, cpi.day_order FROM content_items ci LEFT JOIN content_plans cp ON cp.id = ci.plan_id LEFT JOIN content_plan_items cpi ON cpi.id = ci.plan_item_id WHERE ci.id = ? AND ci.tenant_id = ?");
     $item->execute([$itemId, $tenantId]);
     $item = $item->fetch();
     if (!$item) jsonError('Item not found', 404);
@@ -3473,8 +3473,8 @@ if ($action === 'plan-items') {
            ->execute([$id, $planId, $dayLabels[(int)date('w', $ts)], $dayOrders[(int)date('w', $ts)], $scheduledDate, $platform, $topic, $body['caption'] ?? '']);
         // Also create content_items row as primary store
         $ciId = generateUUID();
-        $db->prepare('INSERT INTO content_items (id, tenant_id, title, type, status, created_by, plan_item_id, plan_id, platform, platforms, scheduled_date, caption) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
-           ->execute([$ciId, $tenantId, $topic, $type, 'draft', $userId, $id, $planId, $platform, json_encode([$platform]), $scheduledDate, $body['caption'] ?? '']);
+        $db->prepare('INSERT INTO content_items (id, tenant_id, title, source_topic, type, status, created_by, plan_item_id, plan_id, platform, platforms, scheduled_date, caption) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+           ->execute([$ciId, $tenantId, $topic, trim((string)$topic), $type, 'draft', $userId, $id, $planId, $platform, json_encode([$platform]), $scheduledDate, $body['caption'] ?? '']);
         jsonResponse(['id' => $ciId, 'plan_item_id' => $id, 'created' => true], 201);
     }
     if ($method === 'DELETE') {
@@ -4071,7 +4071,7 @@ if ($action === 'list-items' && $method === 'GET') {
     $type  = $_GET['type'] ?? '';
     $where = $type ? 'WHERE ci.tenant_id = ? AND ci.type = ?' : 'WHERE ci.tenant_id = ?';
     $params = $type ? [$tenantId, $type] : [$tenantId];
-    $stmt = $db->prepare("SELECT ci.id, ci.title, ci.type, ci.article_content, ci.scheduled_date, ci.platform, ci.created_at FROM content_items ci $where ORDER BY ci.created_at DESC LIMIT 200");
+    $stmt = $db->prepare("SELECT ci.id, ci.title, ci.source_topic, ci.type, ci.article_content, ci.scheduled_date, ci.platform, ci.created_at FROM content_items ci $where ORDER BY ci.created_at DESC LIMIT 200");
     $stmt->execute($params);
     jsonResponse($stmt->fetchAll(PDO::FETCH_ASSOC));
 }

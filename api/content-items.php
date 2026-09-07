@@ -35,6 +35,7 @@ if ($method === 'GET') {
                       ci.id,
                       ci.tenant_id,
                       ci.title,
+                      ci.source_topic,
                       ci.type,
                       ci.status,
                       ci.approved_at,
@@ -80,6 +81,10 @@ if ($method === 'POST') {
     if (empty($body['title'])) jsonError('กรุณาระบุชื่อคอนเทนต์');
     $id = generateUUID();
     $planItemId = $body['plan_item_id'] ?? null;
+    // source_topic is the immutable Original User Topic used by Research.
+    // It is set only at creation; title remains independently editable.
+    $sourceTopic = trim((string)($body['source_topic'] ?? $body['title'] ?? '')); 
+
     $platform = isset($body['platform']) ? strtolower(trim($body['platform'])) : null;
     $platforms = isset($body['platforms']) && is_array($body['platforms'])
         ? array_values(array_unique(array_filter(array_map(static fn($p) => strtolower(trim((string)$p)), $body['platforms']))))
@@ -87,8 +92,8 @@ if ($method === 'POST') {
     // Validate type against the enum; fall back to 'article' for unknown values
     $type = strtolower(trim((string)($body['type'] ?? 'article')));
     if (!in_array($type, ['article', 'image', 'video'], true)) $type = 'article';
-    $db->prepare('INSERT INTO content_items (id, tenant_id, title, type, status, created_by, plan_item_id, platform, platforms, scheduled_date, caption, image_brief, plan_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
-       ->execute([$id, $tenantId, $body['title'], $type, $body['status'] ?? 'draft', $userId, $planItemId, $platform, json_encode($platforms), $body['scheduled_date'] ?? null, $body['caption'] ?? '', $body['image_brief'] ?? '', $body['plan_id'] ?? null]);
+    $db->prepare('INSERT INTO content_items (id, tenant_id, title, source_topic, type, status, created_by, plan_item_id, platform, platforms, scheduled_date, caption, image_brief, plan_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+       ->execute([$id, $tenantId, $body['title'], $sourceTopic, $type, $body['status'] ?? 'draft', $userId, $planItemId, $platform, json_encode($platforms), $body['scheduled_date'] ?? null, $body['caption'] ?? '', $body['image_brief'] ?? '', $body['plan_id'] ?? null]);
     $stmt = $db->prepare('SELECT ci.*, cpi.day_label, cp.title AS plan_title, cp.id AS plan_id, cp.week_start FROM content_items ci LEFT JOIN content_plan_items cpi ON cpi.id=ci.plan_item_id LEFT JOIN content_plans cp ON cp.id=COALESCE(ci.plan_id, cpi.plan_id) WHERE ci.id=?');
     $stmt->execute([$id]);
     jsonResponse($stmt->fetch(), 201);
@@ -170,6 +175,7 @@ if ($method === 'PUT') {
         }
     }
 
+    // source_topic is intentionally excluded: it must never be changed by an edit request.
     $allowed = ['title', 'type', 'status', 'views', 'likes', 'caption', 'platform', 'platforms', 'scheduled_date', 'image_brief', 'article_content', 'reject_reason', 'seo_title', 'slug', 'meta_description', 'meta_keywords', 'structured_data', 'og_image'];
     $fields  = []; $values = [];
     foreach ($allowed as $f) {

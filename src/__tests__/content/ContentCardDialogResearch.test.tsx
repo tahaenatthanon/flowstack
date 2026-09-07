@@ -30,7 +30,8 @@ function makeItem(): PlanItem {
     scheduled_date: '2026-09-04',
     platform: 'facebook',
     platforms: ['facebook'],
-    topic: 'หัวข้อทดสอบ',
+    topic: 'หัวข้อที่ AI เขียนใหม่',
+    source_topic: 'หัวข้อทดสอบ',
     caption: '',
     image_brief: '',
     generated_image_url: null,
@@ -95,6 +96,7 @@ describe('ContentCardDialog — Mandatory Research', () => {
     await waitFor(() => expect(calls.find(c => c.includes('generate-article'))).toBeTruthy());
 
     const fetchCall = vi.mocked(apiFetch).mock.calls.find(([u]) => String(u).includes('action=fetch'))!;
+    // Research seed must remain the Original User Topic even when the editable title/topic changed.
     expect(JSON.parse((fetchCall[1] as any).body)).toEqual({ seed_keyword: 'หัวข้อทดสอบ', content_item_id: 'item-1' });
 
     const generateCall = vi.mocked(apiFetch).mock.calls.find(([u]) => String(u).includes('generate-article'))!;

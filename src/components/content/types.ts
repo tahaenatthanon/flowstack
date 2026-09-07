@@ -3,7 +3,7 @@
 import { FileText, Image, Video, BookOpen, ListChecks, CheckCircle2, Clock, Stamp, RotateCcw, Edit3, XCircle } from 'lucide-react';
 
 export interface ContentItem {
-  id: string; title: string; type: string; status: string;
+  id: string; title: string; source_topic?: string | null; type: string; status: string;
   views: number; likes: number; created_at: string;
   plan_item_id?: string | null;
   caption?: string | null;
@@ -107,7 +107,7 @@ export type CalendarView = 'month' | 'quarter' | 'year';
 
 export interface PlanItem {
   id: string; plan_id: string; day_label: string; day_order: number;
-  scheduled_date?: string | null; platform: string; platforms?: string[] | string | null; topic: string;
+  scheduled_date?: string | null; platform: string; platforms?: string[] | string | null; topic: string; source_topic?: string | null;
   caption: string; image_brief: string;
   generated_image_url: string | null; image_gen_status: string;
   article_content?: string | null;
