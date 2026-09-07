@@ -257,7 +257,7 @@ if ($action === 'global-settings') {
         if (!$row) {
             jsonResponse(['tenant_id' => $tenantId, 'global_instruction' => '', 'image_gen_provider' => 'none',
                           'image_gen_model' => '', 'image_gen_base_url' => '', 'product_ref_image_url' => '', 'has_image_gen_key' => false,
-                          'research_provider' => 'none', 'research_api_login' => '', 'has_research_key' => false,
+                          'research_provider' => 'ai', 'research_api_login' => '', 'has_research_key' => false,
                           'research_location_code' => 2764, 'research_language_code' => 'th', 'research_cache_hours' => 168,
                           'weekly_posts_target' => 0]);
         }
@@ -265,17 +265,17 @@ if ($action === 'global-settings') {
         $row['has_research_key'] = !empty($row['research_api_key_encrypted']);
         $row['weekly_posts_target'] = (int)($row['weekly_posts_target'] ?? 0);
         $row['research_location_code'] = (int)($row['research_location_code'] ?? 2764);
-        $row['research_cache_hours'] = (int)($row['research_cache_hours'] ?? 168);
+        $row['research_cache_hours'] = research_normalize_cache_hours($row['research_cache_hours'] ?? null);
         unset($row['image_gen_api_key_encrypted']);
         unset($row['research_api_key_encrypted']);
         jsonResponse($row);
     }
     if ($method === 'POST') {
         $body = getRequestBody();
-        // Whitelist research provider: none/dataforseo/ai — ค่าอื่น fallback เป็น 'none'
-        $researchProvider = in_array($body['research_provider'] ?? null, ['none', 'dataforseo', 'ai'], true)
+        // Whitelist mandatory Research providers: dataforseo/ai — ค่าอื่น fallback เป็น 'ai'
+        $researchProvider = in_array($body['research_provider'] ?? null, ['dataforseo', 'ai'], true)
             ? (string)$body['research_provider']
-            : 'none';
+            : 'ai';
         $encKey = null;
         if (!empty($body['image_gen_api_key'])) {
             $encKey = encryptValue($body['image_gen_api_key']);
@@ -303,7 +303,7 @@ if ($action === 'global-settings') {
             if (array_key_exists('research_api_login', $body))     { $sets[] = 'research_api_login=?';     $vals[] = trim((string)($body['research_api_login'] ?? '')); }
             if (array_key_exists('research_location_code', $body)){ $sets[] = 'research_location_code=?'; $vals[] = max(1, (int)($body['research_location_code'] ?? 2764)); }
             if (array_key_exists('research_language_code', $body)){ $sets[] = 'research_language_code=?'; $vals[] = trim((string)($body['research_language_code'] ?? 'th')); }
-            if (array_key_exists('research_cache_hours', $body))  { $sets[] = 'research_cache_hours=?';  $vals[] = min(8760, max(0, (int)($body['research_cache_hours'] ?? 168))); }
+            if (array_key_exists('research_cache_hours', $body))  { $sets[] = 'research_cache_hours=?';  $vals[] = research_normalize_cache_hours($body['research_cache_hours'] ?? null); }
             if ($researchEncKey !== null) { $sets[] = 'research_api_key_encrypted=?'; $vals[] = $researchEncKey; }
             if (count($sets) > 1) {
                 $vals[] = $tenantId;
@@ -311,7 +311,7 @@ if ($action === 'global-settings') {
             }
         } else {
             $db->prepare('INSERT INTO content_global_settings (tenant_id,global_instruction,image_gen_provider,image_gen_api_key_encrypted,image_gen_model,image_gen_base_url,product_ref_image_url,product_refs,weekly_posts_target,research_provider,research_api_login,research_api_key_encrypted,research_location_code,research_language_code,research_cache_hours) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-               ->execute([$tenantId, $body['global_instruction'] ?? '', $body['image_gen_provider'] ?? 'none', $encKey, $body['image_gen_model'] ?? '', $body['image_gen_base_url'] ?? '', $body['product_ref_image_url'] ?? '', $body['product_refs'] ?? '[]', max(0, (int)($body['weekly_posts_target'] ?? 0)), $researchProvider, trim((string)($body['research_api_login'] ?? '')), $researchEncKey, max(1, (int)($body['research_location_code'] ?? 2764)), trim((string)($body['research_language_code'] ?? 'th')), min(8760, max(0, (int)($body['research_cache_hours'] ?? 168))) ]);
+               ->execute([$tenantId, $body['global_instruction'] ?? '', $body['image_gen_provider'] ?? 'none', $encKey, $body['image_gen_model'] ?? '', $body['image_gen_base_url'] ?? '', $body['product_ref_image_url'] ?? '', $body['product_refs'] ?? '[]', max(0, (int)($body['weekly_posts_target'] ?? 0)), $researchProvider, trim((string)($body['research_api_login'] ?? '')), $researchEncKey, max(1, (int)($body['research_location_code'] ?? 2764)), trim((string)($body['research_language_code'] ?? 'th')), research_normalize_cache_hours($body['research_cache_hours'] ?? null) ]);
         }
         jsonResponse(['saved' => true]);
     }
@@ -1993,7 +1993,7 @@ if ($action === 'generate-article') {
     $researchJobId = trim((string)($body['research_job_id'] ?? ''));
     if (!$itemId) jsonError('item_id required', 400);
 
-    $item = $db->prepare("SELECT ci.*, ci.title AS topic, cp.trigger_command, cp.skill_id, cp.brand_context_ids, cpi.day_label, cpi.day_order FROM content_items ci LEFT JOIN content_plans cp ON cp.id = ci.plan_id LEFT JOIN content_plan_items cpi ON cpi.id = ci.plan_item_id WHERE ci.id = ? AND ci.tenant_id = ?");
+    $item = $db->prepare("SELECT ci.*, ci.title AS topic, cp.title AS source_topic, cp.trigger_command, cp.skill_id, cp.brand_context_ids, cpi.day_label, cpi.day_order FROM content_items ci LEFT JOIN content_plans cp ON cp.id = ci.plan_id LEFT JOIN content_plan_items cpi ON cpi.id = ci.plan_item_id WHERE ci.id = ? AND ci.tenant_id = ?");
     $item->execute([$itemId, $tenantId]);
     $item = $item->fetch();
     if (!$item) jsonError('Item not found', 404);
@@ -2022,6 +2022,39 @@ if ($action === 'generate-article') {
     $researchJob = null;
     $researchBrief = null;
     $researchKeywords = [];
+
+    // Research is mandatory at the generation boundary. UI normally supplies the
+    // job id after Fetch/Reuse → Analyze. For legacy/direct callers, allow reuse of
+    // the same Topic's still-valid cached Research job, but never generate without it.
+    if ($researchJobId === '') {
+        $sourceSeed = trim((string)($item['source_topic'] ?? '')) ?: trim((string)($item['topic'] ?? ''));
+        if ($sourceSeed !== '') {
+            $settingsStmt = $db->prepare('SELECT research_provider, research_location_code, research_language_code, research_cache_hours FROM content_global_settings WHERE tenant_id=?');
+            $settingsStmt->execute([$tenantId]);
+            $researchSettings = $settingsStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+            // ใช้ cache semantics เดียวกับ content-research.php: 0 = ปิด cache
+            // เมื่อปิด cache ยอมรับเฉพาะ job ที่เพิ่ง Fetch ในรอบเดียวกัน (grace window)
+            $cacheHours = research_normalize_cache_hours($researchSettings['research_cache_hours'] ?? null);
+            $maxAgeSeconds = research_max_age_seconds($cacheHours);
+            $provider = trim((string)($researchSettings['research_provider'] ?? ''));
+            if ($provider !== '') {
+                $cachedResearchStmt = $db->prepare("SELECT id FROM content_research_jobs WHERE tenant_id=? AND provider=? AND location_code=? AND language_code=? AND seed_keyword=? AND status='done' AND analysis IS NOT NULL AND fetched_at >= DATE_SUB(NOW(), INTERVAL {$maxAgeSeconds} SECOND) ORDER BY fetched_at DESC LIMIT 1");
+                $cachedResearchStmt->execute([
+                    $tenantId,
+                    $provider,
+                    (int)($researchSettings['research_location_code'] ?? 2764),
+                    (string)($researchSettings['research_language_code'] ?? 'th'),
+                    $sourceSeed,
+                ]);
+                $cachedResearchJobId = $cachedResearchStmt->fetchColumn();
+                if ($cachedResearchJobId) $researchJobId = (string)$cachedResearchJobId;
+            }
+        }
+        if ($researchJobId === '') {
+            jsonError('ไม่พบ Research Data ที่ใช้งานได้สำหรับ Topic นี้ — กรุณาเริ่มการสร้าง Content ผ่าน Research flow', 422);
+        }
+    }
+
     if ($researchJobId !== '') {
         $researchStmt = $db->prepare("SELECT * FROM content_research_jobs WHERE id=? AND tenant_id=? AND status='done'");
         $researchStmt->execute([$researchJobId, $tenantId]);
@@ -2029,6 +2062,20 @@ if ($action === 'generate-article') {
         if (!$researchJob || empty($researchJob['analysis'])) {
             jsonError('ไม่พบ Research job ที่วิเคราะห์เสร็จแล้วใน tenant นี้', 422);
         }
+
+        // Enforce the same Topic + TTL rules even when a caller supplies a job id.
+        $expectedSeed = trim((string)($item['source_topic'] ?? '')) ?: trim((string)($item['topic'] ?? ''));
+        $researchSettingsStmt = $db->prepare('SELECT research_cache_hours FROM content_global_settings WHERE tenant_id=?');
+        $researchSettingsStmt->execute([$tenantId]);
+        $rawConfiguredCacheHours = $researchSettingsStmt->fetchColumn();
+        $configuredCacheHours = research_normalize_cache_hours($rawConfiguredCacheHours === false ? null : $rawConfiguredCacheHours);
+        if ($expectedSeed !== '' && strcasecmp(trim((string)$researchJob['seed_keyword']), $expectedSeed) !== 0) {
+            jsonError('Research ไม่ตรงกับ Topic ของ Content นี้', 422);
+        }
+        if (!research_job_is_usable($configuredCacheHours, $researchJob['fetched_at'] ?? null)) {
+            jsonError('Research Data หมดอายุแล้ว — กรุณา Fetch Research ใหม่ก่อนสร้าง Content', 422);
+        }
+
         $researchKeywordsStmt = $db->prepare('SELECT keyword, search_volume, difficulty, intent, source, is_selected FROM content_research_keywords WHERE job_id=? AND tenant_id=? ORDER BY is_selected DESC, search_volume DESC, keyword ASC');
         $researchKeywordsStmt->execute([$researchJobId, $tenantId]);
         $researchKeywords = $researchKeywordsStmt->fetchAll(PDO::FETCH_ASSOC);

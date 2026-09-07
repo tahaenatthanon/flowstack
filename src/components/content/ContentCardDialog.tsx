@@ -19,6 +19,7 @@ import { apiFetch } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
 import { useContentGlobalSettings } from '@/hooks/useContent';
+import { useResearchRun, RESEARCH_STEP_LABELS } from '@/hooks/useResearchRun';
 import ArticleEditor from '@/components/content/ArticleEditor';
 import ImageViewer from '@/components/content/ImageViewer';
 import type { SeoFields } from '@/components/content/types';
@@ -227,6 +228,8 @@ export function ContentCardDialog({
   const [generatingVideo, setGeneratingVideo] = useState(false);
   const [generatingScenes, setGeneratingScenes] = useState(false);
   const [scriptQuality, setScriptQuality] = useState<Record<string, any>>({});
+  // Mandatory Research — ทุกการสร้างเนื้อหาต้องผ่าน Fetch/Reuse → Analyze → Generate
+  const { run: runResearch, step: researchStep } = useResearchRun();
 
   // Request approval — author sends draft/revision work into the approval queue
   const [requestApprovalConfirm, setRequestApprovalConfirm] = useState(false);
@@ -421,11 +424,12 @@ export function ContentCardDialog({
   const handleAI = async () => {
     if (!topic.trim() || !existingItem?.id) return;
     setAiGenerating(true);
-    toast({ title: 'AI กำลังเขียนเนื้อหา...', description: 'โปรดรอสักครู่' });
+    toast({ title: 'AI กำลังค้นข้อมูลและเขียนเนื้อหา...', description: 'Research → วิเคราะห์ → เขียนบทความ' });
     try {
-      const res: any = await apiFetch('/brand-content.php?action=generate-article', {
-        method: 'POST',
-        body: JSON.stringify({ item_id: existingItem.id, ...(selectedKbId && { kb_article_id: selectedKbId }) }),
+      const res: any = await runResearch({
+        topic: topic.trim(),
+        itemId: existingItem.id,
+        kbArticleId: selectedKbId || null,
       });
       const art = res?.article;
       if (art) {
@@ -974,7 +978,7 @@ export function ContentCardDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>ยกเลิก</Button>
           <Button variant="outline" className="gap-1.5" onClick={handleAI} disabled={!topic.trim() || aiGenerating}>
             {aiGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-            {aiGenerating ? 'กำลังสร้าง...' : 'AI เขียนให้'}
+            {aiGenerating ? `${RESEARCH_STEP_LABELS[researchStep] ?? 'กำลังสร้าง'}...` : 'AI เขียนให้'}
           </Button>
           <Button onClick={handleSave} disabled={saving || !topic.trim()} className="gap-1.5">
             <Save className="h-3.5 w-3.5" />{saving ? 'กำลังบันทึก...' : 'บันทึก'}

@@ -19,13 +19,14 @@ function research_settings(PDO $db, string $tenantId): array {
     $stmt->execute([$tenantId]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
     return [
-        'provider' => (string)($row['research_provider'] ?? 'none'),
+        'provider' => (string)($row['research_provider'] ?? 'ai'),
         'login' => (string)($row['research_api_login'] ?? ''),
         'password' => !empty($row['research_api_key_encrypted']) ? decryptApiKey((string)$row['research_api_key_encrypted']) : '',
         'has_key' => !empty($row['research_api_key_encrypted']),
         'location_code' => (int)($row['research_location_code'] ?? 2764),
         'language_code' => (string)($row['research_language_code'] ?? 'th'),
-        'cache_hours' => (int)($row['research_cache_hours'] ?? 168),
+        // 0 = ปิด cache (ห้าม Reuse), > 0 = Reuse ได้ภายใน N ชั่วโมง
+        'cache_hours' => research_normalize_cache_hours($row['research_cache_hours'] ?? null),
     ];
 }
 
@@ -187,8 +188,8 @@ if ($action === 'fetch') {
         if (!$itemStmt->fetchColumn()) jsonError('ไม่พบ content item ใน tenant นี้', 404);
     }
     $forceRefresh = !empty($body['force_refresh']);
-    if (!$forceRefresh && $settings['cache_hours'] > 0) {
-        $hours = min(8760, max(1, $settings['cache_hours']));
+    if (!$forceRefresh && research_cache_enabled($settings['cache_hours'])) {
+        $hours = $settings['cache_hours'];
         $cacheSql = "SELECT * FROM content_research_jobs WHERE tenant_id=? AND provider=? AND location_code=? AND language_code=? AND seed_keyword=? AND status='done' AND fetched_at >= DATE_SUB(NOW(), INTERVAL {$hours} HOUR) ORDER BY fetched_at DESC LIMIT 1";
         $cacheStmt = $db->prepare($cacheSql);
         $cacheStmt->execute([$tenantId, $settings['provider'], $settings['location_code'], $settings['language_code'], $seed]);

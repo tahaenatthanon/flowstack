@@ -2,8 +2,8 @@ import { useCallback, useState } from 'react';
 import { apiFetch } from '@/lib/api';
 
 /**
- * AI Research workflow (Option B) — orchestrate Fetch → Analyze → Generate
- * ผ่าน endpoint เดิม (`content-research.php` + `brand-content.php`) โดยไม่แตะ backend
+ * Mandatory Research workflow — orchestrate Fetch/Reuse → Analyze → Generate
+ * ผ่าน endpoint เดิม (`content-research.php` + `brand-content.php`)
  *
  * ทั้ง fetch และ analyze เป็น synchronous (คืน job `done` หรือ throw error)
  * จึงไม่ต้อง poll — ไล่ขั้นตาม state machine: fetching → analyzing → generating → done
@@ -20,6 +20,8 @@ export const RESEARCH_STEP_LABELS: Record<string, string> = {
 export interface ResearchRunParams {
   topic: string;
   itemId: string;
+  /** ส่งต่อไปยัง generate-article เมื่อผู้ใช้เลือก Knowledge Base article */
+  kbArticleId?: string | null;
 }
 
 export function useResearchRun() {
@@ -31,9 +33,11 @@ export function useResearchRun() {
     setError(null);
   }, []);
 
-  const run = useCallback(async ({ topic, itemId }: ResearchRunParams): Promise<any> => {
+  const run = useCallback(async ({ topic, itemId, kbArticleId }: ResearchRunParams): Promise<any> => {
     setError(null);
     try {
+      // The fetch endpoint is responsible for cache reuse: a valid Research Data
+      // within the configured TTL is returned instead of fetching again.
       setStep('fetching');
       const job: any = await apiFetch('/content-research.php?action=fetch', {
         method: 'POST',
@@ -44,16 +48,24 @@ export function useResearchRun() {
         throw new Error('ค้นข้อมูล Research ไม่สำเร็จ');
       }
 
-      setStep('analyzing');
-      await apiFetch('/content-research.php?action=analyze', {
-        method: 'POST',
-        body: JSON.stringify({ job_id: jobId }),
-      });
+      if (!job?.analysis) {
+        setStep('analyzing');
+        // Only analyze when the selected Research job has no existing brief.
+        // A cached job with a valid brief is reused as-is.
+        await apiFetch('/content-research.php?action=analyze', {
+          method: 'POST',
+          body: JSON.stringify({ job_id: jobId }),
+        });
+      }
 
       setStep('generating');
       const articleRes: any = await apiFetch('/brand-content.php?action=generate-article', {
         method: 'POST',
-        body: JSON.stringify({ item_id: itemId, research_job_id: jobId }),
+        body: JSON.stringify({
+          item_id: itemId,
+          research_job_id: jobId,
+          ...(kbArticleId ? { kb_article_id: kbArticleId } : {}),
+        }),
       });
 
       setStep('done');

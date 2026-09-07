@@ -7,6 +7,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
 import { useContentItems } from '@/hooks/useContent';
 import { apiFetch } from '@/lib/api';
+import { useResearchRun } from '@/hooks/useResearchRun';
 import { cn } from '@/lib/utils';
 import type { ContentItem, PlanItem } from '@/components/content/types';
 import { TYPE_MAP, PLATFORM_MAP, STATUS_MAP } from '@/components/content/types';
@@ -28,6 +29,8 @@ export default function ContentListTab() {
   const [publishDialog, setPublishDialog] = useState<{ contentId: string; contentTitle: string; mode: 'schedule' | 'send_now'; defaultCaption?: string; defaultBody?: string } | null>(null);
   const [imageViewerSrc, setImageViewerSrc] = useState<string | null>(null);
   const [deleteConfirmItem, setDeleteConfirmItem] = useState<ContentItem | null>(null);
+  // Mandatory Research — การสร้างเนื้อหาต้องผ่าน Fetch/Reuse → Analyze → Generate
+  const { run: runResearch } = useResearchRun();
 
   const { data: items = [], isLoading } = useContentItems();
 
@@ -107,14 +110,16 @@ export default function ContentListTab() {
     setEditItem(null);
   };
 
-  const handleRequestAI = async (_data: { topic: string; platform: string; scheduled_date: string }) => {
+  const handleRequestAI = async (data: { topic: string; platform: string; scheduled_date: string }) => {
     if (!editItemLatest) return;
-    toast({ title: 'AI กำลังเขียนบทความ...', description: 'โปรดรอสักครู่ (อาจใช้เวลา 30-60 วินาที)' });
+    const topic = (data.topic || editItemLatest.title || '').trim();
+    if (!topic) {
+      toast({ title: 'สร้างบทความไม่สำเร็จ', description: 'ต้องมีหัวข้อก่อนเริ่ม Research', variant: 'destructive' });
+      return;
+    }
+    toast({ title: 'AI กำลังค้นข้อมูลและเขียนบทความ...', description: 'Research → วิเคราะห์ → เขียนบทความ' });
     try {
-      const result = await apiFetch('/brand-content.php?action=generate-article', {
-        method: 'POST',
-        body: JSON.stringify({ item_id: editItemLatest.id }),
-      });
+      const result = await runResearch({ topic, itemId: editItemLatest.id });
       qc.invalidateQueries({ queryKey: ['content', 'items'] });
       qc.invalidateQueries({ queryKey: ['content', 'plans'] });
       toast({

@@ -11,7 +11,7 @@ export default function ResearchProviderForm() {
   const { data: settings } = useContentGlobalSettings();
   const saveMut = useSaveGlobalSettings();
   const testMut = useTestResearchProvider();
-  const [provider, setProvider] = useState('none');
+  const [provider, setProvider] = useState('ai');
   const [login, setLogin] = useState('');
   const [password, setPassword] = useState('');
   const [locationCode, setLocationCode] = useState('2764');
@@ -20,7 +20,7 @@ export default function ResearchProviderForm() {
 
   useEffect(() => {
     if (!settings) return;
-    setProvider(settings.research_provider || 'none');
+    setProvider(settings.research_provider || 'ai');
     setLogin(settings.research_api_login || '');
     setLocationCode(String(settings.research_location_code ?? 2764));
     setLanguageCode(settings.research_language_code || 'th');
@@ -91,16 +91,15 @@ export default function ResearchProviderForm() {
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-xs text-muted-foreground">
-          ตั้งค่าแหล่งข้อมูลคำค้นหาและผลการค้นหาเพื่อใช้ใน flow คอนเทนต์เดิม
+          Research เป็นขั้นตอนบังคับภายในของการสร้าง Content ระบบจะใช้ข้อมูลเดิมที่ยังสด และ Fetch ใหม่เมื่อไม่มีหรือหมดอายุ
         </p>
 
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="space-y-1.5 text-sm">
             <span>ผู้ให้บริการ</span>
             <select value={provider} onChange={e => setProvider(e.target.value)} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
-              <option value="none">ยังไม่ตั้งค่า</option>
-              <option value="dataforseo">DataForSEO</option>
               <option value="ai">AI (Perplexity/Sonar)</option>
+              <option value="dataforseo">DataForSEO</option>
             </select>
           </label>
           {provider !== 'ai' && (
@@ -124,8 +123,11 @@ export default function ResearchProviderForm() {
             <Input value={languageCode} onChange={e => setLanguageCode(e.target.value)} placeholder="th" />
           </label>
           <label className="space-y-1.5 text-sm">
-            <span>อายุ Cache (ชั่วโมง)</span>
+            <span>อายุ Research Cache (ชั่วโมง)</span>
             <Input type="number" min={0} max={8760} value={cacheHours} onChange={e => setCacheHours(e.target.value)} />
+            <span className="block text-xs text-muted-foreground">
+              0 = ปิด Cache (Fetch ใหม่ทุกครั้ง ไม่ Reuse Research เดิม)
+            </span>
           </label>
         </div>
 

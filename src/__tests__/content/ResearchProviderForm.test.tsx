@@ -27,7 +27,7 @@ function mockSettings(overrides: Record<string, any> = {}) {
   vi.mocked(apiFetch).mockImplementation(async (url: string, options?: RequestInit) => {
     if (url === '/brand-content.php?action=global-settings' && !options?.method) {
       return {
-        research_provider: 'none',
+        research_provider: 'ai',
         research_api_login: '',
         has_research_key: false,
         research_location_code: 2764,
@@ -45,12 +45,39 @@ beforeEach(() => {
 });
 
 describe('ResearchProviderForm', () => {
-  it('keeps test button disabled when provider is not DataForSEO', async () => {
+  // Research เป็น Mandatory — ผู้ดูแลเลือกได้เฉพาะ provider ที่ทำ Research จริง
+  it('มีเฉพาะ provider ai และ dataforseo — ไม่มีตัวเลือก none', async () => {
     mockSettings();
     renderForm();
 
+    const select = await screen.findByRole('combobox');
+    const values = Array.from((select as HTMLSelectElement).options).map(o => o.value);
+    expect(values).toEqual(['ai', 'dataforseo']);
+    expect(values).not.toContain('none');
+    await waitFor(() => expect((select as HTMLSelectElement).value).toBe('ai'));
+  });
+
+  it('coerces an unknown stored provider to ai instead of disabling Research', async () => {
+    mockSettings({ research_provider: '' });
+    renderForm();
+
+    const select = await screen.findByRole('combobox');
+    await waitFor(() => expect((select as HTMLSelectElement).value).toBe('ai'));
+  });
+
+  it('keeps test button disabled when DataForSEO has no credential', async () => {
+    mockSettings({ research_provider: 'dataforseo', research_api_login: '', has_research_key: false });
+    renderForm();
+
     const button = await screen.findByRole('button', { name: /ทดสอบการเชื่อมต่อ/ });
-    expect(button).toHaveProperty('disabled', true);
+    await waitFor(() => expect(button).toHaveProperty('disabled', true));
+  });
+
+  it('อธิบายความหมายของ cache 0 ชั่วโมงว่าปิด Cache', async () => {
+    mockSettings();
+    renderForm();
+
+    expect(await screen.findByText(/0 = ปิด Cache/)).toBeTruthy();
   });
 
   it('enables test button when saved DataForSEO credential is available', async () => {

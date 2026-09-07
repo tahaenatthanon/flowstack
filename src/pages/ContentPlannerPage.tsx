@@ -229,11 +229,14 @@ export default function ContentPlannerPage() {
         for (const item of items) {
           done++;
           setGenerateProgress(`${done}/${total}`);
+          const itemTopic = (item.topic || '').trim();
+          if (!itemTopic) {
+            toast({ title: `ข้าม "${item.topic}" — ไม่มีหัวข้อสำหรับ Research`, variant: 'destructive' });
+            continue;
+          }
           try {
-            await apiFetch('/brand-content.php?action=generate-article', {
-              method: 'POST',
-              body: JSON.stringify({ item_id: item.id }),
-            });
+            // Mandatory Research — Fetch/Reuse → Analyze → Generate
+            await runResearch({ topic: itemTopic, itemId: item.id });
           } catch (e: any) {
             // Continue to next item even if one fails
             toast({ title: `ข้าม "${item.topic}" — ${e.message}`, variant: 'destructive' });
@@ -251,7 +254,7 @@ export default function ContentPlannerPage() {
       setGenerating(false);
       setGeneratingArticles(false);
     }
-  }, [qc, toast]);
+  }, [qc, toast, runResearch]);
 
   const handleSelectPlan = useCallback(async (plan: ContentPlan) => {
     try {

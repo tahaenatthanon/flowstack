@@ -71,6 +71,17 @@ function renderDialog(existingItem: PlanItem | null) {
   );
 }
 
+/**
+ * Script ของแต่ละ platform แสดงเป็นแท็บ — ตรวจที่รายการแท็บเท่านั้น
+ * (ห้ามค้นทั้งหน้า เพราะรายการตัวเลือก Platform ด้านล่างแสดงชื่อครบทุกตัวโดยเจตนา
+ * เพื่อให้แก้ไข/เพิ่ม Platform ได้)
+ */
+const scriptTabs = () => screen.queryAllByRole('tab').map(t => (t.textContent ?? '').trim());
+const hasTab = async (label: string) =>
+  await waitFor(() => expect(scriptTabs()).toContain(label));
+const noTab = async (label: string) =>
+  await waitFor(() => expect(scriptTabs()).not.toContain(label));
+
 const present = async (text: string) =>
   await waitFor(() => expect(screen.queryAllByText(text).length).toBeGreaterThan(0));
 const absent = async (text: string) =>
@@ -83,71 +94,69 @@ beforeEach(() => {
 describe('ContentCardDialog — Scripts จำกัดตาม Platform ที่เลือก', () => {
   it('TC1: Facebook อย่างเดียว → แสดง script เฉพาะ Facebook', async () => {
     renderDialog(makeItem({ platform: 'facebook', platforms: ['facebook'], scripts: ALL_PLATFORM_SCRIPTS }));
-    await present('Facebook');
-    await absent('Instagram');
-    await absent('TikTok');
-    await absent('YouTube');
-    await absent('LinkedIn');
+    await hasTab('Facebook');
+    await noTab('Instagram');
+    await noTab('TikTok');
+    await noTab('YouTube');
+    await noTab('LinkedIn');
   });
 
   it('TC2: Facebook + Instagram → แสดง script ทั้งสองเท่านั้น', async () => {
     renderDialog(makeItem({ platform: 'facebook', platforms: ['facebook', 'instagram'], scripts: ALL_PLATFORM_SCRIPTS }));
-    await present('Facebook');
-    await present('Instagram');
-    await absent('TikTok');
-    await absent('YouTube');
+    await hasTab('Facebook');
+    await hasTab('Instagram');
+    await noTab('TikTok');
+    await noTab('YouTube');
   });
 
   it('TC3: YouTube + TikTok → แสดง script ทั้งสองเท่านั้น', async () => {
     renderDialog(makeItem({ platform: 'youtube', platforms: ['youtube', 'tiktok'], scripts: ALL_PLATFORM_SCRIPTS }));
-    await present('YouTube');
-    await present('TikTok');
-    await absent('Facebook');
-    await absent('Instagram');
+    await hasTab('YouTube');
+    await hasTab('TikTok');
+    await noTab('Facebook');
+    await noTab('Instagram');
   });
 
   it('TC4: Instagram + TikTok + YouTube → แสดง 3 ตัวนี้เท่านั้น', async () => {
     renderDialog(makeItem({ platform: 'instagram', platforms: ['instagram', 'tiktok', 'youtube'], scripts: ALL_PLATFORM_SCRIPTS }));
-    await present('Instagram');
-    await present('TikTok');
-    await present('YouTube');
-    await absent('Facebook');
-    await absent('LinkedIn');
+    await hasTab('Instagram');
+    await hasTab('TikTok');
+    await hasTab('YouTube');
+    await noTab('Facebook');
+    await noTab('LinkedIn');
   });
 
   it('TC5: ไม่มี Platform → ไม่แสดง script ใด (empty state)', async () => {
     renderDialog(makeItem({ platform: '', platforms: null, scripts: ALL_PLATFORM_SCRIPTS }));
     await present('ยังไม่ได้กำหนด Platform สำหรับคอนเทนต์นี้');
-    await absent('Facebook');
-    await absent('Instagram');
-    await absent('TikTok');
-    await absent('YouTube');
+    await waitFor(() => expect(screen.queryAllByRole('tab')).toHaveLength(0));
   });
 
   it('TC6: AI สร้าง script platform อื่น → ระบบตัดออก (เหลือเฉพาะที่เลือก)', async () => {
     // platforms เลือก facebook แต่ article_content มี instagram ที่ AI แอบเพิ่ม → ต้องถูกตัด
     renderDialog(makeItem({ platform: 'facebook', platforms: ['facebook'], scripts: { facebook: 'FB', instagram: 'IG แอบเพิ่ม' } }));
-    await present('Facebook');
-    await absent('Instagram');
+    await hasTab('Facebook');
+    await noTab('Instagram');
+    await absent('IG แอบเพิ่ม');
   });
 
   it('TC7: SEO/AEO repair เพิ่ม script platform ที่ไม่ได้เลือก → ต้องถูกตัดออก', async () => {
     // จำลอง repair ที่เผลอเพิ่ม linkedin/twitter กลับมา → ต้องถูกตัดเหลือเฉพาะ facebook
     renderDialog(makeItem({ platform: 'facebook', platforms: ['facebook'], scripts: { facebook: 'FB', linkedin: 'LI', twitter: 'X' } }));
-    await present('Facebook');
-    await absent('LinkedIn');
-    await absent('Twitter / X');
+    await hasTab('Facebook');
+    await noTab('LinkedIn');
+    await noTab('Twitter / X');
   });
 
   it('TC8: Content เดิมมี script ครบทุก Platform → แสดงเฉพาะ platform ที่ Content เลือก', async () => {
     // legacy: article_content มี script ครบทุก platform แต่ content เลือกไว้แค่ instagram+tiktok
     renderDialog(makeItem({ platform: 'instagram', platforms: ['instagram', 'tiktok'], scripts: ALL_PLATFORM_SCRIPTS }));
-    await present('Instagram');
-    await present('TikTok');
-    await absent('Facebook');
-    await absent('YouTube');
-    await absent('LinkedIn');
-    await absent('Twitter / X');
+    await hasTab('Instagram');
+    await hasTab('TikTok');
+    await noTab('Facebook');
+    await noTab('YouTube');
+    await noTab('LinkedIn');
+    await noTab('Twitter / X');
   });
 
   it('TC9: Content เดิมมี persisted Script Quality → โหลดและแสดงผลได้หลังเปิด Dialog ใหม่', async () => {
@@ -170,7 +179,7 @@ describe('ContentCardDialog — Scripts จำกัดตาม Platform ที
     await present('82');
     await present('ผ่าน');
     await absent('65');
-    await absent('Instagram');
+    await noTab('Instagram');
   });
 
   it('TC10: มี Script ปัจจุบันแต่ไม่มี Quality → แสดง รอตรวจ และไม่สร้าง Score ปลอม', async () => {

@@ -24,6 +24,30 @@ const defaultProps = {
   onSeoChange: vi.fn(),
 };
 
+/**
+ * SEO และ AEO เป็นสอง endpoint แยกกัน และแผงตรวจก็แยกกัน — mock ต้องแยก payload
+ * ด้วย ไม่ใช่ตอบก้อนเดียวกันให้ทุก URL มิฉะนั้นกฎเดียวจะถูก render ซ้ำสองแผง
+ */
+function mockChecklists(seoRules: any[], seoOverrides: Record<string, any> = {}) {
+  vi.mocked(apiFetch).mockImplementation(async (url: unknown) => {
+    const u = String(url);
+    if (u.includes('action=seo-checklist')) {
+      return {
+        score: 100,
+        gate: 'passed',
+        rules: seoRules,
+        seo_gate_enabled: 1,
+        seo_gate_min_score: 0,
+        ...seoOverrides,
+      } as any;
+    }
+    if (u.includes('action=aeo-checklist')) {
+      return { score: 100, gate: 'passed', rules: [] } as any;
+    }
+    throw new Error('unexpected ' + u);
+  });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
@@ -101,12 +125,7 @@ describe('ArticleEditor', () => {
   });
 
   it('renders pending SEO rules without crashing the page', async () => {
-    vi.mocked(apiFetch).mockResolvedValue({
-      score: 100,
-      rules: [{ key: 'seo_title', level: 'pending', message: 'ยังไม่ได้กรอก SEO title' }],
-      seo_gate_enabled: 1,
-      seo_gate_min_score: 0,
-    } as any);
+    mockChecklists([{ key: 'seo_title', level: 'pending', message: 'ยังไม่ได้กรอก SEO title' }]);
     render(<ArticleEditor {...defaultProps} contentItemId="item-1" />);
     fireEvent.click(await screen.findByText('SEO / AEO Metadata'));
     await waitFor(() => {
@@ -115,12 +134,10 @@ describe('ArticleEditor', () => {
   });
 
   it('uses a safe fallback for an unknown SEO rule level', async () => {
-    vi.mocked(apiFetch).mockResolvedValue({
-      score: 100,
-      rules: [{ key: 'future_rule', level: 'future_level', message: 'กฎใหม่จากระบบ' }],
-      seo_gate_enabled: 0,
-      seo_gate_min_score: 0,
-    } as any);
+    mockChecklists(
+      [{ key: 'future_rule', level: 'future_level', message: 'กฎใหม่จากระบบ' }],
+      { seo_gate_enabled: 0 },
+    );
     render(<ArticleEditor {...defaultProps} contentItemId="item-2" />);
     fireEvent.click(await screen.findByText('SEO / AEO Metadata'));
     await waitFor(() => {

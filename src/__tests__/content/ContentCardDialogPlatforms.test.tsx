@@ -5,8 +5,11 @@ import { ContentCardDialog } from '@/components/content/ContentCardDialog';
 import type { PlanItem } from '@/components/content/types';
 
 /**
- * Requirement part 1: Content Dialog ต้องแสดงเฉพาะ Platform ที่ถูกบันทึกไว้กับ
- * Content Item นั้นเท่านั้น ห้ามดึง Platform ทั้งระบบมาแสดงสำหรับ Content เดิม
+ * Requirement part 1: Platform ที่ "ถูกเลือกไว้" ของ Content Item ต้องมาจากข้อมูลของ
+ * item นั้นเท่านั้น — ห้าม default, ห้าม fallback, ห้ามปนกับ item อื่น
+ *
+ * รายการตัวเลือก Platform ทั้งหมดยังต้องแสดงเสมอเพื่อให้แก้ไข/เพิ่ม Platform ได้
+ * (multi-select) สิ่งที่จำกัดตาม Content Item คือ "สถานะติ๊ก" ไม่ใช่การซ่อนตัวเลือก
  */
 
 const toast = vi.fn();
@@ -53,90 +56,109 @@ function renderDialog(existingItem: PlanItem | null) {
   );
 }
 
-// ใช้ queryAllByText เพราะ header badge อาจแสดง label เดียวกับ checkbox label
+/**
+ * หา checkbox ของ Platform จาก <label> ที่ครอบข้อความนั้นอยู่
+ * (ตัด badge ใน DialogHeader ที่ใช้ label เดียวกันออก เพราะไม่ได้อยู่ใน label)
+ */
+function platformCheckbox(label: string): HTMLElement {
+  const box = screen
+    .getAllByText(label)
+    .map(node => node.closest('label')?.querySelector('[role="checkbox"]'))
+    .find(Boolean);
+  if (!box) throw new Error(`ไม่พบ checkbox ของ Platform: ${label}`);
+  return box as HTMLElement;
+}
+
+const checked = async (label: string) =>
+  await waitFor(() => expect(platformCheckbox(label).getAttribute('data-state')).toBe('checked'));
+const unchecked = async (label: string) =>
+  await waitFor(() => expect(platformCheckbox(label).getAttribute('data-state')).toBe('unchecked'));
 const present = async (text: string) =>
   await waitFor(() => expect(screen.queryAllByText(text).length).toBeGreaterThan(0));
-const absent = async (text: string) =>
-  await waitFor(() => expect(screen.queryAllByText(text).length).toBe(0));
 
 beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe('ContentCardDialog — จำกัด Platform ตาม Content Item', () => {
-  it('TC1: Content เลือก Facebook อย่างเดียว → แสดงเฉพาะ Facebook', async () => {
+describe('ContentCardDialog — Platform ที่ติ๊กไว้ต้องตรงกับ Content Item', () => {
+  it('TC1: Content เลือก Facebook อย่างเดียว → ติ๊กเฉพาะ Facebook', async () => {
     renderDialog(makeItem({ platform: 'facebook', platforms: ['facebook'] }));
-    await present('Facebook');
-    await absent('Instagram');
-    await absent('TikTok');
-    await absent('YouTube');
+    await checked('Facebook');
+    await unchecked('Instagram');
+    await unchecked('TikTok');
+    await unchecked('YouTube');
   });
 
-  it('TC2: Content เลือก Facebook + Instagram → แสดงทั้งสองเท่านั้น', async () => {
+  it('TC2: Content เลือก Facebook + Instagram → ติ๊กทั้งสองเท่านั้น', async () => {
     renderDialog(makeItem({ platform: 'facebook', platforms: ['facebook', 'instagram'] }));
-    await present('Facebook');
-    await present('Instagram');
-    await absent('TikTok');
-    await absent('YouTube');
+    await checked('Facebook');
+    await checked('Instagram');
+    await unchecked('TikTok');
+    await unchecked('YouTube');
   });
 
-  it('TC3: Content เลือก YouTube + TikTok → แสดงทั้งสองเท่านั้น', async () => {
+  it('TC3: Content เลือก YouTube + TikTok → ติ๊กทั้งสองเท่านั้น', async () => {
     renderDialog(makeItem({ platform: 'youtube', platforms: ['youtube', 'tiktok'] }));
-    await present('YouTube');
-    await present('TikTok');
-    await absent('Facebook');
-    await absent('Instagram');
+    await checked('YouTube');
+    await checked('TikTok');
+    await unchecked('Facebook');
+    await unchecked('Instagram');
   });
 
   it('TC4: Content ที่ไม่มี Platform → แสดง Empty State (ห้าม fallback/ห้าม default Facebook)', async () => {
     renderDialog(makeItem({ platform: '', platforms: null }));
     await present('ยังไม่ได้กำหนด Platform สำหรับคอนเทนต์นี้');
-    await absent('Facebook');
-    await absent('Instagram');
+    // ไม่มีรายการให้ติ๊กเลย → เป็นไปไม่ได้ที่จะมี platform ถูกเลือกโดยระบบ
+    await waitFor(() => expect(screen.queryAllByRole('checkbox')).toHaveLength(0));
   });
 
-  it('TC6: แก้ Facebook+Instagram → Facebook+TikTok → แสดง Facebook+TikTok เท่านั้น (ไม่มี Instagram)', async () => {
+  it('TC6: แก้ Facebook+Instagram → Facebook+TikTok → ติ๊ก Facebook+TikTok เท่านั้น (ไม่มี Instagram)', async () => {
     renderDialog(makeItem({ platform: 'facebook', platforms: ['facebook', 'tiktok'] }));
-    await present('Facebook');
-    await present('TikTok');
-    await absent('Instagram');
+    await checked('Facebook');
+    await checked('TikTok');
+    await unchecked('Instagram');
   });
 
   it('TC8: Content A=Facebook, B=Instagram+TikTok, C=YouTube — ไม่ปนกัน', async () => {
     const { unmount } = renderDialog(makeItem({ id: 'a', platform: 'facebook', platforms: ['facebook'] }));
-    await present('Facebook');
-    await absent('Instagram');
+    await checked('Facebook');
+    await unchecked('Instagram');
     unmount();
 
     renderDialog(makeItem({ id: 'b', platform: 'instagram', platforms: ['instagram', 'tiktok'] }));
-    await present('Instagram');
-    await present('TikTok');
-    await absent('Facebook');
-    await absent('YouTube');
+    await checked('Instagram');
+    await checked('TikTok');
+    await unchecked('Facebook');
+    await unchecked('YouTube');
   });
 
-  it('New content (existingItem=null) → แสดงรายการ Platform ทั้งหมด (สำหรับเลือก)', async () => {
+  it('New content (existingItem=null) → แสดงตัวเลือกครบและยังไม่ติ๊กอะไรเลย', async () => {
     renderDialog(null);
-    await present('Facebook');
-    await present('Instagram');
-    await present('YouTube');
-    await present('TikTok');
+    await unchecked('Facebook');
+    await unchecked('Instagram');
+    await unchecked('YouTube');
+    await unchecked('TikTok');
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole('checkbox').filter(b => b.getAttribute('data-state') === 'checked'),
+      ).toHaveLength(0),
+    );
   });
 
   // API ส่ง platforms กลับมาเป็น JSON string (เพราะ SQL คืน TEXT) — Dialog ต้อง parse ได้
-  it('platforms เป็น JSON string → แสดงเฉพาะ platform ที่ parse ออกมา', async () => {
+  it('platforms เป็น JSON string → ติ๊กเฉพาะ platform ที่ parse ออกมา', async () => {
     renderDialog(makeItem({ platform: 'facebook', platforms: '["facebook","instagram"]' }));
-    await present('Facebook');
-    await present('Instagram');
-    await absent('TikTok');
-    await absent('YouTube');
+    await checked('Facebook');
+    await checked('Instagram');
+    await unchecked('TikTok');
+    await unchecked('YouTube');
   });
 
-  it('platforms เป็น comma string (legacy) → แสดงเฉพาะ platform ที่ split ออกมา', async () => {
+  it('platforms เป็น comma string (legacy) → ติ๊กเฉพาะ platform ที่ split ออกมา', async () => {
     renderDialog(makeItem({ platform: 'youtube', platforms: 'youtube,tiktok' }));
-    await present('YouTube');
-    await present('TikTok');
-    await absent('Facebook');
-    await absent('Instagram');
+    await checked('YouTube');
+    await checked('TikTok');
+    await unchecked('Facebook');
+    await unchecked('Instagram');
   });
 });

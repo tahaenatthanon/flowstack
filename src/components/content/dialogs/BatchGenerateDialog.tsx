@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import { useContentSkills, useBrandContexts, useContentTriggers } from '@/hooks/useContent';
+import { useResearchRun, RESEARCH_STEP_LABELS } from '@/hooks/useResearchRun';
 import type { ContentPlan } from '@/components/content/types';
 import { PLATFORM_MAP } from '@/components/content/types';
 import { Input } from '@/components/ui/input';
@@ -35,6 +36,9 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
   const { data: skills   = [] } = useContentSkills(open);
   const { data: contexts = [] } = useBrandContexts(open);
   const { data: triggers = [] } = useContentTriggers(open);
+
+  // Mandatory Research — การสร้างเนื้อหาทุกชิ้นต้องผ่าน Fetch/Reuse → Analyze → Generate
+  const { run: runResearch, step: researchStep } = useResearchRun();
 
   const handleReset = () => {
     setTopic(''); setNiche(''); setSelPlatforms([]); setLanguage('thai');
@@ -71,13 +75,15 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
       const items = result.items ?? [];
       setTotal(items.length);
       setProgress(0);
+      // Mandatory Research — แต่ละชิ้นต้องผ่าน Fetch/Reuse → Analyze → Generate
+      // ใช้ topic ของ item เป็น seed keyword เพื่อให้ Research ตรงกับ Topic ที่ backend ตรวจ
       for (let i = 0; i < items.length; i++) {
-        try {
-          await apiFetch('/brand-content.php?action=generate-article', {
-            method: 'POST',
-            body: JSON.stringify({ item_id: items[i].id }),
-          });
-        } catch { /* continue on individual failure */ }
+        const itemTopic = (items[i].topic || '').trim();
+        if (itemTopic) {
+          try {
+            await runResearch({ topic: itemTopic, itemId: items[i].id });
+          } catch { /* continue on individual failure */ }
+        }
         setProgress(i + 1);
       }
       qc.invalidateQueries({ queryKey: ['content', 'items'] });
@@ -231,7 +237,11 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
               )}
               {(total > 0 || step === 'done') && (
                 <>
-                  <p className="font-semibold text-lg">{step === 'done' ? '✅ เสร็จแล้ว!' : `กำลังสร้าง... ${progress}/${total}`}</p>
+                  <p className="font-semibold text-lg">
+                    {step === 'done'
+                      ? '✅ เสร็จแล้ว!'
+                      : `${RESEARCH_STEP_LABELS[researchStep] ?? 'กำลังสร้าง'}... ${progress}/${total}`}
+                  </p>
                   {plan && <p className="text-sm text-muted-foreground">{plan.title}</p>}
                 </>
               )}

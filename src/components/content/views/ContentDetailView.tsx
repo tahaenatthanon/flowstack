@@ -11,6 +11,7 @@ import { apiFetch } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import type { ContentItem, PlanItem } from '@/components/content/types';
 import { PLATFORM_MAP } from '@/components/content/types';
+import { useResearchRun, RESEARCH_STEP_LABELS } from '@/hooks/useResearchRun';
 import ContentArticleView from './ContentArticleView';
 import ContentVideoView from './ContentVideoView';
 import { ContentCardDialog } from '@/components/content/ContentCardDialog';
@@ -41,6 +42,8 @@ export default function ContentDetailView({
   const [editOpen, setEditOpen] = useState(false);
   const [generatingImage, setGeneratingImage] = useState(false);
   const [generatingArticle, setGeneratingArticle] = useState(false);
+  // Mandatory Research — การสร้างเนื้อหาต้องผ่าน Fetch/Reuse → Analyze → Generate
+  const { run: runResearch, step: researchStep } = useResearchRun();
 
   // Approval actions — 'revision' and 'rejected' collect an optional reason
   const [approveConfirm, setApproveConfirm] = useState(false);
@@ -195,12 +198,14 @@ export default function ContentDetailView({
   };
 
   const handleEditAI = async (data: { topic: string; platform: string; scheduled_date: string }) => {
-    toast({ title: 'AI กำลังเขียนบทความ...', description: 'โปรดรอสักครู่ (อาจใช้เวลา 30-60 วินาที)' });
+    const topic = (data.topic || item.title || '').trim();
+    if (!topic) {
+      toast({ title: 'สร้างบทความไม่สำเร็จ', description: 'ต้องมีหัวข้อก่อนเริ่ม Research', variant: 'destructive' });
+      return;
+    }
+    toast({ title: 'AI กำลังค้นข้อมูลและเขียนบทความ...', description: 'Research → วิเคราะห์ → เขียนบทความ' });
     try {
-      const result = await apiFetch('/brand-content.php?action=generate-article', {
-        method: 'POST',
-        body: JSON.stringify({ item_id: item.id }),
-      });
+      const result = await runResearch({ topic, itemId: item.id });
       qc.invalidateQueries({ queryKey: ['content', 'items'] });
       qc.invalidateQueries({ queryKey: ['content', 'plans'] });
       toast({
@@ -214,13 +219,15 @@ export default function ContentDetailView({
   };
 
   const handleGenerateArticle = async () => {
+    const topic = (item.title || '').trim();
+    if (!topic) {
+      toast({ title: 'สร้างเนื้อหาไม่สำเร็จ', description: 'ต้องมีหัวข้อก่อนเริ่ม Research', variant: 'destructive' });
+      return;
+    }
     setGeneratingArticle(true);
-    toast({ title: 'AI กำลังเขียนเนื้อหา...', description: 'โปรดรอสักครู่ (อาจใช้เวลา 30-60 วินาที)' });
+    toast({ title: 'AI กำลังค้นข้อมูลและเขียนเนื้อหา...', description: 'Research → วิเคราะห์ → เขียนบทความ' });
     try {
-      const result = await apiFetch('/brand-content.php?action=generate-article', {
-        method: 'POST',
-        body: JSON.stringify({ item_id: item.id }),
-      });
+      const result = await runResearch({ topic, itemId: item.id });
       qc.invalidateQueries({ queryKey: ['content', 'items'] });
       qc.invalidateQueries({ queryKey: ['content', 'plans'] });
       toast({
@@ -319,7 +326,7 @@ export default function ContentDetailView({
               {!item.article_content && (
                 <Button size="sm" variant="default" className="gap-1.5" onClick={handleGenerateArticle} disabled={generatingArticle}>
                   {generatingArticle ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                  {generatingArticle ? 'กำลังสร้าง...' : 'สร้างเนื้อหา AI'}
+                  {generatingArticle ? `${RESEARCH_STEP_LABELS[researchStep] ?? 'กำลังสร้าง'}...` : 'สร้างเนื้อหา AI'}
                 </Button>
               )}
               <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setEditOpen(true)}>

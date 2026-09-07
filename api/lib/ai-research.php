@@ -1,5 +1,44 @@
 <?php
 
+/**
+ * Research cache semantics — single source of truth ใช้ร่วมกันทั้ง
+ * `content-research.php` (Fetch/Reuse) และ `brand-content.php` (Generate)
+ *
+ *   cache_hours > 0 : Reuse Research ที่ fetch มาไม่เกิน N ชั่วโมงได้
+ *   cache_hours = 0 : ปิด cache — ห้าม Reuse Research เดิมเลย ต้อง Fetch ใหม่ทุกครั้ง
+ *
+ * เมื่อ cache ปิด Generate ยังต้องใช้ Research job ที่ Fetch มาในรอบการทำงานเดียวกัน
+ * (fetch → analyze → generate) จึงยอมรับเฉพาะ job ที่อายุไม่เกิน
+ * RESEARCH_ACTIVE_RUN_GRACE_SECONDS ซึ่งไม่ใช่การ Reuse cache
+ */
+const RESEARCH_CACHE_HOURS_MAX = 8760;
+const RESEARCH_CACHE_HOURS_DEFAULT = 168;
+const RESEARCH_ACTIVE_RUN_GRACE_SECONDS = 900;
+
+/** บีบค่า cache hours ให้อยู่ในช่วง 0-8760 โดย 0 = ปิด cache */
+function research_normalize_cache_hours($raw, int $default = RESEARCH_CACHE_HOURS_DEFAULT): int {
+    if ($raw === null || $raw === '') return min(RESEARCH_CACHE_HOURS_MAX, max(0, $default));
+    return min(RESEARCH_CACHE_HOURS_MAX, max(0, (int)$raw));
+}
+
+function research_cache_enabled(int $cacheHours): bool {
+    return $cacheHours > 0;
+}
+
+/** อายุสูงสุด (วินาที) ของ Research job ที่ยังใช้สร้าง Content ได้ */
+function research_max_age_seconds(int $cacheHours): int {
+    return research_cache_enabled($cacheHours)
+        ? $cacheHours * 3600
+        : RESEARCH_ACTIVE_RUN_GRACE_SECONDS;
+}
+
+/** Research job ยังใช้สร้าง Content ได้หรือไม่ ตาม cache semantics ด้านบน */
+function research_job_is_usable(int $cacheHours, ?string $fetchedAt): bool {
+    $ts = ($fetchedAt === null || $fetchedAt === '') ? false : strtotime($fetchedAt);
+    if ($ts === false) return false;
+    return $ts >= (time() - research_max_age_seconds($cacheHours));
+}
+
 function ai_research_required_fields(): array {
     return [
         'primary_keyword', 'secondary_keywords', 'intent', 'paa',

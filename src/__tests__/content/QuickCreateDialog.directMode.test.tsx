@@ -91,12 +91,11 @@ describe('QuickCreateDialog direct generation mode', () => {
     expect(plan).not.toHaveProperty('week_start');
   });
 
-  it('เมื่อเปิด Research ใช้ Original User Topic เป็น seed ไม่ใช่ topic ที่ AI เขียนใหม่', async () => {
+  it('ใช้ Original User Topic เป็น seed ของ Research ไม่ใช่ topic ที่ AI เขียนใหม่', async () => {
     const bodies = mockApi();
     renderDialog();
 
     fireEvent.click(await screen.findByRole('button', { name: /บทความ & โซเชียล/ }));
-    fireEvent.click(await screen.findByRole('switch'));
     fireEvent.change(await screen.findByPlaceholderText(/5 เหตุผลที่ธุรกิจต้องใช้ AI/), { target: { value: '  YouTube  ' } });
     fireEvent.click(screen.getByRole('button', { name: /สร้างบทความ/ }));
 
@@ -112,16 +111,19 @@ describe('QuickCreateDialog direct generation mode', () => {
     expect(findBody(bodies, 'action=generate-article')!.research_job_id).toBe('job-1');
   });
 
-  it('เมื่อปิด Research ยังใช้ direct mode และไม่แตะ endpoint research', async () => {
+  it('direct mode ยังผ่าน Mandatory Research flow — Research ปิดไม่ได้', async () => {
     const bodies = mockApi();
     renderDialog();
 
     fireEvent.click(await screen.findByRole('button', { name: /บทความ & โซเชียล/ }));
+    // ไม่มี toggle ให้ปิด Research
+    expect(screen.queryByRole('switch')).toBeNull();
     fireEvent.change(await screen.findByPlaceholderText(/5 เหตุผลที่ธุรกิจต้องใช้ AI/), { target: { value: 'YouTube' } });
     fireEvent.click(screen.getByRole('button', { name: /สร้างบทความ/ }));
 
     await waitFor(() => expect(findBody(bodies, 'action=generate-article')).toBeTruthy());
-    expect(bodies.filter(b => b.url.includes('content-research.php'))).toHaveLength(0);
+    expect(bodies.filter(b => b.url.includes('content-research.php')).length).toBeGreaterThan(0);
     expect(findBody(bodies, 'action=generate-plan')!.generation_mode).toBe('direct');
+    expect(findBody(bodies, 'action=generate-article')!.research_job_id).toBe('job-1');
   });
 });

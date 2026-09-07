@@ -10,7 +10,6 @@ import { getTriggerDisplayLabel, PLATFORM_MAP } from '@/components/content/types
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { Plus, Wand2, Sparkles, FileText, Play, Loader2, ArrowRight, RefreshCw, Send, ImagePlus, PenTool, Zap, CheckCircle2, ChevronRight } from 'lucide-react';
@@ -32,7 +31,6 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
   const [selContextIds, setSelContextIds] = useState<string[]>([]);
   const [step, setStep]               = useState<'type' | 'form' | 'progress' | 'done'>('type');
   const [doneTitle, setDoneTitle]     = useState('');
-  const [researchEnabled, setResearchEnabled] = useState(false);
 
   const { run: runResearch, step: researchStep } = useResearchRun();
 
@@ -44,7 +42,6 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
     setContentType(null); setTopic(''); setSelPlatforms([]); setTone('friendly');
     setScriptStyle('hook-story'); setDuration('60s');
     setSelTriggerIds([]); setSelSkillIds([]); setAutoSkillIds([]); setSelContextIds([]); setStep('type'); setDoneTitle('');
-    setResearchEnabled(false);
   };
 
   const handleClose = (v: boolean) => {
@@ -85,22 +82,16 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
       qc.invalidateQueries({ queryKey: ['content', 'plans'] });
       const item = result.items?.[0];
       if (item) {
-        if (researchEnabled) {
-          await runResearch({ topic: topic.trim(), itemId: item.id });
-          setDoneTitle(item.topic);
-        } else {
-          const art = await apiFetch('/brand-content.php?action=generate-article', {
-            method: 'POST',
-            body: JSON.stringify({ item_id: item.id }),
+        // Research is mandatory for every AI content generation.
+        // The research runner reuses valid cached data and fetches a fresh job when needed.
+        const art = await runResearch({ topic: topic.trim(), itemId: item.id });
+        setDoneTitle(art?.article?.title ?? item.topic);
+        if (art?.generation_status === 'failed') {
+          toast({
+            title: 'สร้างไม่ผ่าน SEO — สถานะ revision',
+            description: `คะแนน SEO ${art?.seo?.score ?? 0} — เนื้อหาถูกบันทึกเป็น revision กรุณาตรวจสอบ SEO Checklist`,
+            variant: 'destructive',
           });
-          setDoneTitle(art?.article?.title ?? item.topic);
-          if (art?.generation_status === 'failed') {
-            toast({
-              title: 'สร้างไม่ผ่าน SEO — สถานะ revision',
-              description: `คะแนน SEO ${art?.seo?.score ?? 0} — เนื้อหาถูกบันทึกเป็น revision กรุณาตรวจสอบ SEO Checklist`,
-              variant: 'destructive',
-            });
-          }
         }
       }
       qc.invalidateQueries({ queryKey: ['content', 'items'] });
@@ -338,14 +329,6 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
                 {contexts.length === 0 && <span className="text-xs text-muted-foreground">ยังไม่มี Context (ดึงทั้งหมดอัตโนมัติ)</span>}
               </div>
             </div>
-            {/* AI Research toggle */}
-            <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
-              <div className="space-y-0.5">
-                <Label className="text-sm">ใช้ AI Research</Label>
-                <p className="text-[11px] text-muted-foreground">ค้นข้อมูลเว็บจริง → วิเคราะห์ → เขียนบทความ (ใช้เวลามากขึ้น)</p>
-              </div>
-              <Switch checked={researchEnabled} onCheckedChange={setResearchEnabled} />
-            </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => handleClose(false)}>ยกเลิก</Button>
               <Button disabled={!topic.trim()} onClick={handleCreate} className="gap-2">
@@ -359,23 +342,19 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
           <div className="py-12 flex flex-col items-center gap-4">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
             <p className="text-sm font-medium">AI กำลังสร้าง{contentType === 'video' ? 'วีดีโอสคริปต์' : 'บทความ'}...</p>
-            {researchEnabled ? (
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                {(['fetching', 'analyzing', 'generating'] as const).map((s, i) => (
-                  <span key={s} className={cn('flex items-center gap-1', i > 0 && 'ml-1')}>
-                    {researchStep === s
-                      ? <Loader2 className="h-3 w-3 animate-spin" />
-                      : researchStep === 'done' || (['fetching','analyzing','generating'].indexOf(researchStep) > i)
-                        ? <CheckCircle2 className="h-3 w-3 text-green-500" />
-                        : <span className="h-3 w-3 rounded-full border" />}
-                    {RESEARCH_STEP_LABELS[s]}
-                    {i < 2 && <ChevronRight className="h-3 w-3 text-muted-foreground/50" />}
-                  </span>
-                ))}
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">ขั้นตอน: สร้างแผน → สร้างเนื้อหา</p>
-            )}
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              {(['fetching', 'analyzing', 'generating'] as const).map((s, i) => (
+                <span key={s} className={cn('flex items-center gap-1', i > 0 && 'ml-1')}>
+                  {researchStep === s
+                    ? <Loader2 className="h-3 w-3 animate-spin" />
+                    : researchStep === 'done' || (['fetching','analyzing','generating'].indexOf(researchStep) > i)
+                      ? <CheckCircle2 className="h-3 w-3 text-green-500" />
+                      : <span className="h-3 w-3 rounded-full border" />}
+                  {RESEARCH_STEP_LABELS[s]}
+                  {i < 2 && <ChevronRight className="h-3 w-3 text-muted-foreground/50" />}
+                </span>
+              ))}
+            </div>
           </div>
         )}
 
