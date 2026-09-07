@@ -2063,14 +2063,29 @@ if ($action === 'generate-article') {
             jsonError('ไม่พบ Research job ที่วิเคราะห์เสร็จแล้วใน tenant นี้', 422);
         }
 
-        // Enforce the same Topic + TTL rules even when a caller supplies a job id.
+        // Enforce the same Topic + tenant/configuration + TTL rules even when a caller supplies a job id.
+        // The Frontend must not be the security boundary: a direct generate-article request must
+        // be unable to attach Research from another provider/language/location.
         $expectedSeed = trim((string)($item['source_topic'] ?? '')) ?: trim((string)($item['topic'] ?? ''));
-        $researchSettingsStmt = $db->prepare('SELECT research_cache_hours FROM content_global_settings WHERE tenant_id=?');
+        $researchSettingsStmt = $db->prepare('SELECT research_provider, research_location_code, research_language_code, research_cache_hours FROM content_global_settings WHERE tenant_id=?');
         $researchSettingsStmt->execute([$tenantId]);
-        $rawConfiguredCacheHours = $researchSettingsStmt->fetchColumn();
-        $configuredCacheHours = research_normalize_cache_hours($rawConfiguredCacheHours === false ? null : $rawConfiguredCacheHours);
+        $researchSettings = $researchSettingsStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        $rawConfiguredCacheHours = $researchSettings['research_cache_hours'] ?? null;
+        $configuredCacheHours = research_normalize_cache_hours($rawConfiguredCacheHours);
+        $expectedProvider = trim((string)($researchSettings['research_provider'] ?? ''));
+        $expectedLocation = (int)($researchSettings['research_location_code'] ?? 2764);
+        $expectedLanguage = trim((string)($researchSettings['research_language_code'] ?? 'th'));
         if ($expectedSeed !== '' && strcasecmp(trim((string)$researchJob['seed_keyword']), $expectedSeed) !== 0) {
             jsonError('Research ไม่ตรงกับ Topic ของ Content นี้', 422);
+        }
+        if ($expectedProvider !== '' && strcasecmp(trim((string)$researchJob['provider']), $expectedProvider) !== 0) {
+            jsonError('Research provider ไม่ตรงกับการตั้งค่าปัจจุบัน', 422);
+        }
+        if ((int)$researchJob['location_code'] !== $expectedLocation) {
+            jsonError('Research location ไม่ตรงกับการตั้งค่าปัจจุบัน', 422);
+        }
+        if ($expectedLanguage !== '' && strcasecmp(trim((string)$researchJob['language_code']), $expectedLanguage) !== 0) {
+            jsonError('Research language ไม่ตรงกับการตั้งค่าปัจจุบัน', 422);
         }
         if (!research_job_is_usable($configuredCacheHours, $researchJob['fetched_at'] ?? null)) {
             jsonError('Research Data หมดอายุแล้ว — กรุณา Fetch Research ใหม่ก่อนสร้าง Content', 422);
