@@ -519,10 +519,20 @@ if ($action === 'plans') {
                 $currentArticleContent = (string)($qualityStmt->fetchColumn() ?: '');
                 if ($currentArticleContent !== '') {
                     $qualityArticle = json_decode($currentArticleContent, true);
-                    if (is_array($qualityArticle) && array_key_exists('script_quality', $qualityArticle)) {
-                        unset($qualityArticle['script_quality']);
-                        array_unshift($ciSets, 'article_content=?');
-                        array_unshift($ciVals, json_encode($qualityArticle, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+                    if (is_array($qualityArticle)) {
+                        $qualityInvalidated = false;
+                        if (array_key_exists('script_quality', $qualityArticle)) {
+                            unset($qualityArticle['script_quality']);
+                            $qualityInvalidated = true;
+                        }
+                        if (array_key_exists('quality_checked_at', $qualityArticle)) {
+                            unset($qualityArticle['quality_checked_at']);
+                            $qualityInvalidated = true;
+                        }
+                        if ($qualityInvalidated) {
+                            array_unshift($ciSets, 'article_content=?');
+                            array_unshift($ciVals, json_encode($qualityArticle, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+                        }
                     }
                 }
                 $ciVals[] = $itemId;
@@ -2771,6 +2781,13 @@ if ($action === 'generate-article') {
     $aeoPassed = $aeoGate === 'passed';
     $scriptPassed = $scriptQuality['passed'];
     $generationStatus = ($seoPassed && $aeoPassed && $scriptPassed) ? 'success' : 'failed';
+    // Quality is marked only after the final SEO/AEO/Script checks pass. The
+    // timestamp is stored inside the same article_content snapshot as the
+    // quality result, so a later content edit can remove both and return to
+    // "รอตรวจ" without carrying a result from an older version.
+    if ($generationStatus === 'success') {
+        $art['quality_checked_at'] = dbNow($db);
+    }
     // SEO, AEO หรือ Script ต่อ platform ไม่ผ่านหลัง repair ครบ max attempts → revision
     $finalStatus = ($seoPassed && $aeoPassed && $scriptPassed) ? null : 'revision';
     // รายการ required rule ที่ fail (key, message, expected) — ให้ผู้ใช้เห็นสาเหตุจริง

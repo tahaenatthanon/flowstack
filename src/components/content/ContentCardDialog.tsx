@@ -435,7 +435,9 @@ export function ContentCardDialog({
       });
       const art = res?.article;
       if (art) {
-        setScriptQuality(res?.script_quality?.platforms ?? {});
+        // Do not hydrate Quality from the AI response. Quality is shown only
+        // from the persisted result for the current Content version.
+        setScriptQuality({});
         setArticleHtml(art.html || '');
         setSeoFields({
           seo_title:        art.seo_title        || '',
@@ -552,21 +554,24 @@ export function ContentCardDialog({
   // Persisted by the backend together with the exact script JSON. This is the
   // Source of Truth for the current Content Item; never derive a score/gate in UI.
   const persistedScriptQuality = useMemo(() => {
-    const raw = articleData?.script_quality;
-    if (!raw || typeof raw !== 'object') return {};
-    const rawPlatforms = (raw as any).platforms;
-    if (!rawPlatforms || typeof rawPlatforms !== 'object') return {};
-    return Object.fromEntries(
-      Object.entries(rawPlatforms).filter(([key]) => platforms.includes(key.toLowerCase())),
-    );
-  }, [articleData?.script_quality, platforms]);
+  // Persisted Script Quality is valid only when it has a matching check
+  // timestamp. Without quality_checked_at the Content must be treated as
+  // "รอตรวจ", even if an older script_quality payload is still present.
+  if (!articleData?.quality_checked_at) return {};
+  const raw = articleData?.script_quality;
+  if (!raw || typeof raw !== 'object') return {};
+  const rawPlatforms = (raw as any).platforms;
+  if (!rawPlatforms || typeof rawPlatforms !== 'object') return {};
+  return Object.fromEntries(
+    Object.entries(rawPlatforms).filter(([key]) => platforms.includes(key.toLowerCase())),
+  );
+}, [articleData?.quality_checked_at, articleData?.script_quality, platforms]);
 
-  useEffect(() => {
-    // Reset first so opening another Content Item can never show the previous
-    // item's quality. Then hydrate from the persisted backend result for the
-    // current script; generation may update it immediately below as well.
-    setScriptQuality(persistedScriptQuality);
-  }, [persistedScriptQuality]);
+useEffect(() => {
+  // Never hydrate from an old AI response. Only the persisted result that is
+  // explicitly marked as checked for the current Content version is shown.
+  setScriptQuality(persistedScriptQuality);
+}, [persistedScriptQuality]);
   const scriptSections = articleData?.script_sections;
   const visuals: string[] = articleData?.visuals ?? [];
   const hashtags: string[] = articleData?.hashtags ?? [];

@@ -86,6 +86,17 @@ function final_publish_gate_check(PDO $db, string $tenantId, array $content, str
     if (($content['status'] ?? '') !== 'approved' || empty($content['approved_at'])) {
         return ['blocked' => true, 'reason' => 'Approval gate: คอนเทนต์นี้ยังไม่ผ่านการอนุมัติ'];
     }
+    // A publish/schedule action must use a Quality result from the current
+    // Content snapshot. The marker is persisted together with script_quality
+    // after the final generation checks. If it is missing, the Content was
+    // generated/edited without a current Quality result and must be rechecked.
+    $articleSnapshot = $content['article_content'] ?? null;
+    if (is_string($articleSnapshot)) {
+        $articleSnapshot = json_decode($articleSnapshot, true);
+    }
+    if (!is_array($articleSnapshot) || empty($articleSnapshot['quality_checked_at'])) {
+        return ['blocked' => true, 'reason' => 'Quality gate: Content นี้ยังไม่มีผล Quality ของเวอร์ชันปัจจุบัน กรุณาตรวจ Quality ใหม่ก่อนเผยแพร่/ตั้งเวลา'];
+    }
     if (!in_array($platform, $selected, true)) {
         return ['blocked' => true, 'reason' => "Platform gate: {$platform} ไม่ได้ถูกเลือกไว้ใน Content Item"];
     }

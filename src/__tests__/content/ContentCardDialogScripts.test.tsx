@@ -35,7 +35,14 @@ const ALL_PLATFORM_SCRIPTS: Record<string, string> = {
 function makeItem(overrides: Partial<PlanItem> & { scripts?: Record<string, string>; scriptQuality?: Record<string, any> }): PlanItem {
   const { scripts, scriptQuality, ...rest } = overrides;
   const article_content = scripts
-    ? JSON.stringify({ title: 'หัวข้อทดสอบ', scripts, ...(scriptQuality ? { script_quality: { platforms: scriptQuality } } : {}) })
+    ? JSON.stringify({
+        title: 'หัวข้อทดสอบ',
+        scripts,
+        ...(scriptQuality ? {
+          script_quality: { platforms: scriptQuality },
+          quality_checked_at: '2026-09-04 15:00:00',
+        } : {}),
+      })
     : '';
   return {
     id: 'item-1',
@@ -159,7 +166,7 @@ describe('ContentCardDialog — Scripts จำกัดตาม Platform ที
     await noTab('Twitter / X');
   });
 
-  it('TC9: Content เดิมมี persisted Script Quality → โหลดและแสดงผลได้หลังเปิด Dialog ใหม่', async () => {
+  it('TC9: Content เดิมมี persisted Script Quality + quality_checked_at → โหลดและแสดงผลได้หลังเปิด Dialog ใหม่', async () => {
     const quality = {
       facebook: {
         seo: { score: 85, gate: 'passed', rules: [{ key: 'topic_relevance', status: 'passed', tier: 'required', weight: 20, score: 20, message: 'ตรงกับหัวข้อ' }] },
