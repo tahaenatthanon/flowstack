@@ -79,6 +79,30 @@ function publish_html_to_text(string $html, string $dupTitle = ''): string {
  * The target platform is evaluated independently so another selected platform cannot
  * block it. Approval and platform selection are always hard requirements.
  */
+function content_quality_gate_check(PDO $db, string $tenantId, array $content, ?array $researchBrief = null): array {
+    $articleSnapshot = $content['article_content'] ?? null;
+    if (is_string($articleSnapshot)) $articleSnapshot = json_decode($articleSnapshot, true);
+    if (!is_array($articleSnapshot) || empty($articleSnapshot['quality_checked_at'])) {
+        return ['blocked' => true, 'reason' => 'Quality gate: Content นี้ยังไม่มีผล Quality ของเวอร์ชันปัจจุบัน กรุณาตรวจ Quality ใหม่ก่อน Request Approval'];
+    }
+    $selected = publish_content_platforms($content);
+    $scriptPlatforms = array_values(array_intersect($selected, SCRIPT_PLATFORMS));
+    $webPlatforms = array_values(array_diff($selected, SCRIPT_PLATFORMS));
+    $brief = $researchBrief ?? (is_array($content['research_brief'] ?? null) ? $content['research_brief'] : null);
+
+    if ($webPlatforms) {
+        $seo = seo_evaluate(array_merge($content, ['research_brief' => $brief]));
+        if (seo_gate_status($seo) !== 'passed') return ['blocked' => true, 'reason' => 'Article SEO gate: Quality ยังไม่ผ่าน', 'seo' => $seo];
+        $aeo = aeo_evaluate(array_merge($content, ['research_brief' => $brief]));
+        if (aeo_gate_status($aeo) !== 'passed') return ['blocked' => true, 'reason' => 'Article AEO gate: Quality ยังไม่ผ่าน', 'seo' => $seo, 'aeo' => $aeo];
+    }
+    foreach ($scriptPlatforms as $scriptPlatform) {
+        $script = script_quality_check_platform($content, $scriptPlatform, $brief);
+        if (empty($script['passed'])) return ['blocked' => true, 'reason' => "Script {$scriptPlatform} SEO/AEO gate: Quality ยังไม่ผ่าน", 'script' => $script];
+    }
+    return ['blocked' => false, 'reason' => null];
+}
+
 function final_publish_gate_check(PDO $db, string $tenantId, array $content, string $platform, ?array $researchBrief = null): array {
     $platform = strtolower(trim($platform));
     $selected = publish_content_platforms($content);
@@ -106,8 +130,18 @@ function final_publish_gate_check(PDO $db, string $tenantId, array $content, str
         $brief = $content['research_brief'];
     }
 
-    // Article SEO is the existing configurable global gate. Preserve its tenant
-    // setting while returning the latest deterministic evaluation for diagnostics.
+    // Apply Quality only to the target platform/type: web targets use Article SEO/AEO;
+    // social targets use the selected platform's Script SEO/AEO. A social-only item
+    // must never be blocked by Article Quality.
+    if (in_array($platform, SCRIPT_PLATFORMS, true)) {
+        $scriptGate = script_quality_publish_check($content, $platform, $brief);
+        if ($scriptGate['blocked']) {
+            return ['blocked' => true, 'reason' => 'Platform Script gate: ' . ($scriptGate['reason'] ?? 'Script SEO/AEO ไม่ผ่าน'), 'script' => $scriptGate];
+        }
+        return ['blocked' => false, 'reason' => null, 'script' => $scriptGate];
+    }
+
+    // Web/CMS targets use Article SEO/AEO.
     $seoGate = seo_gate_check($db, $tenantId, array_merge($content, ['research_brief' => $brief]));
     if ($seoGate['blocked']) {
         return [

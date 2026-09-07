@@ -5,6 +5,7 @@
 // POST   /api/approvals.php?action=decide&id=<id>  — approve or reject
 // DELETE /api/approvals.php?id=<id>                — cancel request (requester or admin)
 require_once __DIR__ . '/auth.php';
+require_once __DIR__ . '/lib/publish-dispatch.php';
 
 $user     = requireAuth();
 $db       = getDB();
@@ -124,6 +125,26 @@ if ($method === 'POST') {
 
   if (!$entityType || !$entityId)  jsonError('entity_type and entity_id required', 422);
   if (empty($approvers))           jsonError('approvers array required', 422);
+
+  // Quality is a hard prerequisite for requesting approval. Evaluate the latest
+  // persisted content version before creating any pending approval records.
+  if ($entityType === 'content_item') {
+    $contentStmt = $db->prepare('SELECT * FROM content_items WHERE id=? AND tenant_id=? LIMIT 1');
+    $contentStmt->execute([$entityId, $tenantId]);
+    $content = $contentStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$content) jsonError('Content not found', 404);
+
+    $researchStmt = $db->prepare("SELECT analysis FROM content_research_jobs WHERE content_item_id=? AND tenant_id=? AND status='done' ORDER BY created_at DESC LIMIT 1");
+    $researchStmt->execute([$entityId, $tenantId]);
+    $analysis = $researchStmt->fetchColumn();
+    $researchBrief = $analysis ? json_decode((string)$analysis, true) : null;
+    if (!is_array($researchBrief)) $researchBrief = null;
+
+    $qualityGate = content_quality_gate_check($db, $tenantId, $content, $researchBrief);
+    if ($qualityGate['blocked']) {
+      jsonError('ส่งขออนุมัติไม่ได้ — ' . ($qualityGate['reason'] ?? 'Content Quality ยังไม่ผ่าน'), 422);
+    }
+  }
 
   // A new approval request invalidates any previous approval for this content version.
   if ($entityType === 'content_item') {

@@ -180,10 +180,14 @@ if ($method === 'PUT') {
         }
     }
 
-    if ($changesContent && !in_array($requestedStatus, ['approved', 'published'], true)) {
-        $approvalState = $db->prepare('SELECT approved_at FROM content_items WHERE id=? AND tenant_id=?');
+    if ($changesContent) {
+        $approvalState = $db->prepare('SELECT approved_at, published_at FROM content_items WHERE id=? AND tenant_id=?');
         $approvalState->execute([$id, $tenantId]);
-        if (!empty($approvalState->fetchColumn())) {
+        $approvalRow = $approvalState->fetch(PDO::FETCH_ASSOC) ?: [];
+        // Editing an approved version invalidates that approval even when the
+        // client accidentally sends status=approved together with the edit.
+        // Published content remains protected by the published_at regression gate.
+        if (empty($approvalRow['published_at']) && !empty($approvalRow['approved_at'])) {
             $body['status'] = 'revision';
             $requestedStatus = 'revision';
         }

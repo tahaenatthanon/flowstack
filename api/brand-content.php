@@ -535,6 +535,15 @@ if ($action === 'plans') {
                         }
                     }
                 }
+                // Plan-item edits are Content mutations too. Invalidate current Quality
+                // and Approval so an approved version cannot survive a title/platform/date edit.
+                $stateStmt = $db->prepare('SELECT approved_at, published_at FROM content_items WHERE id=? AND tenant_id=?');
+                $stateStmt->execute([$itemId, $tenantId]);
+                $state = $stateStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+                if (empty($state['published_at']) && !empty($state['approved_at'])) {
+                    array_unshift($ciSets, 'status=?', 'approved_at=NULL');
+                    array_unshift($ciVals, 'revision');
+                }
                 $ciVals[] = $itemId;
                 $ciVals[] = $tenantId;
                 $db->prepare('UPDATE content_items SET ' . implode(',', $ciSets) . ',updated_at=NOW() WHERE id=? AND tenant_id=?')->execute($ciVals);
@@ -2199,8 +2208,8 @@ if ($action === 'generate-article') {
             CURLOPT_SSL_VERIFYPEER => defined('AI_SSL_VERIFY') ? AI_SSL_VERIFY : true,
             CURLOPT_ENCODING       => '',
         ]);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $raw = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $err = curl_error($ch);
         $curlInfo = curl_getinfo($ch);
         curl_close($ch);
@@ -3530,8 +3539,27 @@ if ($action === 'plan-item-date' && $method === 'PUT') {
     $dayLabel = $dayLabels[$dayOfWeek];
     $dayOrder = $dayOrders[$dayOfWeek];
 
-    $db->prepare('UPDATE content_items SET scheduled_date=?, updated_at=NOW() WHERE id=? AND tenant_id=?')
-       ->execute([$scheduledDate, $itemId, $tenantId]);
+    // Drag/drop changes scheduled_date, which is an approval-sensitive Content mutation.
+    $dateStateStmt = $db->prepare('SELECT article_content, approved_at, published_at FROM content_items WHERE id=? AND tenant_id=?');
+    $dateStateStmt->execute([$itemId, $tenantId]);
+    $dateState = $dateStateStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    $dateContent = json_decode((string)($dateState['article_content'] ?? ''), true);
+    $dateUpdateFields = ['scheduled_date=?'];
+    $dateUpdateValues = [$scheduledDate];
+    if (is_array($dateContent)) {
+        unset($dateContent['script_quality'], $dateContent['quality_checked_at']);
+        $dateUpdateFields[] = 'article_content=?';
+        $dateUpdateValues[] = json_encode($dateContent, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    }
+    if (empty($dateState['published_at']) && !empty($dateState['approved_at'])) {
+        $dateUpdateFields[] = 'status=?';
+        $dateUpdateValues[] = 'revision';
+        $dateUpdateFields[] = 'approved_at=NULL';
+    }
+    $dateUpdateValues[] = $itemId;
+    $dateUpdateValues[] = $tenantId;
+    $db->prepare('UPDATE content_items SET ' . implode(',', $dateUpdateFields) . ', updated_at=NOW() WHERE id=? AND tenant_id=?')
+       ->execute($dateUpdateValues);
     // Also update content_plan_items if a linked row exists
     $db->prepare('UPDATE content_plan_items SET scheduled_date=?, day_label=?, day_order=?, updated_at=NOW() WHERE id=(SELECT plan_item_id FROM content_items WHERE id=?)')
        ->execute([$scheduledDate, $dayLabel, $dayOrder, $itemId]);

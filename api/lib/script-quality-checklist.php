@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/seo-checklist.php';
 /**
  * Per-platform Script SEO/AEO quality gate.
  *
@@ -252,13 +253,11 @@ function script_evaluate_aeo(string $platform, string $script, array $item): arr
     if (!$intent) {
         $rules[] = script_make_rule(SCRIPT_AEO_WEIGHTS, 'search_intent', 'n/a', 'ไม่มี Research intent ให้ตรวจ');
     } else {
-        $own = 0; $other = 0;
-        foreach (['commercial','transactional','navigational','informational'] as $candidate) {
-            foreach (script_intent_signals($candidate) as $signal) {
-                $hits = substr_count(mb_strtolower($text), mb_strtolower($signal));
-                if (strtolower($intent) === $candidate) $own += $hits; else $other += $hits;
-            }
-        }
+        // Reuse the shared SEO intent matcher so Article SEO and Social Script
+        // Quality apply the same intent normalization/matching rules.
+        $intentMatch = seo_intent_match($text, $intent);
+        $own = $intentMatch['intent'];
+        $other = $intentMatch['other'];
         if ($own >= 1 && $own >= $other) $rules[] = script_make_rule(SCRIPT_AEO_WEIGHTS, 'search_intent', 'passed', "สอดคล้องกับ search intent {$intent}");
         elseif ($other > $own) $rules[] = script_make_rule(SCRIPT_AEO_WEIGHTS, 'search_intent', 'failed', "สัญญาณของ intent อื่นมากกว่า {$intent}");
         else $rules[] = script_make_rule(SCRIPT_AEO_WEIGHTS, 'search_intent', 'needs_improvement', "ควรเพิ่มเนื้อหาที่ตอบ search intent {$intent} ให้ชัดขึ้น");
