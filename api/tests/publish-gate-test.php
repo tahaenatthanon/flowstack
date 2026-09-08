@@ -70,7 +70,11 @@ function makeContent(array $platforms, array $scripts, string $html, bool $appro
         'meta_description' => mb_substr(str_repeat('วิธีทำคอนเทนต์ให้ประสบความสำเร็จอย่างยั่งยืน ', 8), 0, 140),
         'meta_keywords'    => 'วิธีทำคอนเทนต์, การตลาด, คอนเทนต์',
         'structured_data'  => json_encode(['@context' => 'https://schema.org', '@type' => 'Article']),
-        'article_content'  => json_encode($article, JSON_UNESCAPED_UNICODE),
+        'article_content'  => json_encode(array_merge($article, [
+            // Simulate the persisted Quality snapshot produced by generate-article.
+            // Final publish is only allowed when this marker belongs to the current version.
+            'quality_checked_at' => '2026-09-08 10:00:00',
+        ]), JSON_UNESCAPED_UNICODE),
     ];
     return array_merge($base, $seoOverrides);
 }
@@ -94,25 +98,28 @@ function gate(PDO $db, string $tenant, array $content, string $platform, ?array 
 // TC02 — Article SEO ไม่ผ่าน → ทุก platform ถูก block (Global gate)
 // ═══════════════════════════════════════════════════════════════════════════
 {
-    // ทำ SEO fail: structured_data ว่าง (required rule fail) — แต่ script ทุกตัวผ่าน
-    $content = makeContent(['facebook', 'instagram'], ['facebook' => goodScript(), 'instagram' => goodScript()], passingHtml(), true, ['structured_data' => '']);
+    // Article SEO gate ใช้กับ Web/CMS target เท่านั้น; Social target ต้องไม่ถูก
+    // Article SEO block (Requirement #1)
+    $content = makeContent(['wordpress', 'facebook'], ['facebook' => goodScript()], passingHtml(), true, ['structured_data' => '']);
+    $wp = gate($db, $TENANT, $content, 'wordpress');
     $fb = gate($db, $TENANT, $content, 'facebook');
-    $ig = gate($db, $TENANT, $content, 'instagram');
-    $pass = $fb['blocked'] === true && $ig['blocked'] === true;
-    record('TC02', 'Article SEO ไม่ผ่าน', 'ทุก platform ถูก block',
-        'FB blocked=' . var_export($fb['blocked'], true) . ', IG blocked=' . var_export($ig['blocked'], true), $pass); tally($pass);
+    $pass = $wp['blocked'] === true && $fb['blocked'] === false;
+    record('TC02', 'Article SEO ไม่ผ่าน', 'Web/CMS block แต่ Social ยัง publish ได้',
+        'WP blocked=' . var_export($wp['blocked'], true) . ', FB blocked=' . var_export($fb['blocked'], true), $pass); tally($pass);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TC03 — Article AEO ไม่ผ่าน → ทุก platform ถูก block (Global gate)
 // ═══════════════════════════════════════════════════════════════════════════
 {
-    $content = makeContent(['facebook', 'instagram'], ['facebook' => goodScript(), 'instagram' => goodScript()], aeoFailHtml());
+    // Article AEO gate ใช้กับ Web/CMS target เท่านั้น; Social target ต้องไม่ถูก
+    // Article AEO block เช่นเดียวกับ SEO
+    $content = makeContent(['wordpress', 'facebook'], ['facebook' => goodScript()], aeoFailHtml());
+    $wp = gate($db, $TENANT, $content, 'wordpress');
     $fb = gate($db, $TENANT, $content, 'facebook');
-    $ig = gate($db, $TENANT, $content, 'instagram');
-    $pass = $fb['blocked'] === true && $ig['blocked'] === true;
-    record('TC03', 'Article AEO ไม่ผ่าน', 'ทุก platform ถูก block',
-        'FB blocked=' . var_export($fb['blocked'], true) . ', IG blocked=' . var_export($ig['blocked'], true), $pass); tally($pass);
+    $pass = $wp['blocked'] === true && $fb['blocked'] === false;
+    record('TC03', 'Article AEO ไม่ผ่าน', 'Web/CMS block แต่ Social ยัง publish ได้',
+        'WP blocked=' . var_export($wp['blocked'], true) . ', FB blocked=' . var_export($fb['blocked'], true), $pass); tally($pass);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -272,11 +279,11 @@ function gate(PDO $db, string $tenant, array $content, string $platform, ?array 
 // ═══════════════════════════════════════════════════════════════════════════
 {
     // ตอนแรกผ่าน
-    $good = makeContent(['facebook'], ['facebook' => goodScript()], passingHtml());
-    $before = gate($db, $TENANT, $good, 'facebook')['blocked'];
+    $good = makeContent(['wordpress'], [], passingHtml());
+    $before = gate($db, $TENANT, $good, 'wordpress')['blocked'];
     // "แก้" article จน SEO fail (structured_data หาย) — content ล่าสุด
-    $bad = makeContent(['facebook'], ['facebook' => goodScript()], passingHtml(), true, ['structured_data' => '']);
-    $after = gate($db, $TENANT, $bad, 'facebook')['blocked'];
+    $bad = makeContent(['wordpress'], [], passingHtml(), true, ['structured_data' => '']);
+    $after = gate($db, $TENANT, $bad, 'wordpress')['blocked'];
     $pass = $before === false && $after === true;
     record('TC17', 'Approved แล้วแก้ Article จน SEO/AEO fail', 'publish ตรวจผลล่าสุดและ block',
         "before blocked={$before}, after blocked={$after}", $pass); tally($pass);
@@ -362,8 +369,8 @@ function gate(PDO $db, string $tenant, array $content, string $platform, ?array 
 // ═══════════════════════════════════════════════════════════════════════════
 {
     // cron re-evaluate ที่ dispatch time ด้วย content ล่าสุด (gateItem) → ใช้ gate เดียวกัน
-    $bad = makeContent(['facebook'], ['facebook' => goodScript()], passingHtml(), true, ['structured_data' => '']);
-    $r = gate($db, $TENANT, $bad, 'facebook');
+    $bad = makeContent(['wordpress'], [], passingHtml(), true, ['structured_data' => '']);
+    $r = gate($db, $TENANT, $bad, 'wordpress');
     $pass = $r['blocked'] === true;
     record('TC22', 'Schedule ผ่าน แต่แก้ Article ให้ fail → cron', 'cron block (evaluate ล่าสุด)',
         'blocked=' . var_export($r['blocked'], true), $pass); tally($pass);
@@ -420,6 +427,27 @@ function gate(PDO $db, string $tenant, array $content, string $platform, ?array 
     $pass = $allOk && $expectedStatus === 'approved'; // ยังไม่มีเผยแพร่จริง → approved
     record('TC26', 'ทุก platform ผ่าน → publish', 'ทุก platform ได้ + status ถูกต้อง',
         "allOk={$allOk}, expectedStatus={$expectedStatus}", $pass); tally($pass);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TC27 — Central publish executor ต้อง block ก่อน dispatch เมื่อยังไม่ Approved
+// ═══════════════════════════════════════════════════════════════════════════
+{
+    $content = makeContent(['facebook'], ['facebook' => goodScript()], passingHtml(), false);
+    $channel = [
+        'id' => 'central-test-channel',
+        'name' => 'Central Test',
+        'platform' => 'facebook',
+        'endpoint_url' => 'https://example.test',
+        'credentials_encrypted' => '',
+        'is_active' => 1,
+    ];
+    $r = publish_via_central_flow($db, $TENANT, $content, $channel, 'test-user');
+    $pass = ($r['success'] ?? true) === false
+        && ($r['status'] ?? '') === 'blocked'
+        && str_contains($r['error'] ?? '', 'อนุมัติ');
+    record('TC27', 'Central publish executor + content ยังไม่ Approved', 'block ก่อน dispatch',
+        'status=' . ($r['status'] ?? '') . ', success=' . var_export($r['success'] ?? null, true), $pass); tally($pass);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

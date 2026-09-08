@@ -107,6 +107,13 @@ function final_publish_gate_check(PDO $db, string $tenantId, array $content, str
     $platform = strtolower(trim($platform));
     $selected = publish_content_platforms($content);
 
+    // The publish gate is evaluated against the canonical Content Item snapshot.
+    // Keep platform normalization in one place so send-now, schedule, and cron
+    // cannot accidentally evaluate a different platform representation.
+    if ($platform === '') {
+        return ['blocked' => true, 'reason' => 'Platform gate: ไม่ได้ระบุแพลตฟอร์มสำหรับเผยแพร่'];
+    }
+
     if (($content['status'] ?? '') !== 'approved' || empty($content['approved_at'])) {
         return ['blocked' => true, 'reason' => 'Approval gate: คอนเทนต์นี้ยังไม่ผ่านการอนุมัติ'];
     }
@@ -365,6 +372,118 @@ function extract_response_snippet(array $result): string {
         $raw = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     }
     return mb_substr((string) $raw, 0, 2000);
+}
+
+/**
+ * Central publish executor used by all legacy entry points that still expose
+ * direct publish/schedule actions. It owns the final gate, duplicate guard,
+ * dispatch, history persistence, and content publish-status synchronization.
+ *
+ * The caller supplies a canonical content_items row and an active channel.
+ * No platform-specific HTTP call belongs outside dispatch_content().
+ */
+function publish_via_central_flow(
+    PDO $db,
+    string $tenantId,
+    array $content,
+    array $channel,
+    string $userId = '',
+    ?string $scheduleId = null,
+    ?string $contentOverride = null
+): array {
+    $contentId = (string)($content['id'] ?? '');
+    $platform = strtolower(trim((string)($channel['platform'] ?? '')));
+    if ($contentId === '' || $platform === '') {
+        return ['success' => false, 'status' => 'blocked', 'error' => 'Content/channel ไม่ถูกต้อง'];
+    }
+    if (($content['status'] ?? '') !== 'approved' || empty($content['approved_at'])) {
+        return ['success' => false, 'status' => 'blocked', 'error' => 'คอนเทนต์นี้ยังไม่ผ่านการอนุมัติ'];
+    }
+    if (!(int)($channel['is_active'] ?? 0)) {
+        return ['success' => false, 'status' => 'blocked', 'error' => 'Channel นี้ถูกปิดใช้งาน'];
+    }
+
+    $gate = final_publish_gate_check($db, $tenantId, $content, $platform);
+    if (!empty($gate['blocked'])) {
+        return ['success' => false, 'status' => 'blocked', 'error' => $gate['reason'] ?? 'ไม่ผ่าน Final Publish Gate'];
+    }
+
+    $published = get_published_content_platforms($db, $tenantId, $contentId);
+    if (in_array($platform, $published, true)) {
+        return ['success' => false, 'status' => 'skipped', 'error' => "แพลตฟอร์ม {$platform} ของคอนเทนต์นี้เผยแพร่แล้ว"];
+    }
+    $pending = $db->prepare(
+        "SELECT COUNT(*) FROM content_publish_queue q
+         JOIN publish_channels pc ON pc.id=q.channel_id
+         WHERE q.tenant_id=? AND q.content_id=? AND LOWER(pc.platform)=? AND q.status IN ('pending','processing')"
+    );
+    $pending->execute([$tenantId, $contentId, $platform]);
+    if ((int)$pending->fetchColumn() > 0) {
+        return ['success' => false, 'status' => 'skipped', 'error' => "แพลตฟอร์ม {$platform} มีรายการเผยแพร่ที่กำลังดำเนินการอยู่แล้ว"];
+    }
+
+    $lockName = 'sp:' . md5($contentId . ':' . $platform);
+    $lock = $db->prepare('SELECT GET_LOCK(?, 5) AS got');
+    $lock->execute([$lockName]);
+    if ((int)($lock->fetchColumn() ?: 0) !== 1) {
+        return ['success' => false, 'status' => 'skipped', 'error' => "มีคำขอเผยแพร่ {$platform} ของคอนเทนต์นี้กำลังทำงานอยู่"];
+    }
+
+    try {
+        // Re-check after acquiring the platform lock so concurrent callers cannot race.
+        if (in_array($platform, get_published_content_platforms($db, $tenantId, $contentId), true)) {
+            return ['success' => false, 'status' => 'skipped', 'error' => "แพลตฟอร์ม {$platform} ของคอนเทนต์นี้เผยแพร่แล้ว"];
+        }
+
+        $contentForChannel = $content;
+        if ($contentOverride !== null && trim($contentOverride) !== '') {
+            $contentForChannel['caption'] = trim($contentOverride);
+            $contentForChannel['article_content'] = json_encode([
+                'html' => trim($contentOverride),
+                'title' => $content['title'] ?? '',
+                'excerpt' => '',
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
+
+        $queueId = generateUUID();
+        $db->prepare(
+            "INSERT INTO content_publish_queue (id,tenant_id,content_id,channel_id,scheduled_at,status)
+             VALUES (?,?,?,?,NOW(),'processing')"
+        )->execute([$queueId, $tenantId, $contentId, $channel['id']]);
+
+        $result = dispatch_content($platform, $channel, $contentForChannel);
+        $snippet = extract_response_snippet($result);
+        if (!empty($result['success'])) {
+            $meta = extract_publish_meta($result, $platform, $channel);
+            $db->prepare(
+                "UPDATE content_publish_queue SET status='sent', sent_at=NOW(), platform_post_id=?, published_url=?, response_snippet=? WHERE id=?"
+            )->execute([$meta['platform_post_id'], $meta['published_url'], $snippet, $queueId]);
+            $db->prepare(
+                "UPDATE content_items SET published_url=COALESCE(?, published_url), external_post_id=COALESCE(?, external_post_id), updated_at=NOW() WHERE id=? AND tenant_id=?"
+            )->execute([$meta['published_url'], $meta['platform_post_id'], $contentId, $tenantId]);
+            sync_content_publish_status($db, $tenantId, $content);
+
+            if ($scheduleId !== null && $scheduleId !== '') {
+                $db->prepare(
+                    "UPDATE content_schedules SET status='sent', publish_result=?, platform_post_id=?, published_url=?, updated_at=NOW() WHERE id=?"
+                )->execute([json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), $meta['platform_post_id'], $meta['published_url'], $scheduleId]);
+            }
+            return ['success' => true, 'status' => 'success', 'result' => $result, 'queue_id' => $queueId];
+        }
+
+        $error = mb_substr((string)($result['error'] ?? 'dispatch failed'), 0, 500);
+        $db->prepare(
+            "UPDATE content_publish_queue SET status='failed', error_msg=?, response_snippet=? WHERE id=?"
+        )->execute([$error, $snippet, $queueId]);
+        if ($scheduleId !== null && $scheduleId !== '') {
+            $db->prepare(
+                "UPDATE content_schedules SET status='failed', publish_result=?, updated_at=NOW() WHERE id=?"
+            )->execute([json_encode(['error' => $error], JSON_UNESCAPED_UNICODE), $scheduleId]);
+        }
+        return ['success' => false, 'status' => 'failed', 'error' => $error, 'result' => $result, 'queue_id' => $queueId];
+    } finally {
+        $db->prepare('SELECT RELEASE_LOCK(?)')->execute([$lockName]);
+    }
 }
 
 // ─── cURL helper ────────────────────────────────────────────────────────────────

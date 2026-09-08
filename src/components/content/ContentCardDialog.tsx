@@ -10,7 +10,7 @@ import { PlatformIcon } from '@/components/content/PlatformIcon';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import type { PlanItem } from '@/components/content/types';
-import { PLATFORM_MAP } from '@/components/content/types';
+import { getCanonicalContentType, PLATFORM_MAP } from '@/components/content/types';
 import { getThaiDayName, formatThaiDate } from './calendarUtils';
 import { CalendarDays, Save, Trash2, Sparkles, ImagePlus, RefreshCw, Loader2, Image as ImageIcon, FileText, Hash, Lightbulb, Clapperboard, MessageSquare, Share2, BookOpen, ChevronDown, Video, Play, Send, CheckCircle2, AlertTriangle, XCircle, MinusCircle, Clock } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
@@ -575,8 +575,10 @@ useEffect(() => {
   const scriptSections = articleData?.script_sections;
   const visuals: string[] = articleData?.visuals ?? [];
   const hashtags: string[] = articleData?.hashtags ?? [];
-  const platformType = articleData?.platform_type || existingItem?.content_type || 'article';
-  const isVideo = platformType === 'video';
+  // Content Type Source of Truth: content_items.type (projected as content_type).
+  // Never route UI behavior from legacy article_content.platform_type.
+  const contentType = existingItem ? getCanonicalContentType(existingItem) : 'article';
+  const isVideo = contentType === 'video';
 
   // Check if all scene images are generated
   const scenes = (articleData?.scenes ?? []) as any[];

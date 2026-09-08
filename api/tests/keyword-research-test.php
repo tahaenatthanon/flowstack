@@ -90,4 +90,28 @@ test_assert(research_extract_ai_citations($missingCitations) === [], 'Missing an
 
 test_assert(research_extract_ai_citations(['choices' => []]) === [], 'Missing choices must produce zero citations');
 
+// AI transport/response regression rules: only 2xx + valid choices[0].message is success.
+$validAiResponse = research_validate_ai_response([
+    'choices' => [['message' => ['content' => 'OK']]],
+], 200);
+test_assert(isset($validAiResponse['choices'][0]['message']), 'Valid AI response was rejected');
+
+$aiErrorCases = [
+    [200, ['choices' => []], 'missing choices must fail'],
+    [200, ['choices' => [['message' => null]]], 'missing message must fail'],
+    [200, ['error' => ['message' => 'provider error']], 'provider error must fail'],
+    [302, ['choices' => [['message' => ['content' => 'redirect']]]], '3xx must fail'],
+    [429, ['error' => ['message' => 'rate limit']], '429 must fail'],
+    [500, ['error' => ['message' => 'server error']], '5xx must fail'],
+];
+foreach ($aiErrorCases as [$httpCode, $response, $message]) {
+    $failed = false;
+    try {
+        research_validate_ai_response($response, $httpCode);
+    } catch (RuntimeException $e) {
+        $failed = true;
+    }
+    test_assert($failed, $message);
+}
+
 echo "keyword-research tests passed\n";

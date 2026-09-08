@@ -378,6 +378,11 @@ export interface ArticleContent {
   excerpt?: string;
   html?: string;
   caption?: string;
+  /**
+   * Deprecated legacy field. Content type is canonicalized by content_items.type
+   * (exposed to plan items as content_type); this field must never be used as
+   * a source of truth for routing, Quality, Approval, or Publish.
+   */
   platform_type?: 'article' | 'video' | 'social';
   headlines?: {
     viral_clickbait?: Array<{ title: string; hook: string }>;
@@ -422,6 +427,16 @@ export const emptySeoFields = (): SeoFields => ({
   seo_title: '', slug: '', meta_description: '',
   meta_keywords: '', og_image: '', structured_data: '',
 });
+
+/**
+ * Canonical Content Type resolver. `content_items.type` is the backend Source
+ * of Truth; `PlanItem.content_type` is its API projection. Never infer Content
+ * Type from article_content.platform_type.
+ */
+export function getCanonicalContentType(item: Pick<ContentItem, 'type'> | Pick<PlanItem, 'content_type'>): 'article' | 'video' {
+  const raw = 'type' in item ? item.type : item.content_type;
+  return String(raw ?? '').toLowerCase() === 'video' ? 'video' : 'article';
+}
 
 // ─── SEO checklist (Phase 4 publish gate) ───────────────────────────
 // ตรงกับผลลัพธ์จาก api/lib/seo-checklist.php ผ่าน ?action=seo-checklist

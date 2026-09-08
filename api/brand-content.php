@@ -10,6 +10,7 @@ require_once __DIR__ . '/lib/script-quality-checklist.php';
 require_once __DIR__ . '/lib/ai-creds.php';
 require_once __DIR__ . '/lib/ai-research.php';
 require_once __DIR__ . '/lib/content-plan-prompt.php';
+require_once __DIR__ . '/lib/publish-dispatch.php';
 
 /**
  * Whitelist-based sanitizer: keep ONLY printable ASCII + Thai script.
@@ -2217,9 +2218,10 @@ if ($action === 'generate-article') {
             error_log('[brand-content aiCall] curl error: ' . $err . ' | model=' . $modelName . ' | url=' . $apiUrl . ' | timeout=' . $contentTimeout);
             throw new RuntimeException('curl: ' . $err);
         }
-        if ($httpCode >= 400) {
+        if ($httpCode < 200 || $httpCode >= 300) {
             error_log('[brand-content aiCall] HTTP ' . $httpCode . ' | model=' . $modelName . ' | raw=' . substr($raw, 0, 800));
-            throw new RuntimeException('Provider returned HTTP ' . $httpCode . ': ' . substr($raw, 0, 300));
+            $statusLabel = $httpCode === 429 ? 'Rate Limit' : 'HTTP ' . $httpCode;
+            throw new RuntimeException('Provider returned ' . $statusLabel . ': ' . substr($raw, 0, 300));
         }
         $dec = json_decode($raw, true);
         if (!is_array($dec)) {
@@ -2231,7 +2233,10 @@ if ($action === 'generate-article') {
             error_log('[brand-content aiCall] Provider error: ' . $errMsg . ' | model=' . $modelName . ' | raw=' . substr($raw, 0, 500));
             throw new RuntimeException((string)$errMsg);
         }
-        $msg_    = $dec['choices'][0]['message'] ?? [];
+        $msg_    = $dec['choices'][0]['message'] ?? null;
+        if (!is_array($msg_)) {
+            throw new RuntimeException('AI response ไม่มี choices[0].message');
+        }
         $content = (string)($msg_['content'] ?? '');
         if ($content === '') {
             // Reasoning/thinking models (e.g. StepFun, DeepSeek-R1) put output in reasoning field
@@ -2881,7 +2886,40 @@ if ($action === 'generate-article') {
     }
     restore_error_handler();
 }
-if ($action === 'publish') {
+// ─── CENTRAL PUBLISH ─────────────────────────────────────────────────────────
+// All new immediate publish requests use publish-dispatch.php. The legacy
+// implementation below remains unreachable under the old action name so that
+// existing deployments can be migrated without changing the public endpoint.
+if ($action === 'publish' && $method === 'POST') {
+    $body = getRequestBody();
+    $itemId = trim((string)($body['item_id'] ?? ''));
+    $channelId = trim((string)($body['channel_id'] ?? ''));
+    $scheduleId = trim((string)($body['schedule_id'] ?? '')) ?: null;
+    if ($itemId === '' || $channelId === '') jsonError('item_id and channel_id required', 400);
+
+    $itemStmt = $db->prepare('SELECT * FROM content_items WHERE id=? AND tenant_id=?');
+    $itemStmt->execute([$itemId, $tenantId]);
+    $content = $itemStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$content) jsonError('Item not found', 404);
+
+    $channelStmt = $db->prepare('SELECT * FROM publish_channels WHERE id=? AND tenant_id=? AND is_active=1');
+    $channelStmt->execute([$channelId, $tenantId]);
+    $channel = $channelStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$channel) jsonError('Channel not found or inactive', 404);
+
+    $override = isset($body['content_override']) ? (string)$body['content_override'] : null;
+    $result = publish_via_central_flow($db, $tenantId, $content, $channel, (string)$userId, $scheduleId, $override);
+    if (!empty($result['success'])) {
+        jsonResponse(['ok' => true, 'result' => $result['result'] ?? null]);
+    }
+    $status = ($result['status'] ?? '') === 'skipped' ? 409 : 422;
+    jsonError((string)($result['error'] ?? 'Publish failed'), $status);
+}
+
+// Legacy inline publisher is retained only for backward-compatible source history;
+// it is not reachable through action=publish and must not be used by new callers.
+if ($action === 'publish-legacy') {
+    jsonError('Legacy publish flow disabled — use the central publish flow', 410);
     if ($method !== 'POST') jsonError('Method not allowed', 405);
     $body       = getRequestBody();
     $scheduleId = $body['schedule_id'] ?? '';
@@ -3213,7 +3251,70 @@ if ($action === 'all-schedules') {
 }
 
 // โ”€โ”€โ”€ CRON-PUBLISH (process due pending schedules) โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
-if ($action === 'cron-publish') {
+// ─── CENTRAL SCHEDULE DISPATCH ───────────────────────────────────────────────
+if ($action === 'cron-publish' && $method === 'POST') {
+    $stmt = $db->prepare(
+        "SELECT cs.id AS schedule_id, cs.plan_item_id, cs.channel_id AS schedule_channel_id, cs.scheduled_at,
+                ci.*,
+                pc.name AS channel_name, pc.platform, pc.endpoint_url, pc.credentials_encrypted, pc.is_active AS channel_is_active
+         FROM content_schedules cs
+         JOIN content_plan_items cpi ON cpi.id=cs.plan_item_id
+         JOIN content_plans cp ON cp.id=cpi.plan_id
+         JOIN content_items ci ON ci.plan_item_id=cpi.id AND ci.tenant_id=?
+         JOIN publish_channels pc ON pc.id=cs.channel_id AND pc.tenant_id=?
+         WHERE cp.tenant_id=? AND cs.status='pending' AND cs.scheduled_at<=NOW()
+         ORDER BY cs.scheduled_at ASC LIMIT 20"
+    );
+    $stmt->execute([$tenantId, $tenantId, $tenantId]);
+    $due = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $processed = [];
+
+    foreach ($due as $schedule) {
+        // Claim the row first; another cron invocation must not dispatch it twice.
+        $claim = $db->prepare("UPDATE content_schedules SET status='publishing', updated_at=NOW() WHERE id=? AND status='pending'");
+        $claim->execute([$schedule['schedule_id']]);
+        if ($claim->rowCount() !== 1) continue;
+
+        $result = publish_via_central_flow(
+            $db,
+            $tenantId,
+            $schedule,
+            [
+                'id' => $schedule['schedule_channel_id'],
+                'name' => $schedule['channel_name'],
+                'platform' => $schedule['platform'],
+                'endpoint_url' => $schedule['endpoint_url'],
+                'credentials_encrypted' => $schedule['credentials_encrypted'],
+                'is_active' => $schedule['channel_is_active'],
+            ],
+            (string)$userId,
+            (string)$schedule['schedule_id'],
+            null
+        );
+
+        if (empty($result['success']) && ($result['status'] ?? '') !== 'skipped') {
+            // Central flow may stop before creating a queue row (for example a gate
+            // failure). Ensure the claimed schedule cannot remain stuck in publishing.
+            $db->prepare("UPDATE content_schedules SET status='failed', publish_result=?, updated_at=NOW() WHERE id=? AND status='publishing'")
+               ->execute([
+                   json_encode(['error' => $result['error'] ?? 'Publish failed'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                   $schedule['schedule_id'],
+               ]);
+        }
+        $processed[] = [
+            'id' => $schedule['schedule_id'],
+            'status' => $result['status'] ?? 'failed',
+            'topic' => $schedule['title'] ?? $schedule['topic'] ?? '',
+            'error' => $result['error'] ?? null,
+        ];
+    }
+
+    jsonResponse(['processed' => count($processed), 'items' => $processed]);
+}
+
+// Legacy inline scheduler retained only for source-history compatibility.
+if ($action === 'cron-publish-legacy') {
+    jsonError('Legacy scheduler flow disabled — use the central publish flow', 410);
     if ($method !== 'POST') jsonError('Method not allowed', 405);
 
     // Find all pending schedules due now

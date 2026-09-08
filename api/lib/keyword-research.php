@@ -292,6 +292,24 @@ if (!function_exists('research_resolve_ai_creds')) {
     }
 }
 
+if (!function_exists('research_validate_ai_response')) {
+    /** Validate a decoded AI provider response independently from transport. */
+    function research_validate_ai_response(mixed $decoded, int $httpCode): array {
+        if (!is_array($decoded)) {
+            throw new RuntimeException('Research AI ส่ง response ที่อ่านไม่ได้กลับมา');
+        }
+        if ($httpCode < 200 || $httpCode >= 300 || !empty($decoded['error'])) {
+            $message = is_array($decoded['error'] ?? null) ? (string)($decoded['error']['message'] ?? '') : (string)($decoded['error'] ?? '');
+            $statusLabel = $httpCode > 0 ? "HTTP {$httpCode}" : 'ไม่ทราบ HTTP status';
+            throw new RuntimeException('Research AI ปฏิเสธคำขอ (' . $statusLabel . ')' . ($message !== '' ? ': ' . $message : ''));
+        }
+        if (!isset($decoded['choices'][0]['message']) || !is_array($decoded['choices'][0]['message'])) {
+            throw new RuntimeException('Research AI ส่ง response ที่ไม่มี choices[0].message');
+        }
+        return $decoded;
+    }
+}
+
 if (!function_exists('research_ai_chat')) {
     /**
      * ยิง /chat/completions แบบ OpenAI-compatible ด้วย payload ขั้นต่ำ
@@ -324,14 +342,7 @@ if (!function_exists('research_ai_chat')) {
             throw new RuntimeException('Research AI ไม่ตอบสนอง: ' . ($curlError ?: 'ไม่ทราบสาเหตุ'));
         }
         $decoded = json_decode($body, true);
-        if (!is_array($decoded)) {
-            throw new RuntimeException('Research AI ส่งข้อมูลที่อ่านไม่ได้กลับมา');
-        }
-        if ($httpCode >= 400 || !empty($decoded['error'])) {
-            $message = is_array($decoded['error'] ?? null) ? (string)($decoded['error']['message'] ?? '') : (string)($decoded['error'] ?? '');
-            throw new RuntimeException('Research AI ปฏิเสธคำขอ' . ($message !== '' ? ': ' . $message : ''));
-        }
-        return $decoded;
+        return research_validate_ai_response($decoded, $httpCode);
     }
 }
 

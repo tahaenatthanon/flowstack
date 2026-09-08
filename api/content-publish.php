@@ -206,7 +206,54 @@ if ($method === 'POST') {
     }
 
     // ── send_now ──────────────────────────────────────────────────────────────
+    // All immediate publishing goes through the central executor in
+    // publish-dispatch.php. This keeps Approval, Quality, Platform, idempotency,
+    // dispatch and history rules identical to the other publish entry points.
     if ($action === 'send_now') {
+        $contentId = trim((string)($body['content_id'] ?? ''));
+        $channelIds = array_values(array_unique(array_filter(array_map('strval', $body['channel_ids'] ?? []))));
+        $channelOverrides = is_array($body['channel_overrides'] ?? null) ? $body['channel_overrides'] : [];
+        if ($contentId === '' || empty($channelIds)) {
+            jsonError('content_id, channel_ids required', 400);
+        }
+
+        $contentStmt = $db->prepare('SELECT * FROM content_items WHERE id=? AND tenant_id=?');
+        $contentStmt->execute([$contentId, $tenantId]);
+        $content = $contentStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$content) jsonError('Content not found', 422);
+
+        $placeholders = implode(',', array_fill(0, count($channelIds), '?'));
+        $channelStmt = $db->prepare("SELECT * FROM publish_channels WHERE id IN ($placeholders) AND tenant_id=? AND is_active=1");
+        $channelStmt->execute([...$channelIds, $tenantId]);
+        $channelsById = [];
+        foreach ($channelStmt->fetchAll(PDO::FETCH_ASSOC) as $channel) $channelsById[(string)$channel['id']] = $channel;
+        if (count($channelsById) !== count($channelIds)) jsonError('Invalid or inactive channel(s)', 422);
+
+        $results = [];
+        foreach ($channelIds as $channelId) {
+            $result = publish_via_central_flow(
+                $db,
+                $tenantId,
+                $content,
+                $channelsById[$channelId],
+                (string)$userId,
+                null,
+                isset($channelOverrides[$channelId]) ? (string)$channelOverrides[$channelId] : null
+            );
+            $results[] = [
+                'channel_id' => $channelId,
+                'platform' => strtolower((string)$channelsById[$channelId]['platform']),
+                'success' => (bool)($result['success'] ?? false),
+                'status' => $result['status'] ?? 'failed',
+                'reason' => $result['error'] ?? null,
+            ];
+        }
+        jsonResponse(['results' => $results]);
+    }
+
+    // Legacy send_now implementation is disabled and cannot bypass the central flow.
+    if ($action === 'send_now-legacy') {
+        jsonError('Legacy send_now flow disabled — use the central publish flow', 410);
         $contentId        = $body['content_id']        ?? '';
         $channelIds       = array_values(array_unique($body['channel_ids'] ?? []));
         $channelOverrides = $body['channel_overrides'] ?? [];

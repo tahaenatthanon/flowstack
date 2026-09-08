@@ -143,13 +143,22 @@ function ai_research_chat(PDO $db, string $tenantId, string $systemPrompt, strin
     $error = curl_error($ch);
     $status = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
-    if ($raw === false) throw new RuntimeException('เรียก AI ไม่สำเร็จ: ' . $error);
+    if ($raw === false) throw new RuntimeException('เรียก AI ไม่สำเร็จ: ' . ($error ?: 'ไม่ทราบสาเหตุ'));
     $response = json_decode($raw, true);
-    if ($status >= 400 || !is_array($response) || !empty($response['error'])) {
-        $message = is_array($response['error'] ?? null) ? ($response['error']['message'] ?? '') : ($response['error'] ?? '');
-        throw new RuntimeException('AI provider error: ' . (string)$message);
+    if (!is_array($response)) {
+        throw new RuntimeException('AI provider ส่ง response ที่ไม่ใช่ JSON (HTTP ' . $status . ')');
     }
-    $content = $response['choices'][0]['message']['content'] ?? $response['choices'][0]['message']['reasoning'] ?? '';
+    if ($status < 200 || $status >= 300 || !empty($response['error'])) {
+        $message = is_array($response['error'] ?? null) ? ($response['error']['message'] ?? '') : ($response['error'] ?? '');
+        $message = trim((string)$message);
+        $label = $status > 0 ? "HTTP {$status}" : 'ไม่ทราบ HTTP status';
+        if ($status === 429) $label .= ' Rate Limit';
+        throw new RuntimeException('AI provider error (' . $label . ')' . ($message !== '' ? ': ' . $message : ''));
+    }
+    if (!isset($response['choices'][0]['message']) || !is_array($response['choices'][0]['message'])) {
+        throw new RuntimeException('AI provider response ไม่มี choices[0].message');
+    }
+    $content = $response['choices'][0]['message']['content'] ?? $response['choices'][0]['message']['reasoning'] ?? $response['choices'][0]['message']['reasoning_content'] ?? '';
     if (!is_string($content) || trim($content) === '') throw new RuntimeException('AI ไม่คืน Research brief');
     return $content;
 }

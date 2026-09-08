@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { contentToEmailPayload } from '@/lib/contentBridge';
 import type { ContentItem, ArticleContent } from '@/components/content/types';
+import { getCanonicalContentType } from '@/components/content/types';
 
 const mockItem: ContentItem = {
   id: 'test-id', title: 'Test Title', type: 'article', status: 'draft',
@@ -14,6 +15,23 @@ const mockArt: ArticleContent = {
   html: '<p>เนื้อหา HTML</p>',
   hashtags: ['#test', '#demo'],
 };
+
+describe('Content Type Source of Truth', () => {
+  it('uses content_items.type when resolving a ContentItem', () => {
+    expect(getCanonicalContentType({ type: 'video' })).toBe('video');
+    expect(getCanonicalContentType({ type: 'article' })).toBe('article');
+  });
+
+  it('uses the API projection content_type for PlanItem data', () => {
+    expect(getCanonicalContentType({ content_type: 'video' })).toBe('video');
+    expect(getCanonicalContentType({ content_type: 'article' })).toBe('article');
+  });
+
+  it('never lets legacy article_content.platform_type affect the canonical type', () => {
+    const item = { type: 'article', content_type: 'article' } as ContentItem & { content_type: string };
+    expect(getCanonicalContentType(item)).toBe('article');
+  });
+});
 
 describe('contentToEmailPayload', () => {
   it('transforms ContentItem + ArticleContent to email payload', () => {
