@@ -176,8 +176,8 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
             {/* Trigger shortcuts */}
             {triggers.length > 0 && (
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">เลือก Trigger ({selTriggerIds.length === 0 ? 'ไม่เลือก' : selTriggerIds.length})</Label>
-                <div className="flex flex-wrap gap-1.5 p-2 border rounded-md min-h-[38px] bg-background items-center">
+                <Label>Trigger ({selTriggerIds.length === 0 ? 'ไม่เลือก' : selTriggerIds.length})</Label>
+                <div className="flex flex-wrap gap-1.5 p-2 border rounded-md min-h-[38px] max-h-32 overflow-y-auto bg-background items-center">
                   {triggers.map(tr => (
                     <button key={tr.id} type="button"
                       onClick={() => {
@@ -203,37 +203,34 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
                 </div>
               </div>
             )}
-            {/* Platform multi-select */}
+            {/* Skill */}
             <div className="space-y-1.5">
-              <Label>
-                แพลตฟอร์ม ({selPlatforms.length === 0 ? 'ทั้งหมด' : selPlatforms.length})
-              </Label>
-              <div className="flex flex-wrap gap-1 p-1.5 border rounded-md min-h-[32px] bg-background">
-                {platformOptions.map(key => {
-                  const val = PLATFORM_MAP[key];
-                  const sel = selPlatforms.includes(key);
+              <Label>Skill ({selSkillIds.length === 0 ? 'ไม่เลือก' : selSkillIds.length})</Label>
+              <div className="flex flex-wrap gap-1.5 p-2 border rounded-md min-h-[38px] max-h-32 overflow-y-auto bg-background items-center">
+                {skills.map(sk => {
+                  const sel = selSkillIds.includes(sk.id);
+                  const locked = autoSkillIds.includes(sk.id);
                   return (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => setSelPlatforms(ids =>
-                        sel ? ids.filter(x => x !== key) : [...ids, key]
-                      )}
-                      className={cn(
-                        'text-[10px] px-1.5 py-0.5 rounded-full border transition-colors',
-                        sel ? 'bg-primary text-primary-foreground border-primary' : 'border-border hover:bg-muted'
-                      )}
-                    >
-                      {val?.label || key}
+                    <button key={sk.id} type="button" disabled={locked}
+                      onClick={() => setSelSkillIds(ids => sel ? ids.filter(x => x !== sk.id) : [...ids, sk.id])}
+                      className={cn('text-[11px] px-2 py-1 rounded border transition-colors',
+                        locked
+                          ? 'bg-primary text-primary-foreground border-primary cursor-not-allowed'
+                          : sel
+                            ? 'bg-primary text-primary-foreground border-primary'
+                            : 'border-border hover:bg-muted')}>
+                      {sk.name}{locked ? ' 🔒' : ''}
                     </button>
                   );
                 })}
+                {skills.length === 0 && <span className="text-xs text-muted-foreground">ยังไม่มี Skill</span>}
               </div>
+              {autoSkillIds.length > 0 && <p className="text-[10px] text-muted-foreground">🔒 Skill ที่มาจาก Trigger ถูกเลือกอัตโนมัติและเอาออกไม่ได้</p>}
             </div>
             {/* Article: Tone selector */}
             {contentType === 'article' && (
               <div className="space-y-1.5">
-                <Label>โทนเสียง</Label>
+                <Label>สไตล์การเขียน</Label>
                 <div className="grid grid-cols-2 gap-2">
                   {([
                     { value: 'friendly',     label: '😊 กันเอง',     desc: 'อบอุ่น เป็นกันเอง' },
@@ -292,26 +289,32 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
                 </div>
               </>
             )}
-            {/* Skill */}
+            {/* Platform multi-select */}
             <div className="space-y-1.5">
-              <Label>Skill ({selSkillIds.length === 0 ? 'ไม่เลือก' : selSkillIds.length})</Label>
-              <div className="flex flex-wrap gap-1.5 p-2 border rounded-md min-h-[38px] bg-background items-center">
-                {skills.map(sk => {
-                  const sel = selSkillIds.includes(sk.id);
-                  const locked = autoSkillIds.includes(sk.id);
+              <Label>
+                แพลตฟอร์ม ({selPlatforms.length === 0 ? 'ทั้งหมด' : selPlatforms.length})
+              </Label>
+              <div className="flex flex-wrap gap-1 p-1.5 border rounded-md min-h-[32px] bg-background">
+                {platformOptions.map(key => {
+                  const val = PLATFORM_MAP[key];
+                  const sel = selPlatforms.includes(key);
                   return (
-                    <button key={sk.id} type="button" disabled={locked}
-                      onClick={() => setSelSkillIds(ids => sel ? ids.filter(x => x !== sk.id) : [...ids, sk.id])}
-                      className={cn('text-[11px] px-2 py-0.5 rounded-full border transition-colors',
-                        sel ? 'bg-primary text-primary-foreground border-primary' : 'border-border hover:bg-muted',
-                        locked && 'cursor-not-allowed opacity-90')}>
-                      {sk.name}{locked ? ' 🔒' : ''}
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setSelPlatforms(ids =>
+                        sel ? ids.filter(x => x !== key) : [...ids, key]
+                      )}
+                      className={cn(
+                        'text-[11px] px-2 py-1 rounded border transition-colors',
+                        sel ? 'bg-primary text-primary-foreground border-primary' : 'border-border hover:bg-muted'
+                      )}
+                    >
+                      {val?.label || key}
                     </button>
                   );
                 })}
-                {skills.length === 0 && <span className="text-xs text-muted-foreground">ยังไม่มี Skill</span>}
               </div>
-              {autoSkillIds.length > 0 && <p className="text-[10px] text-muted-foreground">🔒 Skill ที่มาจาก Trigger ถูกเลือกอัตโนมัติและเอาออกไม่ได้</p>}
             </div>
             {/* Knowledge Base */}
             <div className="space-y-1.5">
@@ -322,7 +325,7 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
                   return (
                     <button key={ctx.id} type="button"
                       onClick={() => setSelContextIds(ids => sel ? ids.filter(x => x !== ctx.id) : [...ids, ctx.id])}
-                      className={cn('text-[11px] px-2 py-0.5 rounded-full border transition-colors', sel ? 'bg-primary text-primary-foreground border-primary' : 'border-border hover:bg-muted')}>
+                      className={cn('text-[11px] px-2 py-1 rounded border transition-colors', sel ? 'bg-primary text-primary-foreground border-primary' : 'border-border hover:bg-muted')}>
                       {ctx.name}
                     </button>
                   );

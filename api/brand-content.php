@@ -576,6 +576,8 @@ if ($action === 'generate-plan' && $method === 'POST') {
     $body = getRequestBody();
     $triggerCommand  = trim($body['trigger_command'] ?? '');
     $sourceTopic     = trim((string)($body['source_topic'] ?? ''));
+    $niche           = trim((string)($body['niche'] ?? ''));
+    $language        = strtolower(trim((string)($body['language'] ?? '')));
     $generationMode  = strtolower(trim((string)($body['generation_mode'] ?? 'plan')));
     $isDirect        = content_plan_is_direct($generationMode);
     $triggerIds      = is_array($body['trigger_ids'] ?? null) ? array_values(array_unique(array_filter(array_map('strval', $body['trigger_ids'])))) : [];
@@ -659,6 +661,8 @@ if ($action === 'generate-plan' && $method === 'POST') {
     if (!empty($contextTexts)) $sysParts[] = "## Brand Context\n" . implode("\n\n", $contextTexts);
     if ($skillSystemPrompt) $sysParts[] = "## Skill Instructions (all selected Skills)\n{$skillSystemPrompt}";
     if ($triggerCommand) $sysParts[] = "## Trigger Instructions (all selected Triggers)\n{$triggerCommand}\n\nThese are workflow instructions only. They must not replace or redefine the user's Topic.";
+    if ($niche !== '') $sysParts[] = "## Niche Constraint\n{$niche}\n\nUse this Niche to specialize the content. Keep the user's Topic as the primary subject and do not replace it with the Niche.";
+    if ($language === 'english') $sysParts[] = "## Language Constraint\nWrite the generated content in English. Keep the user's Topic unchanged as the source topic.";
     if (!empty($platforms)) {
         $pList = implode(', ', $platforms);
         $sysParts[] = "## Platform Constraint\nTarget publish platforms (list of channels for this content): {$pList}. Write content suitable to be published across these platforms. Set the \"platform\" field to the primary platform from this list.";
