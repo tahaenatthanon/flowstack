@@ -6,7 +6,10 @@ import { useToast } from '@/hooks/use-toast';
 import { useContentSkills, useBrandContexts, useContentTriggers } from '@/hooks/useContent';
 import { useResearchRun, RESEARCH_STEP_LABELS, researchSeedTopic } from '@/hooks/useResearchRun';
 import type { ContentPlan } from '@/components/content/types';
-import { getTriggerDisplayLabel, PLATFORM_MAP } from '@/components/content/types';
+import {
+  getTriggerDisplayLabel, PLATFORM_MAP,
+  ARTICLE_TONE_OPTIONS, VIDEO_SCRIPT_STYLE_OPTIONS, VIDEO_DURATION_OPTIONS, VIDEO_DURATION_SECONDS,
+} from '@/components/content/types';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -22,7 +25,7 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
   const [contentType, setContentType] = useState<'article' | 'video' | null>(null);
   const [topic, setTopic]             = useState('');
   const [selPlatforms, setSelPlatforms] = useState<string[]>([]);
-  const [tone, setTone]               = useState<'friendly' | 'professional' | 'educational' | 'storytelling'>('friendly');
+  const [tone, setTone]               = useState<'friendly' | 'formal' | 'educational' | 'storytelling'>('friendly');
   const [scriptStyle, setScriptStyle] = useState<'hook-story' | 'educational' | 'storytelling' | 'vsl'>('hook-story');
   const [duration, setDuration]       = useState<'15s' | '30s' | '60s' | '3min' | '10min+'>('60s');
   const [selTriggerIds, setSelTriggerIds] = useState<string[]>([]);
@@ -59,12 +62,10 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
   const handleCreate = async () => {
     if (!topic.trim() || !contentType) return;
     setStep('progress');
-    const toneLabels  = { friendly: 'กันเอง', professional: 'ทางการ', educational: 'ให้ความรู้', storytelling: 'เล่าเรื่อง' };
-    const styleLabels = { 'hook-story': 'Hook-Story-CTA', educational: 'Educational', storytelling: 'Storytelling', vsl: 'VSL' };
     const platList = selPlatforms.length > 0 ? selPlatforms : (contentType === 'video' ? ['tiktok'] : ['facebook']);
-    const cmd = contentType === 'video'
-      ? `${topic.trim()} [VIDEO] [script:${styleLabels[scriptStyle]}] [duration:${duration}]`
-      : `${topic.trim()} [tone:${toneLabels[tone]}]`;
+    // Topic is the only trigger command. Writing/Video configuration is structured
+    // request data so it cannot be lost, re-parsed, or confused with workflow triggers.
+    const cmd = contentType === 'video' ? `${topic.trim()} [VIDEO]` : topic.trim();
     try {
       const result: ContentPlan = await apiFetch('/brand-content.php?action=generate-plan', {
         method: 'POST',
@@ -77,6 +78,9 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
           brand_context_ids: selContextIds,
           platforms: platList,
           type: contentType,
+          ...(contentType === 'article'
+            ? { tone }
+            : { script_style: scriptStyle, duration: VIDEO_DURATION_SECONDS[duration] }),
         }),
       });
       qc.invalidateQueries({ queryKey: ['content', 'plans'] });
@@ -232,12 +236,7 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
               <div className="space-y-1.5">
                 <Label>สไตล์การเขียน</Label>
                 <div className="grid grid-cols-2 gap-2">
-                  {([
-                    { value: 'friendly',     label: '😊 กันเอง',     desc: 'อบอุ่น เป็นกันเอง' },
-                    { value: 'professional', label: '💼 ทางการ',     desc: 'มืออาชีพ น่าเชื่อถือ' },
-                    { value: 'educational',  label: '🎓 ให้ความรู้', desc: 'สาระ เข้าใจง่าย' },
-                    { value: 'storytelling', label: '📖 เล่าเรื่อง', desc: 'น่าสนใจ ดึงดูด' },
-                  ] as const).map(opt => (
+                  {ARTICLE_TONE_OPTIONS.map(opt => (
                     <button key={opt.value} type="button" onClick={() => setTone(opt.value)}
                       className={cn('flex flex-col items-start p-2.5 rounded-lg border text-left text-xs transition-all',
                         tone === opt.value
@@ -256,12 +255,7 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
                 <div className="space-y-1.5">
                   <Label>รูปแบบสคริปต์</Label>
                   <div className="grid grid-cols-2 gap-2">
-                    {([
-                      { value: 'hook-story',   label: '🔥 ฮุก-เรื่อง-CTA',  desc: 'ไวรัล · เน้น engagement' },
-                      { value: 'educational',  label: '🎓 ให้ความรู้',      desc: 'สอน · เข้าใจง่าย' },
-                      { value: 'storytelling', label: '📖 เล่าเรื่อง',      desc: 'เล่าเรื่อง · อารมณ์' },
-                      { value: 'vsl',          label: '💰 VSL (ขายตรง)',    desc: 'ขาย · เพิ่มยอดแปลง' },
-                    ] as const).map(opt => (
+                    {VIDEO_SCRIPT_STYLE_OPTIONS.map(opt => (
                       <button key={opt.value} type="button" onClick={() => setScriptStyle(opt.value)}
                         className={cn('flex flex-col items-start p-2.5 rounded-lg border text-left text-xs transition-all',
                           scriptStyle === opt.value
@@ -276,7 +270,7 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
                 <div className="space-y-1.5">
                   <Label>ความยาววีดีโอ</Label>
                   <div className="flex gap-2 flex-wrap">
-                    {(['15s', '30s', '60s', '3min', '10min+'] as const).map(d => (
+                    {VIDEO_DURATION_OPTIONS.map(d => (
                       <button key={d} type="button" onClick={() => setDuration(d)}
                         className={cn('px-3 py-1.5 rounded-lg border text-xs font-medium transition-all',
                           duration === d

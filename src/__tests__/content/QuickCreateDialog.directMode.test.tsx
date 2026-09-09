@@ -71,6 +71,24 @@ describe('QuickCreateDialog direct generation mode', () => {
     expect(plan).not.toHaveProperty('days');
     expect(plan).not.toHaveProperty('week_start');
     expect(plan.trigger_command).toContain('YouTube');
+    expect(plan.tone).toBe('friendly');
+    expect(plan.trigger_command).not.toContain('[tone:');
+  });
+
+  it('ส่ง Writing Style ที่ผู้ใช้เลือกเป็น tone แยกจาก trigger_command', async () => {
+    const bodies = mockApi();
+    renderDialog();
+
+    fireEvent.click(await screen.findByRole('button', { name: /บทความ & โซเชียล/ }));
+    fireEvent.change(await screen.findByPlaceholderText(/5 เหตุผลที่ธุรกิจต้องใช้ AI/), { target: { value: 'YouTube' } });
+    fireEvent.click(screen.getByRole('button', { name: /ทางการ/ }));
+    fireEvent.click(screen.getByRole('button', { name: /สร้างบทความ/ }));
+
+    await waitFor(() => expect(findBody(bodies, 'action=generate-plan')).toBeTruthy());
+    const plan = findBody(bodies, 'action=generate-plan')!;
+    expect(plan.tone).toBe('formal');
+    expect(plan.trigger_command).toBe('YouTube');
+    expect(plan.trigger_command).not.toContain('[tone:');
   });
 
   it('ส่ง generation_mode=direct และไม่ส่ง days/week_start สำหรับวีดีโอ', async () => {
@@ -87,8 +105,31 @@ describe('QuickCreateDialog direct generation mode', () => {
     expect(plan.generation_mode).toBe('direct');
     expect(plan.source_topic).toBe('YouTube');
     expect(plan.type).toBe('video');
+    expect(plan.script_style).toBe('hook-story');
+    expect(plan.duration).toBe(60);
     expect(plan).not.toHaveProperty('days');
     expect(plan).not.toHaveProperty('week_start');
+    expect(plan).not.toHaveProperty('tone');
+    expect(plan.trigger_command).toBe('YouTube [VIDEO]');
+  });
+
+  it('ส่ง Video Script Style และ Duration เป็น structured configuration', async () => {
+    const bodies = mockApi();
+    renderDialog();
+
+    fireEvent.click(await screen.findByRole('button', { name: /วีดีโอสคริปต์/ }));
+    fireEvent.change(await screen.findByPlaceholderText(/5 วิธีใช้ AI สร้างรายได้/), { target: { value: 'AI Automation' } });
+    fireEvent.click(screen.getByRole('button', { name: /VSL/ }));
+    fireEvent.click(screen.getByRole('button', { name: '3min' }));
+    fireEvent.click(screen.getByRole('button', { name: /สร้างวีดีโอสคริปต์/ }));
+
+    await waitFor(() => expect(findBody(bodies, 'action=generate-plan')).toBeTruthy());
+    const plan = findBody(bodies, 'action=generate-plan')!;
+    expect(plan.script_style).toBe('vsl');
+    expect(plan.duration).toBe(180);
+    expect(plan.trigger_command).toBe('AI Automation [VIDEO]');
+    expect(plan.trigger_command).not.toContain('[script:');
+    expect(plan.trigger_command).not.toContain('[duration:');
   });
 
   it('ใช้ Original User Topic เป็น seed ของ Research ไม่ใช่ topic ที่ AI เขียนใหม่', async () => {

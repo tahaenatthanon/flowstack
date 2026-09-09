@@ -23,6 +23,12 @@ export interface ContentItem {
   article_content?: string | null;
   platform?: string | null;
   platforms?: string[] | string | null;
+  /** Article writing style selected at creation time */
+  tone?: 'friendly' | 'formal' | 'educational' | 'storytelling' | null;
+  /** Video script structure selected at creation time */
+  script_style?: 'hook-story' | 'educational' | 'storytelling' | 'vsl' | null;
+  /** Requested video duration in seconds */
+  duration_sec?: number | null;
   day_label?: string | null;
   scheduled_date?: string | null;
   plan_title?: string | null;
@@ -69,6 +75,32 @@ export function getTriggerDisplayLabel(command: string): string {
   return TRIGGER_DISPLAY_LABELS[normalized] ?? normalized;
 }
 
+// ─── Article/Video style configuration — shared between QuickCreateDialog and BatchGenerateDialog ───
+
+export const ARTICLE_TONE_OPTIONS = [
+  { value: 'friendly', label: '😊 กันเอง', desc: 'อบอุ่น เป็นกันเอง' },
+  { value: 'formal', label: '💼 ทางการ', desc: 'มืออาชีพ น่าเชื่อถือ' },
+  { value: 'educational', label: '🎓 ให้ความรู้', desc: 'สาระ เข้าใจง่าย' },
+  { value: 'storytelling', label: '📖 เล่าเรื่อง', desc: 'น่าสนใจ ดึงดูด' },
+] as const;
+
+export const VIDEO_SCRIPT_STYLE_OPTIONS = [
+  { value: 'hook-story', label: '🔥 ฮุก-เรื่อง-CTA', desc: 'ไวรัล · เน้น engagement' },
+  { value: 'educational', label: '🎓 ให้ความรู้', desc: 'สอน · เข้าใจง่าย' },
+  { value: 'storytelling', label: '📖 เล่าเรื่อง', desc: 'เล่าเรื่อง · อารมณ์' },
+  { value: 'vsl', label: '💰 VSL (ขายตรง)', desc: 'ขาย · เพิ่มยอดแปลง' },
+] as const;
+
+export const VIDEO_DURATION_OPTIONS = ['15s', '30s', '60s', '3min', '10min+'] as const;
+
+export const VIDEO_DURATION_SECONDS: Record<typeof VIDEO_DURATION_OPTIONS[number], number> = {
+  '15s': 15,
+  '30s': 30,
+  '60s': 60,
+  '3min': 180,
+  '10min+': 600,
+};
+
 export interface ContentPlan {
   id: string; title: string; week_start: string; status: string;
   plan_type?: 'weekly' | 'monthly' | 'quarterly' | 'yearly';
@@ -108,6 +140,9 @@ export type CalendarView = 'month' | 'quarter' | 'year';
 export interface PlanItem {
   id: string; plan_id: string; day_label: string; day_order: number;
   scheduled_date?: string | null; platform: string; platforms?: string[] | string | null; topic: string; source_topic?: string | null;
+  tone?: 'friendly' | 'formal' | 'educational' | 'storytelling' | null;
+  script_style?: 'hook-story' | 'educational' | 'storytelling' | 'vsl' | null;
+  duration_sec?: number | null;
   caption: string; image_brief: string;
   generated_image_url: string | null; image_gen_status: string;
   article_content?: string | null;

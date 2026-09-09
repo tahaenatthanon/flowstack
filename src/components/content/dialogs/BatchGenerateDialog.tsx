@@ -6,7 +6,10 @@ import { useToast } from '@/hooks/use-toast';
 import { useContentSkills, useBrandContexts, useContentTriggers } from '@/hooks/useContent';
 import { useResearchRun, RESEARCH_STEP_LABELS } from '@/hooks/useResearchRun';
 import type { ContentPlan } from '@/components/content/types';
-import { getTriggerDisplayLabel, PLATFORM_MAP } from '@/components/content/types';
+import {
+  getTriggerDisplayLabel, PLATFORM_MAP,
+  ARTICLE_TONE_OPTIONS, VIDEO_SCRIPT_STYLE_OPTIONS, VIDEO_DURATION_OPTIONS, VIDEO_DURATION_SECONDS,
+} from '@/components/content/types';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -27,6 +30,9 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
     topic: '', niche: '', contentType: 'article' as 'article' | 'video',
     platforms: [] as string[], triggerIds: [] as string[], skillIds: [] as string[],
     autoSkillIds: [] as string[], contextIds: [] as string[], language: '', openSettings: false,
+    tone: 'friendly' as 'friendly' | 'formal' | 'educational' | 'storytelling',
+    scriptStyle: 'hook-story' as 'hook-story' | 'educational' | 'storytelling' | 'vsl',
+    duration: '60s' as '15s' | '30s' | '60s' | '3min' | '10min+',
   });
   const [topics, setTopics] = useState([createTopic()]);
   const [days, setDays] = useState('7');
@@ -139,6 +145,9 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
             platforms: topicConfig.platforms,
             type: topicConfig.contentType,
             days: daysNum,
+            ...(topicConfig.contentType === 'article'
+              ? { tone: topicConfig.tone }
+              : { script_style: topicConfig.scriptStyle, duration: VIDEO_DURATION_SECONDS[topicConfig.duration] }),
           }),
         });
 
@@ -253,6 +262,11 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
 
                       <div className="flex flex-wrap items-center gap-1.5 rounded-md bg-muted/30 px-3 py-2.5 text-xs">
                         <span className={cn('rounded-full border bg-background px-2 py-0.5 font-medium max-w-full truncate', !item.niche.trim() && 'opacity-50')}>Niche: {item.niche.trim() || 'ไม่ระบุ'}</span>
+                        {item.contentType === 'article' ? (
+                          <span className="rounded-full border bg-background px-2 py-0.5 font-medium">{ARTICLE_TONE_OPTIONS.find(o => o.value === item.tone)?.label ?? item.tone}</span>
+                        ) : (
+                          <span className="rounded-full border bg-background px-2 py-0.5 font-medium">{VIDEO_SCRIPT_STYLE_OPTIONS.find(o => o.value === item.scriptStyle)?.label ?? item.scriptStyle} · {item.duration}</span>
+                        )}
                         <span className={cn('rounded-full border bg-background px-2 py-0.5 font-medium', item.triggerIds.length === 0 && 'opacity-50')}>Trigger: {item.triggerIds.length}</span>
                         <span className={cn('rounded-full border bg-background px-2 py-0.5 font-medium', item.skillIds.length === 0 && 'opacity-50')}>Skill: {item.skillIds.length}</span>
                         <span className={cn('rounded-full border bg-background px-2 py-0.5 font-medium', !item.language && 'opacity-50')}>ภาษา: {item.language === 'thai' ? 'ไทย' : item.language === 'english' ? 'English' : 'ไม่ระบุภาษา'}</span>
@@ -289,6 +303,56 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
                               {skills.length === 0 && <span className="text-xs text-muted-foreground">ยังไม่มี Skill</span>}
                             </div>
                           </div>
+
+                          {item.contentType === 'article' ? (
+                            <div className="space-y-1.5">
+                              <Label>สไตล์การเขียน</Label>
+                              <div className="grid grid-cols-2 gap-2">
+                                {ARTICLE_TONE_OPTIONS.map(opt => (
+                                  <button key={opt.value} type="button" onClick={() => setTopics(rows => rows.map((row, i) => i === index ? { ...row, tone: opt.value } : row))}
+                                    className={cn('flex flex-col items-start p-2.5 rounded-lg border text-left text-xs transition-all',
+                                      item.tone === opt.value
+                                        ? 'border-primary bg-primary/5 text-primary'
+                                        : 'border-border hover:border-muted-foreground hover:bg-muted/30')}>
+                                    <span className="font-medium">{opt.label}</span>
+                                    <span className="text-[10px] text-muted-foreground mt-0.5">{opt.desc}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="space-y-1.5">
+                                <Label>รูปแบบสคริปต์</Label>
+                                <div className="grid grid-cols-2 gap-2">
+                                  {VIDEO_SCRIPT_STYLE_OPTIONS.map(opt => (
+                                    <button key={opt.value} type="button" onClick={() => setTopics(rows => rows.map((row, i) => i === index ? { ...row, scriptStyle: opt.value } : row))}
+                                      className={cn('flex flex-col items-start p-2.5 rounded-lg border text-left text-xs transition-all',
+                                        item.scriptStyle === opt.value
+                                          ? 'border-primary bg-primary/5 text-primary'
+                                          : 'border-border hover:border-muted-foreground hover:bg-muted/30')}>
+                                      <span className="font-medium">{opt.label}</span>
+                                      <span className="text-[10px] text-muted-foreground mt-0.5">{opt.desc}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label>ความยาววีดีโอ</Label>
+                                <div className="flex gap-2 flex-wrap">
+                                  {VIDEO_DURATION_OPTIONS.map(d => (
+                                    <button key={d} type="button" onClick={() => setTopics(rows => rows.map((row, i) => i === index ? { ...row, duration: d } : row))}
+                                      className={cn('px-3 py-1.5 rounded-lg border text-xs font-medium transition-all',
+                                        item.duration === d
+                                          ? 'border-primary bg-primary/10 text-primary'
+                                          : 'border-border hover:bg-muted')}>
+                                      {d}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            </>
+                          )}
 
                           <div className="space-y-1.5">
                             <Label>แพลตฟอร์ม ({item.platforms.length === 0 ? 'ไม่เลือก' : item.platforms.length})</Label>
@@ -403,6 +467,11 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
                         <div className="font-semibold text-sm">หัวข้อที่ {index + 1}: {item.topic.trim()}</div>
                         <div className="flex flex-wrap gap-1.5 text-xs">
                           <span className="rounded-full border bg-background px-2 py-0.5 font-medium">Niche: {item.niche.trim() || 'ไม่ระบุ'}</span>
+                          {item.contentType === 'article' ? (
+                            <span className="rounded-full border bg-background px-2 py-0.5 font-medium">{ARTICLE_TONE_OPTIONS.find(o => o.value === item.tone)?.label ?? item.tone}</span>
+                          ) : (
+                            <span className="rounded-full border bg-background px-2 py-0.5 font-medium">{VIDEO_SCRIPT_STYLE_OPTIONS.find(o => o.value === item.scriptStyle)?.label ?? item.scriptStyle} · {item.duration}</span>
+                          )}
                           <span className="rounded-full border bg-background px-2 py-0.5 font-medium">Trigger: {item.triggerIds.length}</span>
                           <span className="rounded-full border bg-background px-2 py-0.5 font-medium">Skill: {item.skillIds.length}</span>
                           <span className="rounded-full border bg-background px-2 py-0.5 font-medium">ภาษา: {item.language === 'thai' ? 'ไทย' : item.language === 'english' ? 'English' : 'ไม่ระบุภาษา'}</span>

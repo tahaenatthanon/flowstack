@@ -208,6 +208,55 @@ function normalizeContentType(mixed $raw): string {
     return $type === 'video' ? 'video' : 'article';
 }
 
+/** Normalize the Article writing style selected in the Create Content UI. */
+function normalizeArticleTone(mixed $raw): string {
+    $tone = strtolower(trim((string)($raw ?? 'friendly')));
+    // `professional` was the previous frontend value for the Thai "ทางการ" option.
+    if ($tone === 'professional') $tone = 'formal';
+    $allowed = ['friendly', 'formal', 'educational', 'storytelling'];
+    return in_array($tone, $allowed, true) ? $tone : 'friendly';
+}
+
+/** Normalize the Video Script Style selected in the Create Content UI. */
+function normalizeVideoScriptStyle(mixed $raw): string {
+    $style = strtolower(trim((string)($raw ?? 'hook-story')));
+    $allowed = ['hook-story', 'educational', 'storytelling', 'vsl'];
+    return in_array($style, $allowed, true) ? $style : 'hook-story';
+}
+
+/** Normalize requested video duration to seconds. */
+function normalizeVideoDuration(mixed $raw): int {
+    $duration = (int)$raw;
+    $allowed = [15, 30, 60, 180, 600];
+    return in_array($duration, $allowed, true) ? $duration : 60;
+}
+
+/** Build explicit Video Script Style instructions from the selected style. */
+function videoScriptStyleInstruction(string $style): string {
+    return match ($style) {
+        'educational' => 'ใช้รูปแบบให้ความรู้: เปิดด้วยประเด็นสำคัญ อธิบายเป็นลำดับ ใช้ตัวอย่างหรือเหตุผลที่เข้าใจง่าย และปิดด้วยสรุป/CTA',
+        'storytelling' => 'ใช้รูปแบบเล่าเรื่อง: มีจุดเริ่มต้น บริบท เหตุการณ์หรือปัญหา การดำเนินเรื่อง และบทสรุป/CTA ให้ผู้ชมอยากติดตามต่อ',
+        'vsl' => 'ใช้รูปแบบ VSL: เปิดด้วยปัญหาหรือผลลัพธ์ที่ต้องการ นำเสนอประโยชน์/เหตุผลสนับสนุนอย่างชัดเจน จัดการข้อกังวล และปิดด้วย CTA เชิง Conversion',
+        default => 'ใช้รูปแบบ Hook-Story-CTA: Hook ที่ดึงความสนใจทันที ตามด้วยเนื้อหา/เรื่องที่กระชับ และปิดด้วย CTA ที่ชัดเจน',
+    };
+}
+
+/** Build explicit Video Duration instructions. */
+function videoDurationInstruction(int $duration): string {
+    $minutes = $duration >= 60 ? round($duration / 60, 1) . ' นาที' : $duration . ' วินาที';
+    return "ความยาวเป้าหมาย {$duration} วินาที ({$minutes}). ปริมาณบทพูด จังหวะ เนื้อหา จำนวนฉาก และ duration ของแต่ละฉากต้องสอดคล้องกับความยาวนี้ โดยเวลารวมของ scenes ควรใกล้เคียง {$duration} วินาที และห้ามใช้ความยาวเริ่มต้นแบบตายตัว 60 วินาทีเมื่อผู้ใช้เลือกค่าอื่น";
+}
+
+/** Build an explicit Article writing instruction from the selected tone. */
+function articleToneInstruction(string $tone): string {
+    return match ($tone) {
+        'formal' => 'ใช้ภาษาทางการ สุภาพ เป็นมืออาชีพและน่าเชื่อถือ หลีกเลี่ยงภาษาพูด คำสแลง และถ้อยคำที่เป็นกันเองเกินไป',
+        'educational' => 'เน้นการให้ความรู้และการอธิบายอย่างเป็นระบบ จัดลำดับเนื้อหาให้ชัดเจน ใช้ภาษาที่เข้าใจง่าย และอธิบายแนวคิดสำคัญให้ผู้อ่านนำไปใช้ได้',
+        'storytelling' => 'เขียนในรูปแบบการเล่าเรื่อง มีบริบท ลำดับเหตุการณ์หรือมุมมองที่ต่อเนื่อง ใช้รายละเอียดเพื่อดึงผู้อ่านให้ติดตามเรื่องจนจบ',
+        default => 'ใช้ภาษาที่เป็นกันเอง อบอุ่น เป็นธรรมชาติ อ่านง่าย เหมือนสื่อสารกับคนจริง หลีกเลี่ยงภาษาทางการหรือแข็งเกินไป',
+    };
+}
+
 // โ”€โ”€โ”€ CONTEXTS โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
 if ($action === 'contexts') {
     if ($method === 'GET') {
@@ -462,7 +511,7 @@ if ($action === 'plans') {
             $stmt->execute([$id, $tenantId]);
             $plan = $stmt->fetch();
             if (!$plan) jsonError('Plan not found', 404);
-            $stmt2 = $db->prepare("SELECT ci.id AS id, ci.plan_id, ci.title AS topic, ci.source_topic, ci.platform, ci.platforms, ci.scheduled_date, ci.caption, ci.image_brief, ci.generated_image_url, COALESCE(ci.image_gen_status, 'none') AS image_gen_status, ci.article_content, ci.id AS content_item_id, ci.type AS content_type, ci.seo_title, ci.slug, ci.meta_description, ci.meta_keywords, ci.structured_data, ci.og_image, COALESCE(cpi.day_label, '') AS day_label, COALESCE(cpi.day_order, 0) AS day_order FROM content_items ci LEFT JOIN content_plan_items cpi ON cpi.id = ci.plan_item_id WHERE ci.plan_id = ? ORDER BY COALESCE(cpi.day_order, 0), ci.scheduled_date");
+            $stmt2 = $db->prepare("SELECT ci.id AS id, ci.plan_id, ci.title AS topic, ci.source_topic, ci.tone, ci.platform, ci.platforms, ci.scheduled_date, ci.caption, ci.image_brief, ci.generated_image_url, COALESCE(ci.image_gen_status, 'none') AS image_gen_status, ci.article_content, ci.id AS content_item_id, ci.type AS content_type, ci.seo_title, ci.slug, ci.meta_description, ci.meta_keywords, ci.structured_data, ci.og_image, COALESCE(cpi.day_label, '') AS day_label, COALESCE(cpi.day_order, 0) AS day_order FROM content_items ci LEFT JOIN content_plan_items cpi ON cpi.id = ci.plan_item_id WHERE ci.plan_id = ? ORDER BY COALESCE(cpi.day_order, 0), ci.scheduled_date");
             $stmt2->execute([$id]);
             $plan['items'] = $stmt2->fetchAll();
             jsonResponse($plan);
@@ -609,6 +658,10 @@ if ($action === 'generate-plan' && $method === 'POST') {
     $planStart       = $body['plan_start'] ?? null;
     $planEnd         = $body['plan_end'] ?? null;
     $platforms       = $body['platforms'] ?? []; // optional: force specific platforms
+    // Article/Video style configuration is structured data, not trigger text.
+    $tone            = normalizeArticleTone($body['tone'] ?? 'friendly');
+    $scriptStyle     = normalizeVideoScriptStyle($body['script_style'] ?? 'hook-story');
+    $durationSeconds = normalizeVideoDuration($body['duration'] ?? 60);
     // Backward compat: accept single platform string
     if (empty($platforms) && !empty($body['platform'])) $platforms = [$body['platform']];
     // Normalize platform list to a clean array of strings
@@ -663,6 +716,12 @@ if ($action === 'generate-plan' && $method === 'POST') {
     if ($triggerCommand) $sysParts[] = "## Trigger Instructions (all selected Triggers)\n{$triggerCommand}\n\nThese are workflow instructions only. They must not replace or redefine the user's Topic.";
     if ($niche !== '') $sysParts[] = "## Niche Constraint\n{$niche}\n\nUse this Niche to specialize the content. Keep the user's Topic as the primary subject and do not replace it with the Niche.";
     if ($language === 'english') $sysParts[] = "## Language Constraint\nWrite the generated content in English. Keep the user's Topic unchanged as the source topic.";
+    if ($type === 'video') {
+        $sysParts[] = "## Video Configuration (selected by user)\nScript Style: {$scriptStyle}\n" .
+            "SCRIPT STYLE REQUIREMENT: " . videoScriptStyleInstruction($scriptStyle) . "\n" .
+            "DURATION REQUIREMENT: " . videoDurationInstruction($durationSeconds) . "\n" .
+            "These settings are hard content requirements and must affect the generated script. Do not replace them with Trigger, Skill, or model defaults.";
+    }
     if (!empty($platforms)) {
         $pList = implode(', ', $platforms);
         $sysParts[] = "## Platform Constraint\nTarget publish platforms (list of channels for this content): {$pList}. Write content suitable to be published across these platforms. Set the \"platform\" field to the primary platform from this list.";
@@ -920,8 +979,8 @@ if ($action === 'generate-plan' && $method === 'POST') {
         // Also create content_items row as primary content store
         $ciId = generateUUID();
         $platformsJson = !empty($item['platforms']) && is_array($item['platforms']) ? json_encode($item['platforms']) : null;
-        $db->prepare('INSERT INTO content_items (id, tenant_id, title, source_topic, type, status, created_by, plan_item_id, plan_id, platform, platforms, scheduled_date, caption, image_brief) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-           ->execute([$ciId, $tenantId, $item['topic'] ?? '', $originalTopic, $type, 'draft', $userId, $itemId, $planId, $item['platform'] ?? '', $platformsJson, $item['scheduled_date'] ?? null, $item['caption'] ?? '', $item['image_brief'] ?? '']);
+        $db->prepare('INSERT INTO content_items (id, tenant_id, title, source_topic, type, tone, script_style, duration_sec, status, created_by, plan_item_id, plan_id, platform, platforms, scheduled_date, caption, image_brief) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+           ->execute([$ciId, $tenantId, $item['topic'] ?? '', $originalTopic, $type, $type === 'article' ? $tone : null, $type === 'video' ? $scriptStyle : null, $type === 'video' ? $durationSeconds : null, 'draft', $userId, $itemId, $planId, $item['platform'] ?? '', $platformsJson, $item['scheduled_date'] ?? null, $item['caption'] ?? '', $item['image_brief'] ?? '']);
     }
 
     $stmt = $db->prepare('SELECT * FROM content_plans WHERE id=? AND tenant_id=?');
@@ -2192,6 +2251,12 @@ if ($action === 'generate-article') {
     $triggerCtx = $planTriggerCommands ? "Trigger Instructions (all selected Triggers):\n" . implode("\n", $planTriggerCommands) . "\n\nThese are workflow instructions only. They must not replace or redefine the Topic.\n\n" : '';
     $skillCtx = $planSkillPrompts ? "Skill Instructions (all selected Skills):\n" . implode("\n\n---\n\n", $planSkillPrompts) . "\n\n" : '';
     $baseCtx = ($globalInstr ? $globalInstr."\n\n" : '') . ($brandText ? "Brand Context:{$brandText}\n\n" : '') . ($kbContext ? "Knowledge Base Reference:{$kbContext}\n\n" : '') . $triggerCtx . $skillCtx;
+    if (!$isVideo) {
+        $articleTone = normalizeArticleTone($item['tone'] ?? 'friendly');
+        $baseCtx .= "Article Writing Style (selected by user): {$articleTone}\n" .
+            "WRITING STYLE REQUIREMENT: " . articleToneInstruction($articleTone) . "\n\n" .
+            "The selected writing style is a hard content requirement. Apply it throughout the article body, headline, excerpt, caption, and social scripts where applicable. Do not replace the selected style with a different tone from a Trigger or generic brand instruction unless the user explicitly requests that override.\n\n";
+    }
 
     $aiCall = function(string $sysPart, string $userMsg) use ($apiUrl, $headers, $modelName, &$baseCtx, $contentTimeout, $contentMaxTokens): string {
         $ch = curl_init($apiUrl);
@@ -2283,6 +2348,14 @@ if ($action === 'generate-article') {
     $itemPlatform = $itemPlatforms[0] ?? '';
     $isVideo = strtolower((string)($item['type'] ?? 'article')) === 'video';
     $itemCtx = "หัวข้อ (Source of Truth): {$item['topic']}\nแพลตฟอร์มที่เลือก: " . ($itemPlatforms ? implode(', ', $itemPlatforms) : 'ไม่ได้กำหนด') . "\nแคปชั่น:\n{$item['caption']}";
+    if ($isVideo) {
+        $storedScriptStyle = normalizeVideoScriptStyle($item['script_style'] ?? 'hook-story');
+        $storedDuration = normalizeVideoDuration($item['duration_sec'] ?? 60);
+        $baseCtx .= "Video Script Style (selected by user): {$storedScriptStyle}\n" .
+            "SCRIPT STYLE REQUIREMENT: " . videoScriptStyleInstruction($storedScriptStyle) . "\n" .
+            "Video Duration (selected by user): {$storedDuration} seconds\n" .
+            "DURATION REQUIREMENT: " . videoDurationInstruction($storedDuration) . "\n\n";
+    }
     if ($researchBrief && $researchJob) {
         $selectedKeywords = array_values(array_filter($researchKeywords, static fn(array $row): bool => (int)($row['is_selected'] ?? 0) === 1));
         if (!$selectedKeywords) $selectedKeywords = $researchKeywords;
@@ -2559,6 +2632,7 @@ if ($action === 'generate-article') {
         )))));
     }
     $art = [
+        'tone'            => !$isVideo ? $articleTone : null,
         'title'           => $artTitle,
         'excerpt'         => $artExcerpt,
         'html'            => $fullHtml,
@@ -2735,6 +2809,7 @@ if ($action === 'generate-article') {
                 ? (($faq && is_array($faq) && !empty($faq['mainEntity'])) ? json_encode([$sd, $faq], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : json_encode($sd, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES))
                 : null;
             $art = [
+                'tone' => !$isVideo ? $articleTone : null,
                 'title' => $artTitle, 'excerpt' => $artExcerpt, 'html' => $fullHtml,
                 'headlines' => $mainData['headlines'] ?? [], 'scripts' => $mainData['scripts'] ?? [],
                 'script_sections' => $mainData['script_sections'] ?? [], 'visuals' => $mainData['visuals'] ?? [],
