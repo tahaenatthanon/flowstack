@@ -2406,15 +2406,25 @@ if ($action === 'generate-article') {
             };
         }
         $scriptSchema = json_encode($scriptExamples, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        // Core Article ต้องมีเนื้อหาเสมอไม่ว่า Content Type จะเป็นอะไร — ขอ full_html
+        // แบบ "เนื้อหาประกอบ/สรุปวิดีโอ" เสมอ ไม่ปล่อยให้ Core Article ว่างเปล่าแล้วต้องพึ่ง
+        // script ของ platform ใดโดยเฉพาะเป็น fallback (ดู $fullHtml fallback ด้านล่าง)
+        $videoFullHtmlSchema = '"full_html":"<article>\\n<p>เนื้อหาประกอบ/สรุปวิดีโอ ขยายความจาก excerpt เป็นย่อหน้าอ่านได้ ใช้แทนคำบรรยายวิดีโอแบบยาว</p>\\n</article> (semantic HTML, ไม่ใช้ h1)",';
+        // script_sections ต้องการเฉพาะ platform ที่เป็น video-native (TikTok/YouTube)
+        // เท่านั้น — ไม่ผูกกับ Content Type อีกต่อไป (ดู content_needs_script_sections())
+        $videoScriptSectionsSchema = content_needs_script_sections($scriptPlatforms)
+            ? '"script_sections":{"opening":"Hook 3 วินาทีแรก","bridge":"เนื้อหาหลัก","twist":"จุดพลิกหรือข้อมูลสำคัญ","ending":"CTA + Subscribe/Follow"},'
+            : '';
         $mainSys = "CRITICAL: ตอบเป็นภาษาไทยเท่านั้น ห้ามใช้ภาษาจีน เกาหลี ญี่ปุ่น (CJK). English OK for technical terms only.\n" .
                    "คุณเป็น Video Content Creator ผู้เชี่ยวชาญด้าน SEO และ AEO ตอบกลับเป็น JSON เท่านั้น ไม่มี markdown fence\n" .
                    "Platform Script Constraint: สร้าง scripts เฉพาะ platform ที่ผู้ใช้เลือกไว้เท่านั้น ห้ามสร้าง key ของ platform อื่น ห้ามเดา platform เพิ่ม และถ้าไม่มี platform ที่รองรับ script ให้ส่ง scripts เป็น {}\n" .
                    "Selected script platforms: " . ($scriptPlatforms ? implode(', ', $scriptPlatforms) : 'none') . "\n" .
                    "โครงสร้าง JSON สำหรับวิดีโอ:\n" .
                    '{"title":"ชื่อวิดีโอ","excerpt":"สรุปเนื้อหาวิดีโอ 1-2 ประโยค","seo_title":"SEO title สำหรับวิดีโอ","slug":"url-friendly-slug","meta_description":"คำอธิบายสำหรับการค้นหา 120-160 ตัวอักษร",' .
+                   $videoFullHtmlSchema .
                    '"headlines":{"viral_clickbait":[{"title":"หัวข้อ hook","hook":"ประโยคเปิด"}],"storytelling":[{"title":"หัวข้อ","hook":"hook"}],"educational":[{"title":"หัวข้อ","hook":"hook"}]},' .
                    '"scripts":' . $scriptSchema . ',' .
-                   '"script_sections":{"opening":"Hook 3 วินาทีแรก","bridge":"เนื้อหาหลัก","twist":"จุดพลิกหรือข้อมูลสำคัญ","ending":"CTA + Subscribe/Follow"},' .
+                   $videoScriptSectionsSchema .
                    '"visuals":["Scene 1: คำอธิบายภาพ/การถ่าย","Scene 2: คำอธิบายภาพ/การถ่าย", "... (จำนวน scene ตามความเหมาะสมของเนื้อหา ไม่บังคับตายตัว)"],' .
                    '"structured_data":{"@context":"https://schema.org","@type":"VideoObject","name":"...","description":"..."},' .
                    '"hashtags":["#hashtag1","#hashtag2","... (จำนวน hashtag ตามความเหมาะสมของเนื้อหา ไม่บังคับตายตัว)"]}' . "\n\nSEO Checklist Requirements (single source of truth):\n{$seoRequirementsText}\n\nAEO Checklist Requirements (single source of truth):\n" . aeo_generation_requirements() . "\n\n{$platformScriptGuidance}";
@@ -2434,7 +2444,12 @@ if ($action === 'generate-article') {
             };
         }
         $scriptSchema = json_encode($scriptExamples, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        $jsonSchema = '{"title":"ชื่อบทความ (SEO optimized)","excerpt":"สรุป 1-2 ประโยค","seo_title":"SEO Title Tag","slug":"url-friendly-slug","meta_description":"Meta description ภาษาไทย 120-160 chars","meta_keywords":"keyword1, keyword2, ...","full_html":"<article>\\n<h2>heading</h2>\\n<p>content paragraph</p>\\n<h2>heading 2</h2>\\n<p>more content</p>\\n</article> (semantic HTML ใช้ h2,h3,p,ul,ol,blockquote,table ห้ามใช้ h1 เนื่องจากสงวนให้ title)","structured_data":{"@context":"https://schema.org","@type":"Article","headline":"...","description":"..."},"structured_data_faq":{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"คำถาม","acceptedAnswer":{"@type":"Answer","text":"คำตอบ"}}]} (ใส่เฉพาะเมื่อบทความมี Q&A จริง)","headlines":{"viral_clickbait":[{"title":"...","hook":"..."}],"storytelling":[{"title":"...","hook":"..."}],"educational":[{"title":"...","hook":"..."}]},"scripts":' . $scriptSchema . ',"script_sections":{"opening":"hook","bridge":"เนื้อหา","twist":"จุดพลิก","ending":"CTA"},"visuals":["ภาพประกอบ 1","ภาพประกอบ 2","... (จำนวนภาพประกอบตามความเหมาะสมของเนื้อหา ไม่บังคับตายตัว)"],"hashtags":["#tag1","#tag2","... (จำนวน hashtag ตามความเหมาะสมของเนื้อหา ไม่บังคับตายตัว)"]}';
+        // script_sections ต้องการเฉพาะ platform ที่เป็น video-native (TikTok/YouTube)
+        // เท่านั้น — ไม่ผูกกับ Content Type อีกต่อไป (ดู content_needs_script_sections())
+        $articleScriptSectionsSchema = content_needs_script_sections($scriptPlatforms)
+            ? '"script_sections":{"opening":"hook","bridge":"เนื้อหา","twist":"จุดพลิก","ending":"CTA"},'
+            : '';
+        $jsonSchema = '{"title":"ชื่อบทความ (SEO optimized)","excerpt":"สรุป 1-2 ประโยค","seo_title":"SEO Title Tag","slug":"url-friendly-slug","meta_description":"Meta description ภาษาไทย 120-160 chars","meta_keywords":"keyword1, keyword2, ...","full_html":"<article>\\n<h2>heading</h2>\\n<p>content paragraph</p>\\n<h2>heading 2</h2>\\n<p>more content</p>\\n</article> (semantic HTML ใช้ h2,h3,p,ul,ol,blockquote,table ห้ามใช้ h1 เนื่องจากสงวนให้ title)","structured_data":{"@context":"https://schema.org","@type":"Article","headline":"...","description":"..."},"structured_data_faq":{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"คำถาม","acceptedAnswer":{"@type":"Answer","text":"คำตอบ"}}]} (ใส่เฉพาะเมื่อบทความมี Q&A จริง)","headlines":{"viral_clickbait":[{"title":"...","hook":"..."}],"storytelling":[{"title":"...","hook":"..."}],"educational":[{"title":"...","hook":"..."}]},"scripts":' . $scriptSchema . ',' . $articleScriptSectionsSchema . '"visuals":["ภาพประกอบ 1","ภาพประกอบ 2","... (จำนวนภาพประกอบตามความเหมาะสมของเนื้อหา ไม่บังคับตายตัว)"],"hashtags":["#tag1","#tag2","... (จำนวน hashtag ตามความเหมาะสมของเนื้อหา ไม่บังคับตายตัว)"]}';
         $seoRequirementsText = seo_contract_hints('article');
         $mainSys = "CRITICAL: ตอบเป็นภาษาไทยเท่านั้น ห้ามใช้ภาษาจีน เกาหลี ญี่ปุ่น (CJK). English OK for technical terms only.\n" .
                    "คุณเป็นนักเขียน Content Marketing + SEO Specialist ตอบกลับเป็น JSON เท่านั้น ไม่มี markdown fence\n" .
@@ -2522,7 +2537,10 @@ if ($action === 'generate-article') {
     $artExcerpt = $mainData['excerpt'] ?? '';
 
     // โ”€โ”€ Step 2: Build HTML article โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
-    // Use AI-generated full_html if available (semantic HTML), otherwise build from facebook script
+    // Use AI-generated full_html if available (semantic HTML), otherwise build from
+    // excerpt + visuals. Core Article ต้องไม่พึ่ง script ของ platform ใดโดยเฉพาะ (เช่น
+    // Facebook) เป็นแหล่งเนื้อหาสำรอง — ใช้ข้อมูลระดับ Core Content ที่มีอยู่เสมอแทน
+    // เพื่อไม่ให้ Core Article ว่างเปล่าเมื่อไม่ได้เลือก platform นั้นๆ
     $aiHtml = $mainData['full_html'] ?? '';
     if (!empty(trim(strip_tags($aiHtml)))) {
         // AI provided proper semantic HTML — sanitize and wrap
@@ -2533,14 +2551,14 @@ if ($action === 'generate-article') {
         }
         $fullHtml .= $aiHtml . '</article>';
     } else {
-        // Fallback: build from facebook script
-        $fbScript = $mainData['scripts']['facebook'] ?? '';
+        // Fallback: build from excerpt + visuals (independent of any single platform)
+        $visualLines = is_array($mainData['visuals'] ?? null) ? $mainData['visuals'] : [];
         $fullHtml = '<article class="prose prose-sm max-w-none">' .
                     '<h1>' . htmlspecialchars($artTitle) . '</h1>';
         if ($artExcerpt) $fullHtml .= '<p class="lead text-muted-foreground italic">' . htmlspecialchars($artExcerpt) . '</p>';
-        foreach (explode("\n\n", $fbScript) as $para) {
-            $para = trim($para);
-            if ($para !== '') $fullHtml .= '<p>' . nl2br(htmlspecialchars($para)) . '</p>';
+        foreach ($visualLines as $visualLine) {
+            $visualLine = trim((string)$visualLine);
+            if ($visualLine !== '') $fullHtml .= '<p>' . nl2br(htmlspecialchars($visualLine)) . '</p>';
         }
         $fullHtml .= '</article>';
     }

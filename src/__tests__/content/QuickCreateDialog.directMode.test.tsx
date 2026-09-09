@@ -168,3 +168,42 @@ describe('QuickCreateDialog direct generation mode', () => {
     expect(findBody(bodies, 'action=generate-article')!.research_job_id).toBe('job-1');
   });
 });
+
+describe('QuickCreateDialog — platform selection ไม่ถูกจำกัดโดย Content Type', () => {
+  it('Content Type = Video แต่ยังเลือก WordPress + Facebook (web/social) ร่วมกับ TikTok ได้', async () => {
+    const bodies = mockApi();
+    renderDialog();
+
+    fireEvent.click(await screen.findByRole('button', { name: /วีดีโอสคริปต์/ }));
+    await screen.findByPlaceholderText(/5 วิธีใช้ AI สร้างรายได้/);
+    // Default preselect เมื่อเลือก Video คือ TikTok — ต้องยังเลือก WordPress/Facebook เพิ่มได้
+    // (เดิม platformOptions ของ Video ไม่มี wordpress/facebook อยู่ใน list เลย)
+    fireEvent.click(screen.getByRole('button', { name: 'WordPress' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Facebook' }));
+    fireEvent.change(screen.getByPlaceholderText(/5 วิธีใช้ AI สร้างรายได้/), { target: { value: 'Mixed Platform' } });
+    fireEvent.click(screen.getByRole('button', { name: /สร้างวีดีโอสคริปต์/ }));
+
+    await waitFor(() => expect(findBody(bodies, 'action=generate-plan')).toBeTruthy());
+    const plan = findBody(bodies, 'action=generate-plan')!;
+    expect(plan.type).toBe('video');
+    expect(plan.platforms).toEqual(expect.arrayContaining(['tiktok', 'wordpress', 'facebook']));
+  });
+
+  it('Content Type = Article แต่ยังเลือก TikTok (video platform) ร่วมด้วยได้', async () => {
+    const bodies = mockApi();
+    renderDialog();
+
+    fireEvent.click(await screen.findByRole('button', { name: /บทความ & โซเชียล/ }));
+    await screen.findByPlaceholderText(/5 เหตุผลที่ธุรกิจต้องใช้ AI/);
+    // Default preselect เมื่อเลือก Article คือ Facebook — ต้องยังเลือก TikTok เพิ่มได้
+    // (เดิม platformOptions ของ Article ไม่มี tiktok อยู่ใน list เลย)
+    fireEvent.click(screen.getByRole('button', { name: 'TikTok' }));
+    fireEvent.change(screen.getByPlaceholderText(/5 เหตุผลที่ธุรกิจต้องใช้ AI/), { target: { value: 'Mixed Platform' } });
+    fireEvent.click(screen.getByRole('button', { name: /สร้างบทความ/ }));
+
+    await waitFor(() => expect(findBody(bodies, 'action=generate-plan')).toBeTruthy());
+    const plan = findBody(bodies, 'action=generate-plan')!;
+    expect(plan.type).toBe('article');
+    expect(plan.platforms).toEqual(expect.arrayContaining(['facebook', 'tiktok']));
+  });
+});

@@ -108,9 +108,9 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
     }
   };
 
-  const ARTICLE_PLATFORMS = ['facebook', 'linkedin', 'twitter', 'instagram', 'lineoa', 'wordpress', 'wix', 'custom'];
-  const VIDEO_PLATFORMS   = ['tiktok', 'youtube', 'instagram', 'custom'];
-  const platformOptions = contentType === 'video' ? VIDEO_PLATFORMS : ARTICLE_PLATFORMS;
+  // Platform ที่เลือกได้ไม่ผูกกับ Content Type อีกต่อไป (เช่นเดียวกับ BatchGenerateDialog) —
+  // Content Type คุมแค่วิธีเขียน Core Article เท่านั้น ไม่ใช้กรอง platform ที่เลือกได้
+  const platformOptions = Object.keys(PLATFORM_MAP);
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>

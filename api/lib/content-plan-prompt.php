@@ -15,6 +15,28 @@ const CONTENT_PLAN_DAY_DEFS = [
     ['เสาร์', 6], ['อาทิตย์', 7],
 ];
 
+/**
+ * Platform ที่ต้องการ Script + Script Sections เสมอ (video-native platform)
+ * ไม่ว่า Content Type ของ Content Item จะเป็น article หรือ video — นี่คือ
+ * single source of truth ตัวเดียวที่ generate-article ใช้ตัดสินว่าจะขอ
+ * script_sections จาก AI ไหม (แยกจาก $isVideo ที่คุมแค่วิธีเขียน Core Article)
+ * ต้องตรงกับ VIDEO_SCRIPT_PLATFORMS ใน src/components/content/types.ts
+ */
+const VIDEO_SCRIPT_PLATFORMS = ['tiktok', 'youtube'];
+
+/**
+ * Platform ที่เลือกไว้มี platform วิดีโอ (TikTok/YouTube) อยู่หรือไม่
+ *
+ * ใช้แทนการเช็ค $isVideo (Content Type) เพื่อตัดสินว่าจะขอ script_sections
+ * จาก AI หรือไม่ — Content Type คุมแค่วิธีเขียน Core Article เท่านั้น
+ * ส่วนนี้คุมเฉพาะ Platform Output shape ตามที่ platform ต้องการจริง
+ */
+function content_needs_script_sections(array $selectedPlatforms): bool
+{
+    $normalized = array_map(static fn($p): string => strtolower(trim((string)$p)), $selectedPlatforms);
+    return count(array_intersect($normalized, VIDEO_SCRIPT_PLATFORMS)) > 0;
+}
+
 /** `generation_mode` จาก request body → เป็น Direct Creation หรือไม่ */
 function content_plan_is_direct(mixed $generationMode): bool
 {

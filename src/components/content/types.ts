@@ -545,6 +545,19 @@ export const FILE_TYPE_MAP: Record<string, { label: string; color: string; icon:
   custom:   { label: 'Custom',    color: 'bg-gray-100 text-gray-600',   icon: FileText },
 };
 
+/**
+ * Platform ที่ต้องการ Script + Script Sections เสมอ (video-native platform)
+ * ไม่ว่า Content Type ของ Content Item จะเป็น article หรือ video — ต้องตรงกับ
+ * VIDEO_SCRIPT_PLATFORMS ใน api/lib/content-plan-prompt.php (single source of truth
+ * ฝั่ง backend) Content Type คุมแค่วิธีเขียน Core Article เท่านั้น ไม่ใช่ตัวนี้
+ */
+export const VIDEO_SCRIPT_PLATFORMS = ['tiktok', 'youtube'];
+
+/** Platform ที่เลือกไว้มี platform วิดีโอ (TikTok/YouTube) อยู่หรือไม่ */
+export function platformsNeedScriptSections(platforms: string[]): boolean {
+  return platforms.some(p => VIDEO_SCRIPT_PLATFORMS.includes(p.toLowerCase()));
+}
+
 export const PLATFORM_MAP: Record<string, { label: string; color: string }> = {
   wordpress: { label: 'WordPress',   color: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300' },
   wix:       { label: 'Wix',         color: 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300' },

@@ -10,7 +10,7 @@ import { PlatformIcon } from '@/components/content/PlatformIcon';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import type { PlanItem } from '@/components/content/types';
-import { getCanonicalContentType, PLATFORM_MAP } from '@/components/content/types';
+import { getCanonicalContentType, PLATFORM_MAP, platformsNeedScriptSections } from '@/components/content/types';
 import { getThaiDayName, formatThaiDate } from './calendarUtils';
 import { CalendarDays, Save, Trash2, Sparkles, ImagePlus, RefreshCw, Loader2, Image as ImageIcon, FileText, Hash, Lightbulb, Clapperboard, MessageSquare, Share2, BookOpen, ChevronDown, Video, Play, Send } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
@@ -551,7 +551,7 @@ export function ContentCardDialog({
           )}
 
           {/* ===== Script Sections ===== */}
-          {scriptSections && Object.keys(scriptSections).length > 0 && (
+          {scriptSections && Object.keys(scriptSections).length > 0 && platformsNeedScriptSections(platforms) && (
             <div className="px-6 py-5 border-b space-y-3">
               <div className="flex items-center gap-2">
                 <Clapperboard className="h-4 w-4 text-muted-foreground" />

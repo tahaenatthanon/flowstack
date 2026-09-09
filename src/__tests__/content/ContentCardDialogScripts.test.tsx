@@ -32,12 +32,15 @@ const ALL_PLATFORM_SCRIPTS: Record<string, string> = {
   twitter: 'X script',
 };
 
-function makeItem(overrides: Partial<PlanItem> & { scripts?: Record<string, string>; scriptQuality?: Record<string, any> }): PlanItem {
-  const { scripts, scriptQuality, ...rest } = overrides;
+const SAMPLE_SCRIPT_SECTIONS = { opening: 'Hook', bridge: 'เนื้อหาหลัก', twist: 'จุดพลิก', ending: 'CTA' };
+
+function makeItem(overrides: Partial<PlanItem> & { scripts?: Record<string, string>; scriptQuality?: Record<string, any>; scriptSections?: Record<string, string> }): PlanItem {
+  const { scripts, scriptQuality, scriptSections, ...rest } = overrides;
   const article_content = scripts
     ? JSON.stringify({
         title: 'หัวข้อทดสอบ',
         scripts,
+        ...(scriptSections ? { script_sections: scriptSections } : {}),
         ...(scriptQuality ? {
           script_quality: { platforms: scriptQuality },
           quality_checked_at: '2026-09-04 15:00:00',
@@ -188,5 +191,33 @@ describe('ContentCardDialog — Scripts จำกัดตาม Platform ที
     await absent('ตรวจ AEO');
     await absent('85');
     await absent('82');
+  });
+
+  it('TC10: เลือกเฉพาะ Facebook (ไม่มี platform วิดีโอ) → ไม่แสดง Script Sections แม้มีข้อมูลอยู่', async () => {
+    // core-content-platform-output-shape: Script Sections derive จาก platform ที่เลือก
+    // ไม่ใช่จาก Content Type — แม้ article_content จะมี script_sections ค้างอยู่ (เช่น
+    // content เก่าที่เคยเลือก TikTok แล้วถูกแก้ platform ภายหลัง) ก็ต้องไม่แสดง
+    renderDialog(makeItem({
+      platform: 'facebook',
+      platforms: ['facebook'],
+      scripts: { facebook: 'FB script' },
+      scriptSections: SAMPLE_SCRIPT_SECTIONS,
+    }));
+    await hasTab('Facebook');
+    await absent('โครงสร้างบท (Script Sections)');
+    await absent('จุดพลิก');
+  });
+
+  it('TC11: เลือก TikTok ร่วมกับ Facebook → แสดง Script Sections ตามปกติ', async () => {
+    renderDialog(makeItem({
+      platform: 'tiktok',
+      platforms: ['tiktok', 'facebook'],
+      scripts: { tiktok: 'TikTok script', facebook: 'FB script' },
+      scriptSections: SAMPLE_SCRIPT_SECTIONS,
+    }));
+    await hasTab('TikTok');
+    await hasTab('Facebook');
+    await present('โครงสร้างบท (Script Sections)');
+    await present('จุดพลิก');
   });
 });
