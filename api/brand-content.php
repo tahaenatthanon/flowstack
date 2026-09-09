@@ -2251,6 +2251,7 @@ if ($action === 'generate-article') {
     $triggerCtx = $planTriggerCommands ? "Trigger Instructions (all selected Triggers):\n" . implode("\n", $planTriggerCommands) . "\n\nThese are workflow instructions only. They must not replace or redefine the Topic.\n\n" : '';
     $skillCtx = $planSkillPrompts ? "Skill Instructions (all selected Skills):\n" . implode("\n\n---\n\n", $planSkillPrompts) . "\n\n" : '';
     $baseCtx = ($globalInstr ? $globalInstr."\n\n" : '') . ($brandText ? "Brand Context:{$brandText}\n\n" : '') . ($kbContext ? "Knowledge Base Reference:{$kbContext}\n\n" : '') . $triggerCtx . $skillCtx;
+    $isVideo = strtolower((string)($item['type'] ?? 'article')) === 'video';
     if (!$isVideo) {
         $articleTone = normalizeArticleTone($item['tone'] ?? 'friendly');
         $baseCtx .= "Article Writing Style (selected by user): {$articleTone}\n" .
@@ -2346,7 +2347,6 @@ if ($action === 'generate-article') {
     $scriptCapablePlatforms = ['facebook', 'instagram', 'tiktok', 'youtube', 'lineoa', 'linkedin', 'twitter'];
     $scriptPlatforms = array_values(array_intersect($itemPlatforms, $scriptCapablePlatforms));
     $itemPlatform = $itemPlatforms[0] ?? '';
-    $isVideo = strtolower((string)($item['type'] ?? 'article')) === 'video';
     $itemCtx = "หัวข้อ (Source of Truth): {$item['topic']}\nแพลตฟอร์มที่เลือก: " . ($itemPlatforms ? implode(', ', $itemPlatforms) : 'ไม่ได้กำหนด') . "\nแคปชั่น:\n{$item['caption']}";
     if ($isVideo) {
         $storedScriptStyle = normalizeVideoScriptStyle($item['script_style'] ?? 'hook-story');

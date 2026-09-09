@@ -12,6 +12,12 @@ import { apiFetch } from '@/lib/api';
  *    ที่สร้างผ่าน Batch fallback เป็น default เสมอ (friendly / hook-story / 60s)
  * 2) Batch ต้องมีหัวข้อคอนเทนต์อย่างน้อย 3 หัวข้อต่อการรัน — ฟอร์มเริ่มต้นด้วย 3 แถวว่าง
  *    ลบแถวลงต่ำกว่า 3 ไม่ได้ และกดเริ่มสร้างไม่ได้ถ้ากรอกไม่ครบ 3 หัวข้อ
+ * 3) Batch ต้องส่ง generation_mode=direct ต่อหัวข้อ (เหมือน QuickCreateDialog) เพื่อให้ได้
+ *    1 หัวข้อ = 1 content item เสมอ — ก่อนหน้านี้ไม่ส่ง generation_mode เลย ทำให้ backend
+ *    ตีความเป็น legacy weekly-plan mode และขยาย 1 หัวข้อเป็นสูงสุด 7 items โดยไม่ตั้งใจ
+ * 4) แต่ละหัวข้อต้องได้ scheduled_date เรียงลำดับทีละ 1 วันจาก "เริ่มวันที่" ผ่าน
+ *    action=plan-item-date (endpoint เดียวกับ drag/drop บนปฏิทิน) — ไม่มีช่อง "จำนวนวัน"
+ *    ให้เลือกแยกอีกต่อไป และการตั้งวันที่ล้มเหลวต้องไม่ทำให้ทั้งหัวข้อถูกนับเป็น failed
  */
 
 const toast = vi.fn();
@@ -36,14 +42,21 @@ function renderDialog() {
   );
 }
 
-/** mock ทุก endpoint ที่ dialog เรียก และเก็บ body ไว้ตรวจ (เรียงตามลำดับที่ยิงจริง) */
-function mockApi() {
+/** mock ทุก endpoint ที่ dialog เรียก และเก็บ body ไว้ตรวจ (เรียงตามลำดับที่ยิงจริง)
+ *  `failDateOnCallIndex` (1-based) จำลอง action=plan-item-date ล้มเหลวเฉพาะ call นั้น */
+function mockApi(opts: { failDateOnCallIndex?: number } = {}) {
   const bodies: Record<string, any>[] = [];
+  let dateCallCount = 0;
   vi.mocked(apiFetch).mockImplementation(async (url: unknown, init?: any) => {
     const u = String(url);
     if (init?.body) bodies.push({ url: u, body: JSON.parse(init.body as string) });
     if (u.includes('action=skills') || u.includes('action=contexts') || u.includes('action=triggers')) return [];
     if (u.includes('action=generate-plan')) return { items: [{ id: `item-${bodies.length}`, topic: 'AI generated topic' }] };
+    if (u.includes('action=plan-item-date')) {
+      dateCallCount += 1;
+      if (dateCallCount === opts.failDateOnCallIndex) throw new Error('ตั้งวันที่ไม่สำเร็จ');
+      return { updated: true };
+    }
     if (u.includes('action=fetch')) return { job_id: 'job-1', status: 'done' };
     if (u.includes('action=analyze')) return { job_id: 'job-1', status: 'done', analysis: {} };
     if (u.includes('action=generate-article')) return { article: { title: 'ok' }, seo: { gate: 'passed', score: 95 } };
@@ -89,6 +102,12 @@ async function fillTopic(rowIndex: number, topicText: string, opts: {
   fireEvent.click(platformButton);
 
   opts.after?.(row);
+}
+
+/** ไม่มี label ผูกกับ input[type=date] โดยตรง (Label เป็น sibling ไม่ใช่ htmlFor) — query ตรงๆ */
+function setStartDate(dateISO: string) {
+  const dateInput = document.querySelector('input[type="date"]') as HTMLInputElement;
+  fireEvent.change(dateInput, { target: { value: dateISO } });
 }
 
 async function startAndConfirm() {
@@ -141,6 +160,10 @@ describe('BatchGenerateDialog — tone/script_style/duration ต่อหัว�
       expect(plan.tone).toBe('friendly');
       expect(plan).not.toHaveProperty('script_style');
       expect(plan).not.toHaveProperty('duration');
+      // direct mode — 1 หัวข้อ = 1 content item เสมอ ไม่ใช่ legacy weekly-plan
+      expect(plan.generation_mode).toBe('direct');
+      expect(plan).not.toHaveProperty('days');
+      expect(plan).not.toHaveProperty('week_start');
     }
   });
 
@@ -211,5 +234,48 @@ describe('BatchGenerateDialog — tone/script_style/duration ต่อหัว�
     expect(third.source_topic).toBe('หัวข้อบทความ2');
     expect(third.type).toBe('article');
     expect(third.tone).toBe('friendly');
+  });
+});
+
+describe('BatchGenerateDialog — schedule วันที่ต่อหัวข้อ', () => {
+  it('ไม่มีช่อง "จำนวนวัน" ให้เลือกแยกอีกต่อไป', async () => {
+    renderDialog();
+    expect(screen.queryByText('จำนวนวัน')).toBeNull();
+    expect((await screen.findAllByText(/เริ่มวันที่/)).length).toBeGreaterThan(0);
+  });
+
+  it('3 หัวข้อได้ scheduled_date เรียงลำดับทีละ 1 วันจาก "เริ่มวันที่"', async () => {
+    const bodies = mockApi();
+    renderDialog();
+
+    setStartDate('2026-09-15');
+    await fillTopic(0, 'หัวข้อ 1');
+    await fillTopic(1, 'หัวข้อ 2');
+    await fillTopic(2, 'หัวข้อ 3');
+    await startAndConfirm();
+
+    await waitFor(() => expect(findBodies(bodies, 'action=plan-item-date').length).toBe(3));
+    const [first, second, third] = findBodies(bodies, 'action=plan-item-date');
+    expect(first.scheduled_date).toBe('2026-09-15');
+    expect(second.scheduled_date).toBe('2026-09-16');
+    expect(third.scheduled_date).toBe('2026-09-17');
+  });
+
+  it('ตั้งวันที่ล้มเหลวสำหรับหัวข้อหนึ่ง ไม่ทำให้หัวข้อนั้นถูกนับเป็น failed', async () => {
+    const bodies = mockApi({ failDateOnCallIndex: 1 });
+    renderDialog();
+
+    await fillTopic(0, 'หัวข้อ 1');
+    await fillTopic(1, 'หัวข้อ 2');
+    await fillTopic(2, 'หัวข้อ 3');
+    await startAndConfirm();
+
+    // เนื้อหายังต้องถูกสร้างและ research ต่อครบทั้ง 3 หัวข้อ แม้หัวข้อแรกตั้งวันที่ไม่สำเร็จ
+    await waitFor(() => expect(findBodies(bodies, 'action=generate-article').length).toBe(3));
+    expect(await screen.findByText(/สร้างเสร็จแล้ว/i)).toBeTruthy();
+    // toast แจ้งเตือนการตั้งวันที่ล้มเหลว แยกจาก toast ผลการสร้างเนื้อหา
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: expect.stringContaining('ตั้งวันที่เผยแพร่ไม่สำเร็จ'),
+    }));
   });
 });

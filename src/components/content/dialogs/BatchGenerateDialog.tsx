@@ -37,8 +37,23 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
     scriptStyle: 'hook-story' as 'hook-story' | 'educational' | 'storytelling' | 'vsl',
     duration: '60s' as '15s' | '30s' | '60s' | '3min' | '10min+',
   });
+  // หัวข้อลำดับที่ topicIndex (0-based) ได้ scheduled_date = startDate + topicIndex วัน
+  // เรียงต่อเนื่องกันไปตามจำนวนหัวข้อจริง — ไม่มีช่อง "จำนวนวัน" แยกให้เลือกอีกต่อไป
+  const topicScheduledDateISO = (base: string, topicIndex: number) => {
+    const d = new Date(`${base}T00:00:00`);
+    d.setDate(d.getDate() + topicIndex);
+    // ห้ามใช้ toISOString() — มันแปลงเป็น UTC ทำให้วันที่เพี้ยนถอยหลัง 1 วัน
+    // ในโซนเวลาที่เร็วกว่า UTC (เช่น ICT/UTC+7) ต้องอ่านค่าปฏิทิน local ตรงๆ
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+  const formatThaiDate = (iso: string) => new Intl.DateTimeFormat('th-TH', {
+    day: 'numeric', month: 'short', year: 'numeric',
+  }).format(new Date(`${iso}T00:00:00`));
+
   const [topics, setTopics] = useState(() => Array.from({ length: MIN_TOPICS }, createTopic));
-  const [days, setDays] = useState('7');
   const [startDate, setStartDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [step, setStep] = useState<'form' | 'progress' | 'done'>('form');
   const [showConfirm, setShowConfirm] = useState(false);
@@ -68,7 +83,6 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
 
   const handleReset = () => {
     setTopics(Array.from({ length: MIN_TOPICS }, createTopic));
-    setDays('7');
     setStartDate(new Date().toISOString().split('T')[0]);
     setStep('form');
     setShowConfirm(false);
@@ -133,6 +147,7 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
 
     let generatedCount = 0;
     const errors: string[] = [];
+    const dateErrors: string[] = [];
 
     for (const [topicIndex, topicConfig] of validTopics.entries()) {
       setCurrentTopicIndex(topicIndex);
@@ -154,10 +169,9 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
             trigger_ids: topicConfig.triggerIds,
             skill_ids: topicConfig.skillIds,
             brand_context_ids: topicConfig.contextIds,
-            week_start: startDate,
+            generation_mode: 'direct',
             platforms: topicConfig.platforms,
             type: topicConfig.contentType,
-            days: daysNum,
             ...(topicConfig.contentType === 'article'
               ? { tone: topicConfig.tone }
               : { script_style: topicConfig.scriptStyle, duration: VIDEO_DURATION_SECONDS[topicConfig.duration] }),
@@ -171,6 +185,21 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
         setTotal(current => current + items.length);
 
         for (const item of items) {
+          // ตั้ง scheduled_date ก่อนเริ่ม Research เสมอ — ถ้า research ล้มเหลวทีหลัง
+          // item ยังโผล่บนปฏิทินตรงวันที่ควรจะเป็น ไม่หายไปแบบไม่มีร่องรอย
+          try {
+            await apiFetch('/brand-content.php?action=plan-item-date', {
+              method: 'PUT',
+              body: JSON.stringify({
+                item_id: item.id,
+                scheduled_date: topicScheduledDateISO(startDate, topicIndex),
+              }),
+            });
+          } catch {
+            dateErrors.push(`หัวข้อ ${topicIndex + 1}`);
+            // การตั้งวันที่ล้มเหลวไม่ใช่ error ร้ายแรง — content ยังสร้าง/research ต่อได้ตามปกติ
+          }
+
           // Research must use the exact user-entered Topic, not an AI-rewritten
           // plan title, because generate-article validates Research against source_topic.
           const researchTopic = topicConfig.topic.trim();
@@ -201,6 +230,14 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
     qc.invalidateQueries({ queryKey: ['content', 'items'] });
     qc.invalidateQueries({ queryKey: ['content', 'plans'] });
 
+    if (dateErrors.length > 0) {
+      toast({
+        title: `ตั้งวันที่เผยแพร่ไม่สำเร็จ ${dateErrors.length} หัวข้อ`,
+        description: `${dateErrors.join(', ')} — เนื้อหายังถูกสร้างตามปกติ ปรับวันที่เองได้ทีหลังในปฏิทิน`,
+        variant: 'destructive',
+      });
+    }
+
     if (generatedCount === 0) {
       toast({ title: 'สร้างไม่สำเร็จ', description: errors.join('\n') || 'ไม่สามารถสร้าง Content ได้', variant: 'destructive' });
       setStep('form');
@@ -215,7 +252,6 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
     });
   };
 
-  const daysNum = parseInt(days, 10) || 7;
   const validTopicsCount = topics.filter(item => item.topic.trim()).length;
   const activeResearchLabel = RESEARCH_STEP_LABELS[researchStep];
   const currentStageLabel = currentTopicStage === 'planning'
@@ -401,9 +437,9 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
 
               <div className="border-t pt-4 space-y-3">
                 <h4 className="font-semibold text-sm">กำหนดการสร้าง</h4>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5"><Label>จำนวนวัน</Label><Select value={days} onValueChange={setDays}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{[3, 5, 7, 10, 14, 30].map(d => <SelectItem key={d} value={String(d)}>{d} วัน</SelectItem>)}</SelectContent></Select></div>
-                  <div className="space-y-1.5"><Label>เริ่มวันที่</Label><Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} /></div>
+                <div className="space-y-1.5">
+                  <Label>เริ่มวันที่ <span className="text-xs font-normal text-muted-foreground">(หัวข้อถัดไปเลื่อนทีละ 1 วัน)</span></Label>
+                  <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
                 </div>
               </div>
             </div>
@@ -428,7 +464,6 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
                       <div><span className="text-muted-foreground">Video</span><span className="mx-1.5">:</span><span className="font-medium">{videoCount} รายการ</span></div>
                       <div><span className="text-muted-foreground">Platforms</span><span className="mx-1.5">:</span><span className="font-medium">{platformCount} แพลตฟอร์ม</span></div>
                       <div><span className="text-muted-foreground">เริ่มวันที่</span><span className="mx-1.5">:</span><span className="font-medium">{formattedDate}</span></div>
-                      <div><span className="text-muted-foreground">จำนวนวัน</span><span className="mx-1.5">:</span><span className="font-medium">{daysNum} วัน</span></div>
                       <div className="col-span-2"><span className="text-muted-foreground">Platform ที่เลือก</span><span className="mx-1.5">:</span><span className="font-medium">{platformNames.length > 0 ? platformNames.join(', ') : 'ไม่ระบุ'}</span></div>
                     </div>
                   </div>
@@ -470,14 +505,16 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
                       <div><span className="text-muted-foreground">Video</span><span className="mx-1.5">:</span><span className="font-medium">{videoCount} รายการ</span></div>
                       <div><span className="text-muted-foreground">Platforms</span><span className="mx-1.5">:</span><span className="font-medium">{platformCount} แพลตฟอร์ม</span></div>
                       <div><span className="text-muted-foreground">เริ่มวันที่</span><span className="mx-1.5">:</span><span className="font-medium">{formattedDate}</span></div>
-                      <div><span className="text-muted-foreground">จำนวนวัน</span><span className="mx-1.5">:</span><span className="font-medium">{daysNum} วัน</span></div>
                     </div>
                   </div>
 
                   <div className="space-y-2">
                     {validTopics.map((item, index) => (
                       <div key={`${item.topic}-${index}`} className="rounded-lg border p-3 space-y-2">
-                        <div className="font-semibold text-sm">หัวข้อที่ {index + 1}: {item.topic.trim()}</div>
+                        <div className="flex items-baseline justify-between gap-2">
+                          <div className="font-semibold text-sm">หัวข้อที่ {index + 1}: {item.topic.trim()}</div>
+                          <div className="shrink-0 text-xs text-muted-foreground">กำหนดเผยแพร่: {formatThaiDate(topicScheduledDateISO(startDate, index))}</div>
+                        </div>
                         <div className="flex flex-wrap gap-1.5 text-xs">
                           <span className="rounded-full border bg-background px-2 py-0.5 font-medium">Niche: {item.niche.trim() || 'ไม่ระบุ'}</span>
                           {item.contentType === 'article' ? (
