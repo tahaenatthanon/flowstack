@@ -3,7 +3,6 @@ require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/lib/publish-dispatch.php';
 require_once __DIR__ . '/lib/seo-checklist.php';
-require_once __DIR__ . '/lib/script-quality-checklist.php';
 
 $db       = getDB();
 $method   = getMethod();
@@ -18,33 +17,6 @@ function publish_load_research_brief(PDO $db, string $tenantId, string $contentI
     if (!$analysis) return null;
     $brief = json_decode((string)$analysis, true);
     return is_array($brief) ? $brief : null;
-}
-
-function publish_script_gate(PDO $db, string $tenantId, array $content, string $platform): array {
-    $platform = strtolower(trim($platform));
-    $selected = publish_content_platforms($content);
-    if (!in_array($platform, $selected, true)) {
-        return ['blocked' => true, 'reason' => "แพลตฟอร์ม {$platform} ไม่ได้ถูกเลือกไว้ใน Content Item"];
-    }
-    if (!in_array($platform, SCRIPT_PLATFORMS, true)) {
-        return ['blocked' => false, 'reason' => null];
-    }
-
-    $brief = publish_load_research_brief($db, $tenantId, (string)$content['id']);
-    $quality = script_quality_check_platform($content, $platform, $brief);
-    if (!empty($quality['passed'])) return ['blocked' => false, 'reason' => null, 'quality' => $quality];
-
-    $reasons = [];
-    foreach (['seo' => 'Script SEO', 'aeo' => 'Script AEO'] as $key => $label) {
-        $failed = array_filter($quality[$key]['rules'] ?? [], static fn(array $r): bool => ($r['status'] ?? '') === 'failed');
-        if ($failed) {
-            $reasons[] = $label . ': ' . implode('; ', array_map(static fn(array $r): string => $r['message'] ?? '', $failed));
-        }
-    }
-    if (!$reasons) {
-        $reasons[] = "Script {$platform} SEO/AEO score ยังไม่ถึง 80 (SEO {$quality['seo']['score']}/100, AEO {$quality['aeo']['score']}/100)";
-    }
-    return ['blocked' => true, 'reason' => implode("\n", $reasons), 'quality' => $quality];
 }
 
 // ── GET ──────────────────────────────────────────────────────────────────────

@@ -1,7 +1,15 @@
 <?php
 require_once __DIR__ . '/seo-checklist.php';
 require_once __DIR__ . '/aeo-checklist.php';
-require_once __DIR__ . '/script-quality-checklist.php';
+
+// Platform ที่เป็น script/social content (มี script ต่อ platform) แยกจาก web/CMS platform
+// ที่ใช้ Article HTML ตรงๆ — ใช้กำหนดเส้นทาง Quality Gate ใน content_quality_gate_check()/
+// final_publish_gate_check() ด้านล่าง (web ใช้ Article SEO/AEO, script ใช้ script เดิม)
+// ย้ายมาจาก api/lib/script-quality-checklist.php ตอนเลิกใช้ Script SEO/AEO quality gate
+// (constant นี้เป็น routing ล้วน ไม่เกี่ยวกับการให้คะแนน SEO/AEO ของ script)
+const SCRIPT_PLATFORMS = [
+    'facebook', 'instagram', 'tiktok', 'youtube', 'lineoa', 'linkedin', 'twitter',
+];
 
 /**
  * Platform dispatch functions — real API calls per platform.
@@ -75,9 +83,9 @@ function publish_html_to_text(string $html, string $dupTitle = ''): string {
 
 /**
  * Final publish gate shared by immediate publish, queued publish and scheduled publish.
- * Article SEO/AEO are content-level gates; Script SEO/AEO are platform-level gates.
- * The target platform is evaluated independently so another selected platform cannot
- * block it. Approval and platform selection are always hard requirements.
+ * Article SEO/AEO is the only content-level Quality gate — Platform Script has no
+ * SEO/AEO gate of its own (removed; see openspec/changes/archive/.../remove-script-seo-aeo).
+ * Approval and platform selection are always hard requirements.
  */
 function content_quality_gate_check(PDO $db, string $tenantId, array $content, ?array $researchBrief = null): array {
     $articleSnapshot = $content['article_content'] ?? null;
@@ -86,7 +94,6 @@ function content_quality_gate_check(PDO $db, string $tenantId, array $content, ?
         return ['blocked' => true, 'reason' => 'Quality gate: Content นี้ยังไม่มีผล Quality ของเวอร์ชันปัจจุบัน กรุณาตรวจ Quality ใหม่ก่อน Request Approval'];
     }
     $selected = publish_content_platforms($content);
-    $scriptPlatforms = array_values(array_intersect($selected, SCRIPT_PLATFORMS));
     $webPlatforms = array_values(array_diff($selected, SCRIPT_PLATFORMS));
     $brief = $researchBrief ?? (is_array($content['research_brief'] ?? null) ? $content['research_brief'] : null);
 
@@ -96,10 +103,7 @@ function content_quality_gate_check(PDO $db, string $tenantId, array $content, ?
         $aeo = aeo_evaluate(array_merge($content, ['research_brief' => $brief]));
         if (aeo_gate_status($aeo) !== 'passed') return ['blocked' => true, 'reason' => 'Article AEO gate: Quality ยังไม่ผ่าน', 'seo' => $seo, 'aeo' => $aeo];
     }
-    foreach ($scriptPlatforms as $scriptPlatform) {
-        $script = script_quality_check_platform($content, $scriptPlatform, $brief);
-        if (empty($script['passed'])) return ['blocked' => true, 'reason' => "Script {$scriptPlatform} SEO/AEO gate: Quality ยังไม่ผ่าน", 'script' => $script];
-    }
+    // Script/social platform (TikTok, Facebook ฯลฯ) ไม่มี Quality gate ของตัวเองอีกต่อไป
     return ['blocked' => false, 'reason' => null];
 }
 
@@ -118,9 +122,9 @@ function final_publish_gate_check(PDO $db, string $tenantId, array $content, str
         return ['blocked' => true, 'reason' => 'Approval gate: คอนเทนต์นี้ยังไม่ผ่านการอนุมัติ'];
     }
     // A publish/schedule action must use a Quality result from the current
-    // Content snapshot. The marker is persisted together with script_quality
-    // after the final generation checks. If it is missing, the Content was
-    // generated/edited without a current Quality result and must be rechecked.
+    // Content snapshot. The marker is persisted after the final generation
+    // checks. If it is missing, the Content was generated/edited without a
+    // current Quality result and must be rechecked.
     $articleSnapshot = $content['article_content'] ?? null;
     if (is_string($articleSnapshot)) {
         $articleSnapshot = json_decode($articleSnapshot, true);
@@ -137,15 +141,11 @@ function final_publish_gate_check(PDO $db, string $tenantId, array $content, str
         $brief = $content['research_brief'];
     }
 
-    // Apply Quality only to the target platform/type: web targets use Article SEO/AEO;
-    // social targets use the selected platform's Script SEO/AEO. A social-only item
-    // must never be blocked by Article Quality.
+    // Apply Quality only to the target platform/type: web targets use Article SEO/AEO.
+    // Script/social platforms (TikTok, Facebook ฯลฯ) ไม่มี Quality gate ของตัวเองอีกต่อไป —
+    // ผ่าน Approval + Platform gate ด้านบนแล้วก็เผยแพร่ได้ทันที ไม่ถูกบล็อกด้วย Article Quality
     if (in_array($platform, SCRIPT_PLATFORMS, true)) {
-        $scriptGate = script_quality_publish_check($content, $platform, $brief);
-        if ($scriptGate['blocked']) {
-            return ['blocked' => true, 'reason' => 'Platform Script gate: ' . ($scriptGate['reason'] ?? 'Script SEO/AEO ไม่ผ่าน'), 'script' => $scriptGate];
-        }
-        return ['blocked' => false, 'reason' => null, 'script' => $scriptGate];
+        return ['blocked' => false, 'reason' => null];
     }
 
     // Web/CMS targets use Article SEO/AEO.
@@ -174,21 +174,10 @@ function final_publish_gate_check(PDO $db, string $tenantId, array $content, str
         ];
     }
 
-    $scriptGate = script_quality_publish_check($content, $platform, $brief);
-    if ($scriptGate['blocked']) {
-        return [
-            'blocked' => true,
-            'reason' => 'Platform Script gate: ' . ($scriptGate['reason'] ?? 'Script SEO/AEO ไม่ผ่าน'),
-            'article' => ['seo' => $seoGate, 'aeo' => $articleAeo],
-            'script' => $scriptGate,
-        ];
-    }
-
     return [
         'blocked' => false,
         'reason' => null,
         'article' => ['seo' => $seoGate, 'aeo' => $articleAeo],
-        'script' => $scriptGate,
     ];
 }
 

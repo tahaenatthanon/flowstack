@@ -147,8 +147,8 @@ describe('ContentCardDialog — Scripts จำกัดตาม Platform ที
     await absent('IG แอบเพิ่ม');
   });
 
-  it('TC7: SEO/AEO repair เพิ่ม script platform ที่ไม่ได้เลือก → ต้องถูกตัดออก', async () => {
-    // จำลอง repair ที่เผลอเพิ่ม linkedin/twitter กลับมา → ต้องถูกตัดเหลือเฉพาะ facebook
+  it('TC7: AI แอบเพิ่ม script platform ที่ไม่ได้เลือก (linkedin/twitter) → ต้องถูกตัดออก', async () => {
+    // article_content มี linkedin/twitter ที่ AI แอบเพิ่มมา → ต้องถูกตัดเหลือเฉพาะ facebook
     renderDialog(makeItem({ platform: 'facebook', platforms: ['facebook'], scripts: { facebook: 'FB', linkedin: 'LI', twitter: 'X' } }));
     await hasTab('Facebook');
     await noTab('LinkedIn');
@@ -166,33 +166,27 @@ describe('ContentCardDialog — Scripts จำกัดตาม Platform ที
     await noTab('Twitter / X');
   });
 
-  it('TC9: Content เดิมมี persisted Script Quality + quality_checked_at → โหลดและแสดงผลได้หลังเปิด Dialog ใหม่', async () => {
-    const quality = {
+  it('TC9: ไม่แสดง Script SEO/AEO score หรือ checklist อีกต่อไป (ลบ Script Quality Gate ออกแล้ว) — Script เต็มยังแสดงปกติ', async () => {
+    // จำลอง content เก่าที่เคยมี script_quality (SEO/AEO) เก็บไว้ก่อนหน้านี้ — แม้มีข้อมูล
+    // legacy นี้ค้างอยู่ ContentCardDialog ต้องไม่อ่าน/ไม่แสดงผลจาก field นี้อีกต่อไป
+    const legacyQuality = {
       facebook: {
-        seo: { score: 85, gate: 'passed', rules: [{ key: 'topic_relevance', status: 'passed', tier: 'required', weight: 20, score: 20, message: 'ตรงกับหัวข้อ' }] },
-        aeo: { score: 82, gate: 'passed', rules: [{ key: 'direct_value', status: 'passed', tier: 'required', weight: 20, score: 20, message: 'ตอบประเด็นหลัก' }] },
+        seo: { score: 85, gate: 'passed', rules: [] },
+        aeo: { score: 82, gate: 'passed', rules: [] },
         passed: true,
       },
-      instagram: {
-        seo: { score: 65, gate: 'failed', rules: [{ key: 'topic_relevance', status: 'failed', tier: 'required', weight: 20, score: 0, message: 'ไม่ตรงกับหัวข้อ' }] },
-        aeo: { score: 75, gate: 'needs_improvement', rules: [{ key: 'direct_value', status: 'needs_improvement', tier: 'required', weight: 20, score: 10, message: 'ควรตอบเร็วขึ้น' }] },
-        passed: false,
-      },
     };
-    renderDialog(makeItem({ platform: 'facebook', platforms: ['facebook'], scripts: { ...ALL_PLATFORM_SCRIPTS }, scriptQuality: quality }));
-    await present('ตรวจ SEO');
-    await present('ตรวจ AEO');
-    await present('85');
-    await present('82');
-    await present('ผ่าน');
-    await absent('65');
-    await noTab('Instagram');
-  });
-
-  it('TC10: มี Script ปัจจุบันแต่ไม่มี Quality → แสดง รอตรวจ และไม่สร้าง Score ปลอม', async () => {
-    renderDialog(makeItem({ platform: 'facebook', platforms: ['facebook'], scripts: { facebook: 'FB script' } }));
-    await present('รอตรวจ');
-    await present('—');
-    await absent('0/100');
+    renderDialog(makeItem({
+      platform: 'facebook',
+      platforms: ['facebook'],
+      scripts: { facebook: 'FB script เนื้อหาเต็ม' },
+      scriptQuality: legacyQuality,
+    }));
+    await hasTab('Facebook');
+    await present('FB script เนื้อหาเต็ม');
+    await absent('ตรวจ SEO');
+    await absent('ตรวจ AEO');
+    await absent('85');
+    await absent('82');
   });
 });

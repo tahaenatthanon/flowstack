@@ -147,8 +147,8 @@ if ($method === 'PUT') {
     $requestedStatus = $body['status'] ?? null;
 
     // Quality is version-specific. Any change to content fields that can affect
-    // SEO/AEO or Script Quality invalidates every persisted Quality result for the
-    // current Content version. Do this even when the caller does not send a new
+    // Article SEO/AEO invalidates the persisted Quality result for the current
+    // Content version. Do this even when the caller does not send a new
     // article_content payload, e.g. changing the topic/platform must not keep a
     // score from the old version.
     if ($changesContent) {
@@ -161,19 +161,8 @@ if ($method === 'PUT') {
         if ($qualityArticleContent !== '') {
             $qualityArticle = json_decode($qualityArticleContent, true);
             if (is_array($qualityArticle)) {
-                // Script Quality is persisted inside article_content. Remove it
-                // whenever a quality-sensitive field changes so stale Script SEO/AEO
-                // scores cannot be shown as the result of the edited Content.
-                $qualityInvalidated = false;
-                if (array_key_exists('script_quality', $qualityArticle)) {
-                    unset($qualityArticle['script_quality']);
-                    $qualityInvalidated = true;
-                }
                 if (array_key_exists('quality_checked_at', $qualityArticle)) {
                     unset($qualityArticle['quality_checked_at']);
-                    $qualityInvalidated = true;
-                }
-                if ($qualityInvalidated) {
                     $body['article_content'] = json_encode($qualityArticle, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
                 }
             }

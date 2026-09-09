@@ -1,8 +1,13 @@
 <?php
 /**
- * Part 5 — Final Publish Gate (Article Global Gate + Per-platform Script Gate)
+ * Part 5 — Final Publish Gate (Approval gate + Article SEO/AEO gate + Platform gate)
  * ทดสอบ final_publish_gate_check() ตัวจริง (brand-content.php?action=publish และ cron ใช้ตัวเดียวกัน)
- * + script_quality_publish_check() (pure) + publish-once logic
+ * + publish-once logic
+ *
+ * หมายเหตุ: Script SEO/AEO Quality Gate ถูกลบออกจากระบบแล้ว (ดู
+ * openspec/changes/archive/.../remove-script-seo-aeo) — Section C ด้านล่างคือ
+ * regression test ที่ยืนยันว่า Platform Script ไม่ถูก publish gate บล็อกด้วย
+ * คุณภาพของ script อีกต่อไป ไม่ว่า script จะสั้น/ยาว/มี keyword หรือไม่ก็ตาม
  */
 
 require_once __DIR__ . '/../config.php';
@@ -34,11 +39,15 @@ function filler(int $repeat = 100): string {
     return implode(' ', array_fill(0, $repeat, 'content marketing strategy planning execution optimization growth research analysis'));
 }
 
+// Script fixture ที่ "ครบเครื่อง" (มี hook/keyword/hashtag) — ใช้เป็น script ทั่วไป
+// เดิมเคยใช้พิสูจน์ว่า Script SEO/AEO "ผ่าน" gate แต่ตอนนี้ gate นั้นถูกลบแล้ว
+// จึงเหลือไว้เป็นแค่ fixture เนื้อหาปกติ ไม่มีความหมายเชิง gate อีกต่อไป
 function goodScript(): string {
-    // ต้องมี entity (title เต็ม) + primary keyword + hook + hashtag + answer cue
     return 'Hook: วิธีทำคอนเทนต์ให้ปังในปี 2026 คือการวางแผนเนื้อหาที่ตอบโจทย์กลุ่มเป้าหมายอย่างเป็นระบบ ' .
            'ขั้นตอนสำคัญคือการวิเคราะห์ผู้ชมและกำหนดเป้าหมายให้ชัดเจนก่อนเริ่มผลิตเนื้อหา #การตลาด #คอนเทนต์';
 }
+// Script fixture ที่ "แย่ที่สุด" (สั้น ไม่มี keyword/hashtag/entity) — เดิมเคยถูก
+// Script SEO/AEO gate บล็อก ตอนนี้ต้อง publish ได้ปกติ (regression coverage Section C)
 function badScript(): string { return 'สวัสดีครับ'; }
 
 function passingHtml(): string {
@@ -83,252 +92,172 @@ function gate(PDO $db, string $tenant, array $content, string $platform, ?array 
     return final_publish_gate_check($db, $tenant, $content, $platform, $brief);
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// TC01 — Article SEO+AEO ผ่าน + FB Script ผ่าน → FB publish ได้
-// ═══════════════════════════════════════════════════════════════════════════
-{
-    $content = makeContent(['facebook'], ['facebook' => goodScript()], passingHtml());
-    $r = gate($db, $TENANT, $content, 'facebook');
-    $pass = $r['blocked'] === false;
-    record('TC01', 'Article SEO+AEO ผ่าน + FB Script ผ่าน', 'FB publish ได้',
-        'blocked=' . var_export($r['blocked'], true), $pass); tally($pass);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// TC02 — Article SEO ไม่ผ่าน → ทุก platform ถูก block (Global gate)
-// ═══════════════════════════════════════════════════════════════════════════
-{
-    // Article SEO gate ใช้กับ Web/CMS target เท่านั้น; Social target ต้องไม่ถูก
-    // Article SEO block (Requirement #1)
-    $content = makeContent(['wordpress', 'facebook'], ['facebook' => goodScript()], passingHtml(), true, ['structured_data' => '']);
-    $wp = gate($db, $TENANT, $content, 'wordpress');
-    $fb = gate($db, $TENANT, $content, 'facebook');
-    $pass = $wp['blocked'] === true && $fb['blocked'] === false;
-    record('TC02', 'Article SEO ไม่ผ่าน', 'Web/CMS block แต่ Social ยัง publish ได้',
-        'WP blocked=' . var_export($wp['blocked'], true) . ', FB blocked=' . var_export($fb['blocked'], true), $pass); tally($pass);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// TC03 — Article AEO ไม่ผ่าน → ทุก platform ถูก block (Global gate)
-// ═══════════════════════════════════════════════════════════════════════════
-{
-    // Article AEO gate ใช้กับ Web/CMS target เท่านั้น; Social target ต้องไม่ถูก
-    // Article AEO block เช่นเดียวกับ SEO
-    $content = makeContent(['wordpress', 'facebook'], ['facebook' => goodScript()], aeoFailHtml());
-    $wp = gate($db, $TENANT, $content, 'wordpress');
-    $fb = gate($db, $TENANT, $content, 'facebook');
-    $pass = $wp['blocked'] === true && $fb['blocked'] === false;
-    record('TC03', 'Article AEO ไม่ผ่าน', 'Web/CMS block แต่ Social ยัง publish ได้',
-        'WP blocked=' . var_export($wp['blocked'], true) . ', FB blocked=' . var_export($fb['blocked'], true), $pass); tally($pass);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// TC04 — Article ผ่าน แต่ FB Script SEO ไม่ผ่าน → FB ถูก block (per-platform)
-// ═══════════════════════════════════════════════════════════════════════════
-{
-    // script สั้น ไม่มี keyword → script SEO fail
-    $content = makeContent(['facebook'], ['facebook' => 'x'], passingHtml());
-    $r = gate($db, $TENANT, $content, 'facebook');
-    $pass = $r['blocked'] === true && str_contains($r['reason'] ?? '', 'Script');
-    record('TC04', 'Article ผ่าน แต่ FB Script SEO ไม่ผ่าน', 'FB ถูก block (script gate)',
-        'blocked=' . var_export($r['blocked'], true) . ', reason=' . mb_substr($r['reason'] ?? '', 0, 40), $pass); tally($pass);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// TC05 — Article ผ่าน แต่ FB Script AEO ไม่ผ่าน → FB ถูก block
-// ═══════════════════════════════════════════════════════════════════════════
-{
-    // script ที่มี keyword (SEO ผ่านบางส่วน) แต่ AEO direct_value/entity fail
-    $content = makeContent(['facebook'], ['facebook' => 'วิธีทำคอนเทนต์'], passingHtml());
-    $r = gate($db, $TENANT, $content, 'facebook');
-    $pass = $r['blocked'] === true;
-    record('TC05', 'Article ผ่าน แต่ FB Script AEO ไม่ผ่าน', 'FB ถูก block',
-        'blocked=' . var_export($r['blocked'], true), $pass); tally($pass);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// TC06 — Article ผ่าน + FB ผ่าน + YT ไม่ผ่าน → FB publish ได้ / YT block
-// ═══════════════════════════════════════════════════════════════════════════
-{
-    $content = makeContent(['facebook', 'youtube'], ['facebook' => goodScript(), 'youtube' => badScript()], passingHtml());
-    $fb = gate($db, $TENANT, $content, 'facebook');
-    $yt = gate($db, $TENANT, $content, 'youtube');
-    $pass = $fb['blocked'] === false && $yt['blocked'] === true;
-    record('TC06', 'Article ผ่าน + FB ผ่าน + YT ไม่ผ่าน', 'FB ได้ / YT block',
-        'FB blocked=' . var_export($fb['blocked'], true) . ', YT blocked=' . var_export($yt['blocked'], true), $pass); tally($pass);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// TC07 — Article ผ่าน + FB ไม่ผ่าน + YT ผ่าน → FB block / YT publish ได้
-// ═══════════════════════════════════════════════════════════════════════════
-{
-    $content = makeContent(['facebook', 'youtube'], ['facebook' => badScript(), 'youtube' => goodScript()], passingHtml());
-    $fb = gate($db, $TENANT, $content, 'facebook');
-    $yt = gate($db, $TENANT, $content, 'youtube');
-    $pass = $fb['blocked'] === true && $yt['blocked'] === false;
-    record('TC07', 'Article ผ่าน + FB ไม่ผ่าน + YT ผ่าน', 'FB block / YT ได้',
-        'FB blocked=' . var_export($fb['blocked'], true) . ', YT blocked=' . var_export($yt['blocked'], true), $pass); tally($pass);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// TC08 — FB + IG + YT ทุก gate ผ่าน → ทุก platform publish ได้
-// ═══════════════════════════════════════════════════════════════════════════
-{
-    $platforms = ['facebook', 'instagram', 'youtube'];
-    $scripts = ['facebook' => goodScript(), 'instagram' => goodScript(), 'youtube' => goodScript()];
-    $content = makeContent($platforms, $scripts, passingHtml());
-    $allOk = true;
-    foreach ($platforms as $p) { if (gate($db, $TENANT, $content, $p)['blocked']) $allOk = false; }
-    $pass = $allOk;
-    record('TC08', 'FB+IG+YT ทุก gate ผ่าน', 'ทุก platform publish ได้',
-        'allOk=' . var_export($allOk, true), $pass); tally($pass);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// TC09 — FB+IG+YT แต่ IG Script ไม่ผ่าน → FB/YT ได้ / IG block
-// ═══════════════════════════════════════════════════════════════════════════
-{
-    $platforms = ['facebook', 'instagram', 'youtube'];
-    $scripts = ['facebook' => goodScript(), 'instagram' => badScript(), 'youtube' => goodScript()];
-    $content = makeContent($platforms, $scripts, passingHtml());
-    $fb = gate($db, $TENANT, $content, 'facebook')['blocked'];
-    $ig = gate($db, $TENANT, $content, 'instagram')['blocked'];
-    $yt = gate($db, $TENANT, $content, 'youtube')['blocked'];
-    $pass = $fb === false && $ig === true && $yt === false;
-    record('TC09', 'FB+IG+YT แต่ IG Script ไม่ผ่าน', 'FB/YT ได้ / IG block',
-        "FB={$fb}, IG={$ig}, YT={$yt}", $pass); tally($pass);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// TC10 — พยายาม publish platform ที่ไม่ได้เลือก → block
-// ═══════════════════════════════════════════════════════════════════════════
-{
-    $content = makeContent(['facebook'], ['facebook' => goodScript()], passingHtml());
-    $r = gate($db, $TENANT, $content, 'instagram'); // IG ไม่ได้เลือก
-    $pass = $r['blocked'] === true && str_contains($r['reason'] ?? '', 'ไม่ได้ถูกเลือก');
-    record('TC10', 'Publish platform ที่ไม่ได้เลือก', 'ถูก block',
-        'blocked=' . var_export($r['blocked'], true), $pass); tally($pass);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// TC11 — Platform ที่เลือกไม่มี script → block
-// ═══════════════════════════════════════════════════════════════════════════
-{
-    $content = makeContent(['facebook', 'instagram'], ['facebook' => goodScript()], passingHtml()); // IG ไม่มี script
-    $r = gate($db, $TENANT, $content, 'instagram');
-    $pass = $r['blocked'] === true;
-    record('TC11', 'Platform ที่เลือกไม่มี script', 'ถูก block',
-        'blocked=' . var_export($r['blocked'], true), $pass); tally($pass);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// TC12 — Script score SEO=80 AEO=80 → publish ได้ (ตรง threshold)
-// ═══════════════════════════════════════════════════════════════════════════
-{
-    // จำลอง script ที่ได้ score 80 ผ่าน (verify ด้วย script_gate_status โดยตรง)
-    $seo = ['score' => 80, 'rules' => [['tier' => 'required', 'status' => 'passed']]];
-    $aeo = ['score' => 80, 'rules' => [['tier' => 'required', 'status' => 'passed']]];
-    $pass = script_gate_status($seo) === 'passed' && script_gate_status($aeo) === 'passed';
-    record('TC12', 'Script score SEO=80 AEO=80', 'ผ่าน gate',
-        'passed', $pass); tally($pass);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// TC13 — Script score 79 ไม่มี required fail → block
-// ═══════════════════════════════════════════════════════════════════════════
-{
-    $eval = ['score' => 79, 'rules' => [['tier' => 'required', 'status' => 'passed']]];
-    $pass = script_gate_status($eval) === 'needs_improvement';
-    record('TC13', 'Script score 79 (no required fail)', 'block (needs_improvement)',
-        script_gate_status($eval), $pass); tally($pass);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// TC14 — Script score≥80 แต่ required SEO rule fail → block
-// ═══════════════════════════════════════════════════════════════════════════
-{
-    $eval = ['score' => 90, 'rules' => [['tier' => 'required', 'status' => 'failed']]];
-    $pass = script_gate_status($eval) === 'failed';
-    record('TC14', 'Script score≥80 แต่ required SEO rule fail', 'block',
-        script_gate_status($eval), $pass); tally($pass);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// TC15 — Script score≥80 แต่ required AEO rule fail → block
-// ═══════════════════════════════════════════════════════════════════════════
-{
-    $eval = ['score' => 85, 'rules' => [['tier' => 'required', 'status' => 'failed']]];
-    $pass = script_gate_status($eval) === 'failed';
-    record('TC15', 'Script score≥80 แต่ required AEO rule fail', 'block',
-        script_gate_status($eval), $pass); tally($pass);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// TC16 — Content ยังไม่ Approved → block
-// ═══════════════════════════════════════════════════════════════════════════
+// ═══════════════════ Section A — Approval + Platform gate (ไม่เปลี่ยน) ═══════
+// ── TC01 — Content ยังไม่ Approved → block ─────────────────────────────────
 {
     $content = makeContent(['facebook'], ['facebook' => goodScript()], passingHtml(), false);
     $r = gate($db, $TENANT, $content, 'facebook');
     $pass = $r['blocked'] === true && str_contains($r['reason'] ?? '', 'อนุมัติ');
-    record('TC16', 'Content ยังไม่ Approved', 'block (approval gate)',
+    record('TC01', 'Content ยังไม่ Approved', 'block (approval gate)',
         'blocked=' . var_export($r['blocked'], true), $pass); tally($pass);
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// TC17 — Approved แล้วแก้ Article จน SEO/AEO ไม่ผ่าน → publish ต้อง block (ผลล่าสุด)
-// ═══════════════════════════════════════════════════════════════════════════
+// ── TC02 — พยายาม publish platform ที่ไม่ได้เลือก → block ──────────────────
 {
-    // ตอนแรกผ่าน
+    $content = makeContent(['facebook'], ['facebook' => goodScript()], passingHtml());
+    $r = gate($db, $TENANT, $content, 'instagram'); // IG ไม่ได้เลือก
+    $pass = $r['blocked'] === true && str_contains($r['reason'] ?? '', 'ไม่ได้ถูกเลือก');
+    record('TC02', 'Publish platform ที่ไม่ได้เลือก', 'ถูก block',
+        'blocked=' . var_export($r['blocked'], true), $pass); tally($pass);
+}
+
+// ── TC03 — Send Now กับ Schedule/Cron ใช้ gate เดียวกัน (deterministic) ────
+{
+    $content = makeContent(['facebook'], ['facebook' => goodScript()], passingHtml());
+    $r1 = gate($db, $TENANT, $content, 'facebook');
+    $r2 = gate($db, $TENANT, $content, 'facebook');
+    $pass = $r1['blocked'] === $r2['blocked'] && $r1['blocked'] === false;
+    record('TC03', 'Send Now กับ Schedule gate เดียวกัน', 'ผล gate เหมือนกัน',
+        "r1=" . var_export($r1['blocked'], true) . ", r2=" . var_export($r2['blocked'], true), $pass); tally($pass);
+}
+
+// ═══════════════════ Section B — Article SEO/AEO gate (Web/CMS เท่านั้น ไม่เปลี่ยน) ═══
+// ── TC04 — Article SEO+AEO ผ่าน + FB (script ใดก็ได้) → FB publish ได้ ─────
+{
+    $content = makeContent(['facebook'], ['facebook' => goodScript()], passingHtml());
+    $r = gate($db, $TENANT, $content, 'facebook');
+    $pass = $r['blocked'] === false;
+    record('TC04', 'Article SEO+AEO ผ่าน + FB', 'FB publish ได้',
+        'blocked=' . var_export($r['blocked'], true), $pass); tally($pass);
+}
+
+// ── TC05 — Article SEO ไม่ผ่าน → Web/CMS block แต่ Social ยัง publish ได้ ──
+{
+    $content = makeContent(['wordpress', 'facebook'], ['facebook' => goodScript()], passingHtml(), true, ['structured_data' => '']);
+    $wp = gate($db, $TENANT, $content, 'wordpress');
+    $fb = gate($db, $TENANT, $content, 'facebook');
+    $pass = $wp['blocked'] === true && $fb['blocked'] === false;
+    record('TC05', 'Article SEO ไม่ผ่าน', 'Web/CMS block แต่ Social ยัง publish ได้',
+        'WP blocked=' . var_export($wp['blocked'], true) . ', FB blocked=' . var_export($fb['blocked'], true), $pass); tally($pass);
+}
+
+// ── TC06 — Article AEO ไม่ผ่าน → Web/CMS block แต่ Social ยัง publish ได้ ──
+{
+    $content = makeContent(['wordpress', 'facebook'], ['facebook' => goodScript()], aeoFailHtml());
+    $wp = gate($db, $TENANT, $content, 'wordpress');
+    $fb = gate($db, $TENANT, $content, 'facebook');
+    $pass = $wp['blocked'] === true && $fb['blocked'] === false;
+    record('TC06', 'Article AEO ไม่ผ่าน', 'Web/CMS block แต่ Social ยัง publish ได้',
+        'WP blocked=' . var_export($wp['blocked'], true) . ', FB blocked=' . var_export($fb['blocked'], true), $pass); tally($pass);
+}
+
+// ── TC07 — Approved แล้วแก้ Article จน SEO/AEO ไม่ผ่าน → publish block (ผลล่าสุด) ──
+{
     $good = makeContent(['wordpress'], [], passingHtml());
     $before = gate($db, $TENANT, $good, 'wordpress')['blocked'];
-    // "แก้" article จน SEO fail (structured_data หาย) — content ล่าสุด
     $bad = makeContent(['wordpress'], [], passingHtml(), true, ['structured_data' => '']);
     $after = gate($db, $TENANT, $bad, 'wordpress')['blocked'];
     $pass = $before === false && $after === true;
-    record('TC17', 'Approved แล้วแก้ Article จน SEO/AEO fail', 'publish ตรวจผลล่าสุดและ block',
+    record('TC07', 'Approved แล้วแก้ Article จน SEO/AEO fail', 'publish ตรวจผลล่าสุดและ block',
         "before blocked={$before}, after blocked={$after}", $pass); tally($pass);
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// TC18 — Script ผ่าน → แก้ script ให้ไม่ผ่าน → publish block (ผลล่าสุด)
-// ═══════════════════════════════════════════════════════════════════════════
+// ── TC08 — Schedule ผ่าน แต่ก่อนถึงเวลาแก้ Article ให้ fail → cron block ────
 {
-    $good = makeContent(['facebook'], ['facebook' => goodScript()], passingHtml());
-    $before = gate($db, $TENANT, $good, 'facebook')['blocked'];
-    $bad = makeContent(['facebook'], ['facebook' => badScript()], passingHtml());
-    $after = gate($db, $TENANT, $bad, 'facebook')['blocked'];
-    $pass = $before === false && $after === true;
-    record('TC18', 'Script ผ่าน → แก้ให้ไม่ผ่าน → publish', 'ตรวจ script ล่าสุดและ block',
-        "before blocked={$before}, after blocked={$after}", $pass); tally($pass);
+    $bad = makeContent(['wordpress'], [], passingHtml(), true, ['structured_data' => '']);
+    $r = gate($db, $TENANT, $bad, 'wordpress');
+    $pass = $r['blocked'] === true;
+    record('TC08', 'Schedule ผ่าน แต่แก้ Article ให้ fail → cron', 'cron block (evaluate ล่าสุด)',
+        'blocked=' . var_export($r['blocked'], true), $pass); tally($pass);
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// TC19 — Script ไม่ผ่าน → แก้ให้ผ่าน → publish ได้ (ผลล่าสุด)
-// ═══════════════════════════════════════════════════════════════════════════
+// ═══════════════════ Section C — Platform Script: ไม่มี Script SEO/AEO Gate อีกต่อไป ═══
+// Regression coverage สำหรับ remove-script-seo-aeo: ก่อนหน้านี้ script สั้น/ไม่มี
+// keyword/entity จะถูก final_publish_gate_check บล็อก ตอนนี้ต้อง "publish ได้เสมอ"
+// ไม่ว่าเนื้อหา script จะเป็นอย่างไร (ยังต้องผ่าน Approval + Platform gate ตามปกติ)
+
+// ── TC09 — FB script สั้นมาก ไม่มี keyword/hashtag → ไม่ถูก block อีกต่อไป ──
+{
+    $content = makeContent(['facebook'], ['facebook' => 'x'], passingHtml());
+    $r = gate($db, $TENANT, $content, 'facebook');
+    $pass = $r['blocked'] === false;
+    record('TC09', 'FB script สั้นมาก ไม่มี keyword', 'FB publish ได้ (Script SEO gate ถูกลบแล้ว)',
+        'blocked=' . var_export($r['blocked'], true), $pass); tally($pass);
+}
+
+// ── TC10 — FB script ไม่มี entity/answer cue → ไม่ถูก block อีกต่อไป ───────
+{
+    $content = makeContent(['facebook'], ['facebook' => 'วิธีทำคอนเทนต์'], passingHtml());
+    $r = gate($db, $TENANT, $content, 'facebook');
+    $pass = $r['blocked'] === false;
+    record('TC10', 'FB script ไม่มี entity/answer cue', 'FB publish ได้ (Script AEO gate ถูกลบแล้ว)',
+        'blocked=' . var_export($r['blocked'], true), $pass); tally($pass);
+}
+
+// ── TC11 — FB + YT script แย่ทั้งคู่ → publish ได้ทั้งคู่ (ไม่มี per-platform gate) ──
+{
+    $content = makeContent(['facebook', 'youtube'], ['facebook' => badScript(), 'youtube' => badScript()], passingHtml());
+    $fb = gate($db, $TENANT, $content, 'facebook')['blocked'];
+    $yt = gate($db, $TENANT, $content, 'youtube')['blocked'];
+    $pass = $fb === false && $yt === false;
+    record('TC11', 'FB+YT script แย่ทั้งคู่', 'publish ได้ทั้งคู่',
+        "FB={$fb}, YT={$yt}", $pass); tally($pass);
+}
+
+// ── TC12 — Platform ที่เลือกไม่มี script เลย → publish ยังทำได้ ────────────
+// (เดิม "ไม่มี script" เป็น required-fail ของ Script SEO/AEO gate; ตอนนี้ gate
+// นั้นถูกลบ ระบบไม่ตรวจสอบการมีอยู่ของ script ในชั้น publish gate อีกต่อไป —
+// เป็น trade-off ที่ยอมรับแล้วใน design.md ของ remove-script-seo-aeo)
+{
+    $content = makeContent(['facebook', 'instagram'], ['facebook' => goodScript()], passingHtml()); // IG ไม่มี script
+    $r = gate($db, $TENANT, $content, 'instagram');
+    $pass = $r['blocked'] === false;
+    record('TC12', 'Platform ที่เลือกไม่มี script เลย', 'publish ยังทำได้ (ไม่มี Script Presence gate อีกต่อไป)',
+        'blocked=' . var_export($r['blocked'], true), $pass); tally($pass);
+}
+
+// ── TC13 — แก้ script จาก "แย่" เป็น "ดี" (หรือกลับกัน) → ผล publish เหมือนเดิมเสมอ ──
 {
     $bad = makeContent(['facebook'], ['facebook' => badScript()], passingHtml());
     $before = gate($db, $TENANT, $bad, 'facebook')['blocked'];
     $good = makeContent(['facebook'], ['facebook' => goodScript()], passingHtml());
     $after = gate($db, $TENANT, $good, 'facebook')['blocked'];
-    $pass = $before === true && $after === false;
-    record('TC19', 'Script ไม่ผ่าน → แก้ให้ผ่าน → publish', 'publish ได้หลังตรวจผลล่าสุด',
+    $pass = $before === false && $after === false;
+    record('TC13', 'แก้เนื้อหา script (แย่↔ดี)', 'publish ได้เสมอ ไม่ผูกกับเนื้อหา script',
         "before blocked={$before}, after blocked={$after}", $pass); tally($pass);
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// TC20 — publish-once แยก platform (FB สำเร็จแล้ว → FB ซ้ำไม่ได้ / YT ยังได้)
-// ═══════════════════════════════════════════════════════════════════════════
+// ── TC14 — FB+IG+YT script คุณภาพต่ำหมด → publish ได้ทุก platform ──────────
 {
-    // publish-once ใช้ get_published_content_platforms — จำลอง FB เผยแพร่แล้ว
-    // (เขียนแถว sent ลง queue แล้วตรวจ, แล้วลบทิ้ง)
+    $platforms = ['facebook', 'instagram', 'youtube'];
+    $scripts = ['facebook' => badScript(), 'instagram' => badScript(), 'youtube' => badScript()];
+    $content = makeContent($platforms, $scripts, passingHtml());
+    $allOk = true;
+    foreach ($platforms as $p) { if (gate($db, $TENANT, $content, $p)['blocked']) $allOk = false; }
+    $pass = $allOk;
+    record('TC14', 'FB+IG+YT script คุณภาพต่ำหมด', 'ทุก platform publish ได้ (ไม่มี Script Gate ขวาง)',
+        'allOk=' . var_export($allOk, true), $pass); tally($pass);
+}
+
+// ── TC15 — Cron: schedule ที่ script เป้าหมายถูกแก้ให้แย่ก่อนถึงเวลา → ไม่ block ──
+{
+    $bad = makeContent(['facebook', 'youtube'], ['facebook' => goodScript(), 'youtube' => badScript()], passingHtml());
+    $fb = gate($db, $TENANT, $bad, 'facebook')['blocked'];
+    $yt = gate($db, $TENANT, $bad, 'youtube')['blocked'];
+    $pass = $fb === false && $yt === false;
+    record('TC15', 'Cron: script เป้าหมายถูกแก้ให้แย่', 'cron ไม่ block ด้วย Script SEO/AEO อีกต่อไป',
+        "FB={$fb}, YT={$yt}", $pass); tally($pass);
+}
+
+// ═══════════════════ Section D — publish-once + status sync (ไม่เปลี่ยน) ═══════
+// ── TC16 — publish-once แยก platform (FB สำเร็จแล้ว → FB ซ้ำไม่ได้ / YT ยังได้) ──
+{
     $content = makeContent(['facebook', 'youtube'], ['facebook' => goodScript(), 'youtube' => goodScript()], passingHtml());
     $contentId = $content['id'];
 
-    // FB ยังไม่เผยแพร่ → ได้ทั้งคู่
     $fbBefore = gate($db, $TENANT, $content, 'facebook')['blocked'];
     $ytBefore = gate($db, $TENANT, $content, 'youtube')['blocked'];
 
-    // จำลอง FB เผยแพร่สำเร็จ (insert channel + sent queue)
     $chId = 'p5-test-ch-' . substr(md5(uniqid('', true)), 0, 8);
     $db->prepare("INSERT INTO publish_channels (id, tenant_id, name, platform, endpoint_url, is_active) VALUES (?,?,?,?,?,1)")
        ->execute([$chId, $TENANT, 'Test FB', 'facebook', 'https://example.test']);
@@ -340,98 +269,32 @@ function gate(PDO $db, string $tenant, array $content, string $platform, ?array 
     $fbPublished = in_array('facebook', $published, true);
     $ytPublished = in_array('youtube', $published, true);
 
-    // cleanup
     $db->prepare("DELETE FROM content_publish_queue WHERE id=?")->execute([$qId]);
     $db->prepare("DELETE FROM publish_channels WHERE id=?")->execute([$chId]);
 
-    // gate เองไม่บล็อก publish-once (caller ตรวจ) — ตรวจเฉพาะ get_published ทำงานแยก platform
     $pass = $fbBefore === false && $ytBefore === false && $fbPublished === true && $ytPublished === false;
-    record('TC20', 'FB เผยแพร่แล้ว + YT ยังไม่', 'publish-once แยก platform (FB ซ้ำไม่ได้/YT ได้)',
+    record('TC16', 'FB เผยแพร่แล้ว + YT ยังไม่', 'publish-once แยก platform (FB ซ้ำไม่ได้/YT ได้)',
         "FB published={$fbPublished}, YT published={$ytPublished}", $pass); tally($pass);
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// TC21 — Send Now กับ Schedule ใช้ gate เดียวกัน (final_publish_gate_check)
-// ═══════════════════════════════════════════════════════════════════════════
-{
-    // brand-content.php?action=publish (send now) และ cron ใช้ final_publish_gate_check ตัวเดียวกัน
-    // ตรวจว่า final_publish_gate_check เป็นฟังก์ชันเดียว → ผล deterministic
-    $content = makeContent(['facebook'], ['facebook' => goodScript()], passingHtml());
-    $r1 = gate($db, $TENANT, $content, 'facebook');
-    $r2 = gate($db, $TENANT, $content, 'facebook');
-    $pass = $r1['blocked'] === $r2['blocked'] && $r1['blocked'] === false;
-    record('TC21', 'Send Now กับ Schedule gate เดียวกัน', 'ผล gate เหมือนกัน',
-        "r1=" . var_export($r1['blocked'], true) . ", r2=" . var_export($r2['blocked'], true), $pass); tally($pass);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// TC22 — Schedule ผ่าน แต่ก่อนถึงเวลาแก้ Article ให้ fail → cron block
-// ═══════════════════════════════════════════════════════════════════════════
-{
-    // cron re-evaluate ที่ dispatch time ด้วย content ล่าสุด (gateItem) → ใช้ gate เดียวกัน
-    $bad = makeContent(['wordpress'], [], passingHtml(), true, ['structured_data' => '']);
-    $r = gate($db, $TENANT, $bad, 'wordpress');
-    $pass = $r['blocked'] === true;
-    record('TC22', 'Schedule ผ่าน แต่แก้ Article ให้ fail → cron', 'cron block (evaluate ล่าสุด)',
-        'blocked=' . var_export($r['blocked'], true), $pass); tally($pass);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// TC23 — Schedule ผ่าน แต่แก้ Script เป้าหมายให้ fail → cron block platform นั้น
-// ═══════════════════════════════════════════════════════════════════════════
-{
-    $bad = makeContent(['facebook', 'youtube'], ['facebook' => goodScript(), 'youtube' => badScript()], passingHtml());
-    $fb = gate($db, $TENANT, $bad, 'facebook')['blocked'];
-    $yt = gate($db, $TENANT, $bad, 'youtube')['blocked'];
-    $pass = $fb === false && $yt === true;
-    record('TC23', 'Schedule ผ่าน แต่แก้ Script ให้ fail → cron', 'cron block เฉพาะ platform นั้น',
-        "FB={$fb}, YT={$yt}", $pass); tally($pass);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// TC24 — FB ผ่าน / IG ไม่ผ่าน → publish FB (ไม่ได้รับผลกระทบจาก IG)
-// ═══════════════════════════════════════════════════════════════════════════
-{
-    $content = makeContent(['facebook', 'instagram'], ['facebook' => goodScript(), 'instagram' => badScript()], passingHtml());
-    $fb = gate($db, $TENANT, $content, 'facebook')['blocked'];
-    $pass = $fb === false;
-    record('TC24', 'FB ผ่าน / IG ไม่ผ่าน → publish FB', 'FB สำเร็จ ไม่กระทบจาก IG',
-        "FB blocked={$fb}", $pass); tally($pass);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// TC25 — FB ผ่าน / IG ไม่ผ่าน → publish IG → block
-// ═══════════════════════════════════════════════════════════════════════════
-{
-    $content = makeContent(['facebook', 'instagram'], ['facebook' => goodScript(), 'instagram' => badScript()], passingHtml());
-    $ig = gate($db, $TENANT, $content, 'instagram')['blocked'];
-    $pass = $ig === true;
-    record('TC25', 'FB ผ่าน / IG ไม่ผ่าน → publish IG', 'IG block',
-        "IG blocked={$ig}", $pass); tally($pass);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// TC26 — ทุก platform ผ่าน → publish ได้หมด + sync status ถูกต้อง
-// ═══════════════════════════════════════════════════════════════════════════
+// ── TC17 — ทุก platform (script คุณภาพต่างกัน) → publish ได้หมด + sync status ถูกต้อง ──
 {
     $platforms = ['facebook', 'instagram', 'youtube'];
-    $scripts = ['facebook' => goodScript(), 'instagram' => goodScript(), 'youtube' => goodScript()];
+    $scripts = ['facebook' => goodScript(), 'instagram' => badScript(), 'youtube' => goodScript()];
     $content = makeContent($platforms, $scripts, passingHtml());
     $allOk = true;
     foreach ($platforms as $p) { if (gate($db, $TENANT, $content, $p)['blocked']) $allOk = false; }
-    // sync_content_publish_status: ยังไม่มี platform เผยแพร่ → status คง approved (ไม่ใช่ published)
     $selected = publish_content_platforms($content);
     $published = get_published_content_platforms($db, $TENANT, $content['id']);
     $allPublished = count(array_diff($selected, $published)) === 0;
     $expectedStatus = $allPublished ? 'published' : 'approved';
     $pass = $allOk && $expectedStatus === 'approved'; // ยังไม่มีเผยแพร่จริง → approved
-    record('TC26', 'ทุก platform ผ่าน → publish', 'ทุก platform ได้ + status ถูกต้อง',
+    record('TC17', 'FB+IG+YT (คุณภาพ script ต่างกัน) → publish', 'ทุก platform ได้ + status ถูกต้อง',
         "allOk={$allOk}, expectedStatus={$expectedStatus}", $pass); tally($pass);
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// TC27 — Central publish executor ต้อง block ก่อน dispatch เมื่อยังไม่ Approved
-// ═══════════════════════════════════════════════════════════════════════════
+// ═══════════════════ Section E — Central publish executor (ไม่เปลี่ยน) ═════════
+// ── TC18 — Central publish executor ต้อง block ก่อน dispatch เมื่อยังไม่ Approved ──
 {
     $content = makeContent(['facebook'], ['facebook' => goodScript()], passingHtml(), false);
     $channel = [
@@ -446,13 +309,11 @@ function gate(PDO $db, string $tenant, array $content, string $platform, ?array 
     $pass = ($r['success'] ?? true) === false
         && ($r['status'] ?? '') === 'blocked'
         && str_contains($r['error'] ?? '', 'อนุมัติ');
-    record('TC27', 'Central publish executor + content ยังไม่ Approved', 'block ก่อน dispatch',
+    record('TC18', 'Central publish executor + content ยังไม่ Approved', 'block ก่อน dispatch',
         'status=' . ($r['status'] ?? '') . ', success=' . var_export($r['success'] ?? null, true), $pass); tally($pass);
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Output
-// ═══════════════════════════════════════════════════════════════════════════
+// ═══════════════════ Output ════════════════════════════════════════════════
 echo "\n";
 echo "| TC | Test Case | Expected | Actual | PASS/FAIL |\n";
 echo "|----|-----------|----------|--------|-----------|\n";

@@ -163,7 +163,6 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
           method: 'POST',
           body: JSON.stringify({
             source_topic: topicConfig.topic.trim(),
-            trigger_command: topicConfig.topic.trim(),
             niche: topicConfig.niche.trim(),
             language: topicConfig.language,
             trigger_ids: topicConfig.triggerIds,
