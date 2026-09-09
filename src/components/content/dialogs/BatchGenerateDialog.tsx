@@ -21,6 +21,9 @@ import { Wand2, Zap, Sparkles, CheckCircle2, Loader2, Plus, Trash2, ChevronDown,
 
 type TopicProgressStatus = 'pending' | 'planning' | 'researching' | 'analyzing' | 'generating' | 'done' | 'partial' | 'failed';
 
+/** Batch สร้างคอนเทนต์ต้องมีอย่างน้อย 3 หัวข้อต่อการรัน */
+const MIN_TOPICS = 3;
+
 export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -34,7 +37,7 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
     scriptStyle: 'hook-story' as 'hook-story' | 'educational' | 'storytelling' | 'vsl',
     duration: '60s' as '15s' | '30s' | '60s' | '3min' | '10min+',
   });
-  const [topics, setTopics] = useState([createTopic()]);
+  const [topics, setTopics] = useState(() => Array.from({ length: MIN_TOPICS }, createTopic));
   const [days, setDays] = useState('7');
   const [startDate, setStartDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [step, setStep] = useState<'form' | 'progress' | 'done'>('form');
@@ -64,7 +67,7 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
   }, [currentTopicIndex, currentTopicStage, researchStep, step]);
 
   const handleReset = () => {
-    setTopics([createTopic()]);
+    setTopics(Array.from({ length: MIN_TOPICS }, createTopic));
     setDays('7');
     setStartDate(new Date().toISOString().split('T')[0]);
     setStep('form');
@@ -85,6 +88,16 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
   };
 
   const handleStart = async () => {
+    const filledCount = topics.filter(item => item.topic.trim()).length;
+    if (filledCount < MIN_TOPICS) {
+      toast({
+        title: `ต้องมีหัวข้อคอนเทนต์อย่างน้อย ${MIN_TOPICS} หัวข้อ`,
+        description: `ตอนนี้กรอกแล้ว ${filledCount} หัวข้อ — กรุณาเพิ่มหัวข้อให้ครบก่อนเริ่มสร้าง`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
     const validationErrors = topics.flatMap((item, index) => {
       const missing: string[] = [];
       if (!item.topic.trim()) missing.push('ยังไม่ได้กรอกหัวข้อ');
@@ -102,11 +115,11 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
     }
 
     setShowConfirm(true);
-  }; 
+  };
 
   const handleConfirmStart = async () => {
     const validTopics = topics.filter(item => item.topic.trim());
-    if (validTopics.length === 0) return;
+    if (validTopics.length < MIN_TOPICS) return;
 
     setShowConfirm(false);
     setStep('progress');
@@ -246,7 +259,7 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
               <h3 className="font-semibold text-base">หัวข้อและการตั้งค่า</h3>
 
               <div className="space-y-1.5">
-                <Label>หัวข้อคอนเทนต์ <span className="text-destructive">*</span></Label>
+                <Label>หัวข้อคอนเทนต์ <span className="text-destructive">*</span> <span className="text-xs font-normal text-muted-foreground">(อย่างน้อย {MIN_TOPICS} หัวข้อ)</span></Label>
                 <div className="space-y-2">
                   {topics.map((item, index) => (
                     <div key={index} className="rounded-lg border p-3 space-y-3">
@@ -257,7 +270,7 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
                           <SelectTrigger><SelectValue /></SelectTrigger>
                           <SelectContent><SelectItem value="article">Article</SelectItem><SelectItem value="video">Video</SelectItem></SelectContent>
                         </Select>
-                        <Button type="button" variant="ghost" size="icon" disabled={topics.length <= 1} onClick={() => setTopics(rows => rows.filter((_, i) => i !== index))} aria-label={`ลบหัวข้อ ${index + 1}`}><Trash2 className="h-4 w-4" /></Button>
+                        <Button type="button" variant="ghost" size="icon" disabled={topics.length <= MIN_TOPICS} onClick={() => setTopics(rows => rows.filter((_, i) => i !== index))} aria-label={`ลบหัวข้อ ${index + 1}`}><Trash2 className="h-4 w-4" /></Button>
                       </div>
 
                       <div className="flex flex-wrap items-center gap-1.5 rounded-md bg-muted/30 px-3 py-2.5 text-xs">
@@ -420,7 +433,7 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
                     </div>
                   </div>
 
-                  <Button className="w-full h-12 text-base font-semibold gap-2" disabled={validTopics.length === 0} onClick={handleStart}>
+                  <Button className="w-full h-12 text-base font-semibold gap-2" disabled={validTopics.length < MIN_TOPICS} onClick={handleStart}>
                     <Sparkles className="h-5 w-5" />เริ่มสร้างคอนเทนต์
                   </Button>
                 </div>

@@ -5,10 +5,13 @@ import { BatchGenerateDialog } from '@/components/content/dialogs/BatchGenerateD
 import { apiFetch } from '@/lib/api';
 
 /**
- * Regression: Batch สร้างคอนเทนต์ ต้องส่ง tone/script_style/duration ต่อหัวข้อ
- * เช่นเดียวกับ QuickCreateDialog (ดู QuickCreateDialog.directMode.test.tsx) —
- * ก่อนหน้านี้ Batch ไม่มี UI ให้เลือกค่านี้เลยและไม่ส่ง field พวกนี้ไปที่ generate-plan
- * ทำให้ content ที่สร้างผ่าน Batch fallback เป็น default เสมอ (friendly / hook-story / 60s)
+ * Regression:
+ * 1) Batch สร้างคอนเทนต์ ต้องส่ง tone/script_style/duration ต่อหัวข้อ เช่นเดียวกับ
+ *    QuickCreateDialog (ดู QuickCreateDialog.directMode.test.tsx) — ก่อนหน้านี้ Batch
+ *    ไม่มี UI ให้เลือกค่านี้เลยและไม่ส่ง field พวกนี้ไปที่ generate-plan ทำให้ content
+ *    ที่สร้างผ่าน Batch fallback เป็น default เสมอ (friendly / hook-story / 60s)
+ * 2) Batch ต้องมีหัวข้อคอนเทนต์อย่างน้อย 3 หัวข้อต่อการรัน — ฟอร์มเริ่มต้นด้วย 3 แถวว่าง
+ *    ลบแถวลงต่ำกว่า 3 ไม่ได้ และกดเริ่มสร้างไม่ได้ถ้ากรอกไม่ครบ 3 หัวข้อ
  */
 
 const toast = vi.fn();
@@ -52,25 +55,40 @@ function mockApi() {
 const findBodies = (bodies: Record<string, any>[], fragment: string) =>
   bodies.filter(b => b.url.includes(fragment)).map(b => b.body);
 
-/** div.rounded-lg.border ที่ครอบหัวข้อที่ index (0-based) — ใช้ scope query ไม่ให้ index เพี้ยน
+/** div.rounded-lg.border ที่ครอบหัวข้อที่ index (0-based) — scope query ไม่ให้ index เพี้ยน
  *  เมื่อหัวข้ออื่นเปิด "ตั้งค่าเพิ่มเติม" ค้างไว้แล้วเพิ่ม combobox (เช่น ภาษา) แทรกเข้ามา */
 function getTopicRow(rowIndex: number): HTMLElement {
   const inputs = screen.getAllByPlaceholderText(/วิธีเลือกเครื่องมือ AI/);
   return inputs[rowIndex].closest('.rounded-lg.border') as HTMLElement;
 }
 
-/** เปิด "ตั้งค่าเพิ่มเติม" ของหัวข้อที่ index (0-based) แล้วเลือกแพลตฟอร์มให้ผ่าน validation */
-async function openSettingsAndPickPlatform(rowIndex: number, platformLabel = 'Facebook') {
-  const row = getTopicRow(rowIndex);
-  fireEvent.click(within(row).getByRole('button', { name: /ตั้งค่าเพิ่มเติม/ }));
-  const platformButton = await within(row).findByRole('button', { name: new RegExp(`^${platformLabel}$`) });
-  fireEvent.click(platformButton);
-}
-
 /** Radix Select ในสภาพแวดล้อม jsdom เปิด listbox ได้ชัวร์สุดผ่าน keyboard (focus + Enter) */
 function openSelect(trigger: HTMLElement) {
   trigger.focus();
   fireEvent.keyDown(trigger, { key: 'Enter' });
+}
+
+/** กรอกหัวข้อที่ rowIndex ให้ผ่าน validation (topic + platform) พร้อมตัวเลือกสลับ content type
+ *  และ callback เพิ่มเติมหลังเปิด "ตั้งค่าเพิ่มเติม" แล้ว (เช่น เลือกโทน/สไตล์) */
+async function fillTopic(rowIndex: number, topicText: string, opts: {
+  contentType?: 'article' | 'video';
+  platform?: string;
+  after?: (row: HTMLElement) => void;
+} = {}) {
+  const row = getTopicRow(rowIndex);
+  fireEvent.change(within(row).getByPlaceholderText(/วิธีเลือกเครื่องมือ AI/), { target: { value: topicText } });
+
+  if (opts.contentType === 'video') {
+    openSelect(within(row).getByRole('combobox'));
+    fireEvent.click(await screen.findByRole('option', { name: 'Video', hidden: true }));
+  }
+
+  fireEvent.click(within(row).getByRole('button', { name: /ตั้งค่าเพิ่มเติม/ }));
+  const platformLabel = opts.platform ?? (opts.contentType === 'video' ? 'TikTok' : 'Facebook');
+  const platformButton = await within(row).findByRole('button', { name: new RegExp(`^${platformLabel}$`) });
+  fireEvent.click(platformButton);
+
+  opts.after?.(row);
 }
 
 async function startAndConfirm() {
@@ -83,89 +101,115 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe('BatchGenerateDialog — tone/script_style/duration ต่อหัวข้อ', () => {
-  it('หัวข้อ article (default) ส่ง tone=friendly โดยไม่ต้องเลือกอะไรเพิ่ม', async () => {
-    const bodies = mockApi();
+describe('BatchGenerateDialog — ต้องมีอย่างน้อย 3 หัวข้อ', () => {
+  it('เริ่มต้นด้วย 3 แถวว่าง และลบลงต่ำกว่า 3 ไม่ได้', async () => {
     renderDialog();
-
-    fireEvent.change(screen.getByPlaceholderText(/วิธีเลือกเครื่องมือ AI/), { target: { value: 'หัวข้อทดสอบ' } });
-    await openSettingsAndPickPlatform(0);
-    await startAndConfirm();
-
-    await waitFor(() => expect(findBodies(bodies, 'action=generate-plan').length).toBe(1));
-    const plan = findBodies(bodies, 'action=generate-plan')[0];
-    expect(plan.type).toBe('article');
-    expect(plan.tone).toBe('friendly');
-    expect(plan).not.toHaveProperty('script_style');
-    expect(plan).not.toHaveProperty('duration');
+    const deleteButtons = await screen.findAllByRole('button', { name: /ลบหัวข้อ/ });
+    expect(deleteButtons).toHaveLength(3);
+    deleteButtons.forEach(btn => expect(btn).toBeDisabled());
   });
 
-  it('เลือกโทน "ทางการ" ให้หัวข้อ article → ส่ง tone=formal', async () => {
+  it('กรอกไม่ครบ 3 หัวข้อ → ปุ่มเริ่มสร้างถูก disabled และกดแล้วไม่เปิด confirm', async () => {
+    mockApi();
+    renderDialog();
+
+    await fillTopic(0, 'หัวข้อ 1');
+    await fillTopic(1, 'หัวข้อ 2');
+    // หัวข้อที่ 3 ปล่อยว่างไว้โดยตั้งใจ
+
+    const startButton = screen.getByRole('button', { name: /เริ่มสร้างคอนเทนต์/ });
+    expect(startButton).toBeDisabled();
+
+    fireEvent.click(startButton);
+    expect(screen.queryByRole('button', { name: /ยืนยันและเริ่มสร้าง/ })).toBeNull();
+  });
+});
+
+describe('BatchGenerateDialog — tone/script_style/duration ต่อหัวข้อ', () => {
+  it('หัวข้อ article (default) ทั้ง 3 หัวข้อ ส่ง tone=friendly โดยไม่ต้องเลือกอะไรเพิ่ม', async () => {
     const bodies = mockApi();
     renderDialog();
 
-    fireEvent.change(screen.getByPlaceholderText(/วิธีเลือกเครื่องมือ AI/), { target: { value: 'หัวข้อทดสอบ' } });
-    await openSettingsAndPickPlatform(0);
-    fireEvent.click(screen.getByRole('button', { name: /ทางการ/ }));
+    await fillTopic(0, 'หัวข้อ 1');
+    await fillTopic(1, 'หัวข้อ 2');
+    await fillTopic(2, 'หัวข้อ 3');
     await startAndConfirm();
 
-    await waitFor(() => expect(findBodies(bodies, 'action=generate-plan').length).toBe(1));
-    expect(findBodies(bodies, 'action=generate-plan')[0].tone).toBe('formal');
+    await waitFor(() => expect(findBodies(bodies, 'action=generate-plan').length).toBe(3));
+    for (const plan of findBodies(bodies, 'action=generate-plan')) {
+      expect(plan.type).toBe('article');
+      expect(plan.tone).toBe('friendly');
+      expect(plan).not.toHaveProperty('script_style');
+      expect(plan).not.toHaveProperty('duration');
+    }
+  });
+
+  it('เลือกโทน "ทางการ" ให้หัวข้อแรก → เฉพาะหัวข้อนั้นส่ง tone=formal หัวข้ออื่นยัง friendly', async () => {
+    const bodies = mockApi();
+    renderDialog();
+
+    await fillTopic(0, 'หัวข้อ 1', {
+      after: row => fireEvent.click(within(row).getByRole('button', { name: /ทางการ/ })),
+    });
+    await fillTopic(1, 'หัวข้อ 2');
+    await fillTopic(2, 'หัวข้อ 3');
+    await startAndConfirm();
+
+    await waitFor(() => expect(findBodies(bodies, 'action=generate-plan').length).toBe(3));
+    const [first, second, third] = findBodies(bodies, 'action=generate-plan');
+    expect(first.tone).toBe('formal');
+    expect(second.tone).toBe('friendly');
+    expect(third.tone).toBe('friendly');
   });
 
   it('หัวข้อ video ที่เปลี่ยนเป็น VSL + 3min → ส่ง script_style=vsl, duration=180', async () => {
     const bodies = mockApi();
     renderDialog();
 
-    fireEvent.change(screen.getByPlaceholderText(/วิธีเลือกเครื่องมือ AI/), { target: { value: 'หัวข้อวีดีโอ' } });
-
-    // สลับ content type ของหัวข้อแรกเป็น Video
-    openSelect(within(getTopicRow(0)).getByRole('combobox'));
-    fireEvent.click(await screen.findByRole('option', { name: 'Video', hidden: true }));
-
-    await openSettingsAndPickPlatform(0, 'TikTok');
-    fireEvent.click(screen.getByRole('button', { name: /VSL/ }));
-    fireEvent.click(screen.getByRole('button', { name: '3min' }));
+    await fillTopic(0, 'หัวข้อวีดีโอ', {
+      contentType: 'video',
+      after: row => {
+        fireEvent.click(within(row).getByRole('button', { name: /VSL/ }));
+        fireEvent.click(within(row).getByRole('button', { name: '3min' }));
+      },
+    });
+    await fillTopic(1, 'หัวข้อ 2');
+    await fillTopic(2, 'หัวข้อ 3');
     await startAndConfirm();
 
-    await waitFor(() => expect(findBodies(bodies, 'action=generate-plan').length).toBe(1));
-    const plan = findBodies(bodies, 'action=generate-plan')[0];
-    expect(plan.type).toBe('video');
-    expect(plan.script_style).toBe('vsl');
-    expect(plan.duration).toBe(180);
-    expect(plan).not.toHaveProperty('tone');
+    await waitFor(() => expect(findBodies(bodies, 'action=generate-plan').length).toBe(3));
+    const [videoPlan] = findBodies(bodies, 'action=generate-plan');
+    expect(videoPlan.type).toBe('video');
+    expect(videoPlan.script_style).toBe('vsl');
+    expect(videoPlan.duration).toBe(180);
+    expect(videoPlan).not.toHaveProperty('tone');
   });
 
   it('หลายหัวข้อคนละ content type ในการรันเดียว — แต่ละ generate-plan call มี field ตรงตามหัวข้อนั้น ไม่ปนกัน', async () => {
     const bodies = mockApi();
     renderDialog();
 
-    // หัวข้อ 1: article (default)
-    fireEvent.change(screen.getByPlaceholderText(/วิธีเลือกเครื่องมือ AI/), { target: { value: 'หัวข้อบทความ' } });
-    await openSettingsAndPickPlatform(0);
-
-    // เพิ่มหัวข้อ 2 แล้วสลับเป็น video
-    fireEvent.click(screen.getByRole('button', { name: /เพิ่มหัวข้อ/ }));
-    fireEvent.change(getTopicRow(1).querySelector('input')!, { target: { value: 'หัวข้อวีดีโอ' } });
-
-    openSelect(within(getTopicRow(1)).getByRole('combobox'));
-    fireEvent.click(await screen.findByRole('option', { name: 'Video', hidden: true }));
-    await openSettingsAndPickPlatform(1, 'TikTok');
-
+    await fillTopic(0, 'หัวข้อบทความ');
+    await fillTopic(1, 'หัวข้อวีดีโอ', { contentType: 'video' });
+    await fillTopic(2, 'หัวข้อบทความ2');
     await startAndConfirm();
 
-    await waitFor(() => expect(findBodies(bodies, 'action=generate-plan').length).toBe(2));
-    const [firstPlan, secondPlan] = findBodies(bodies, 'action=generate-plan');
+    await waitFor(() => expect(findBodies(bodies, 'action=generate-plan').length).toBe(3));
+    const [first, second, third] = findBodies(bodies, 'action=generate-plan');
 
-    expect(firstPlan.source_topic).toBe('หัวข้อบทความ');
-    expect(firstPlan.type).toBe('article');
-    expect(firstPlan.tone).toBe('friendly');
-    expect(firstPlan).not.toHaveProperty('script_style');
+    expect(first.source_topic).toBe('หัวข้อบทความ');
+    expect(first.type).toBe('article');
+    expect(first.tone).toBe('friendly');
+    expect(first).not.toHaveProperty('script_style');
 
-    expect(secondPlan.source_topic).toBe('หัวข้อวีดีโอ');
-    expect(secondPlan.type).toBe('video');
-    expect(secondPlan.script_style).toBe('hook-story');
-    expect(secondPlan.duration).toBe(60);
-    expect(secondPlan).not.toHaveProperty('tone');
+    expect(second.source_topic).toBe('หัวข้อวีดีโอ');
+    expect(second.type).toBe('video');
+    expect(second.script_style).toBe('hook-story');
+    expect(second.duration).toBe(60);
+    expect(second).not.toHaveProperty('tone');
+
+    expect(third.source_topic).toBe('หัวข้อบทความ2');
+    expect(third.type).toBe('article');
+    expect(third.tone).toBe('friendly');
   });
 });
