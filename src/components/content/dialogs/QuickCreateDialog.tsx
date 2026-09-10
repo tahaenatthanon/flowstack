@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
+import { useConfirm } from '@/hooks/useConfirm';
 import { useContentSkills, useBrandContexts, useContentTriggers } from '@/hooks/useContent';
 import { useResearchRun, RESEARCH_STEP_LABELS, researchSeedTopic } from '@/hooks/useResearchRun';
 import type { ContentPlan } from '@/components/content/types';
@@ -19,6 +20,7 @@ import { Plus, Wand2, Sparkles, FileText, Play, Loader2, ArrowRight, RefreshCw, 
 
 export default function QuickCreateDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const { toast } = useToast();
+  const { confirm } = useConfirm();
   const qc = useQueryClient();
   const navigate = useNavigate();
 
@@ -133,6 +135,28 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
       toast({ title: 'สร้างไม่สำเร็จ', description: e.message, variant: 'destructive' });
       setStep('form');
     }
+  };
+
+  // สรุปสิ่งที่กำลังจะสร้างจากค่าฟอร์มปัจจุบัน — ใช้เป็นข้อความในกล่องยืนยันก่อนยิง AI จริง
+  const buildConfirmDescription = () => {
+    const platformLabel = selPlatforms.length > 0
+      ? selPlatforms.map(key => PLATFORM_MAP[key]?.label || key).join(', ')
+      : 'ทั้งหมด';
+    const styleLabel = contentType === 'article'
+      ? ARTICLE_TONE_OPTIONS.find(opt => opt.value === tone)?.label ?? tone
+      : `${VIDEO_SCRIPT_STYLE_OPTIONS.find(opt => opt.value === scriptStyle)?.label ?? scriptStyle} · ${duration}`;
+    return `หัวข้อ: "${topic.trim()}" · แพลตฟอร์ม: ${platformLabel} · ${styleLabel} — AI จะใช้เวลาประมาณ 30-60 วินาที`;
+  };
+
+  const handleConfirmAndCreate = async () => {
+    if (!topic.trim() || !contentType) return;
+    const ok = await confirm({
+      title: `ยืนยันสร้าง${contentType === 'video' ? 'วีดีโอสคริปต์' : 'บทความ'}`,
+      description: buildConfirmDescription(),
+      confirmLabel: 'ยืนยันและสร้าง',
+    });
+    if (!ok) return;
+    handleCreate();
   };
 
   // Platform ที่เลือกได้ไม่ผูกกับ Content Type อีกต่อไป (เช่นเดียวกับ BatchGenerateDialog) —
@@ -356,7 +380,7 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => handleClose(false)}>ยกเลิก</Button>
-              <Button disabled={!topic.trim()} onClick={handleCreate} className="gap-2">
+              <Button disabled={!topic.trim()} onClick={handleConfirmAndCreate} className="gap-2">
                 <Sparkles className="h-4 w-4" />สร้าง{contentType === 'video' ? 'วีดีโอสคริปต์' : 'บทความ'}
               </Button>
             </DialogFooter>

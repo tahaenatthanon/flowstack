@@ -19,6 +19,10 @@ const toast = vi.fn();
 
 vi.mock('@/lib/api', () => ({ apiFetch: vi.fn() }));
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast }) }));
+// confirm() ต้อง resolve true — ปุ่ม "AI เขียนให้" เพิ่ม confirm gate ก่อนเรียก
+// runResearch() แล้ว (ดู change confirm-before-ai-content-write) เทสต์นี้ยืนยัน
+// Research flow เอง ไม่ใช่ confirm gate
+vi.mock('@/hooks/useConfirm', () => ({ useConfirm: () => ({ confirm: vi.fn().mockResolvedValue(true) }) }));
 vi.mock('@/hooks/useContent', () => ({
   useContentGlobalSettings: () => ({ data: undefined }),
 }));

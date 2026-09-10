@@ -26,7 +26,9 @@ const toast = vi.fn();
 vi.mock('@/lib/api', () => ({ apiFetch: vi.fn() }));
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast }) }));
 vi.mock('react-router-dom', () => ({ useNavigate: () => vi.fn() }));
-vi.mock('@/hooks/useConfirm', () => ({ useConfirm: () => ({ confirm: vi.fn() }) }));
+// confirm() ต้อง resolve true — handleGenerate เพิ่ม confirm gate ก่อนยิง generate-plan
+// (ดู change confirm-before-content-create) เทสต์นี้ยืนยัน researchSeedTopic() ไม่ใช่ confirm gate
+vi.mock('@/hooks/useConfirm', () => ({ useConfirm: () => ({ confirm: vi.fn().mockResolvedValue(true) }) }));
 
 vi.mock('@/components/content/BestTimeAnalyticsPanel', () => ({ BestTimeAnalyticsPanel: () => null }));
 

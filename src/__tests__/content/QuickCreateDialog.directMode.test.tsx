@@ -16,6 +16,9 @@ const toast = vi.fn();
 vi.mock('@/lib/api', () => ({ apiFetch: vi.fn() }));
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast }) }));
 vi.mock('react-router-dom', () => ({ useNavigate: () => vi.fn() }));
+// QuickCreateDialog เรียก useConfirm() ตรงๆ ไม่มี <ConfirmProvider> ครอบในเทสต์นี้ —
+// mock ให้ confirm() resolve true เพื่อคง flow เดิม (ดู change confirm-before-content-create)
+vi.mock('@/hooks/useConfirm', () => ({ useConfirm: () => ({ confirm: vi.fn().mockResolvedValue(true) }) }));
 
 // topic ที่ AI เขียนใหม่ในขั้น plan — ห้ามถูกใช้แทน seed ของผู้ใช้
 const AI_REWRITTEN_TOPIC = 'เริ่มต้นสัปดาห์ด้วย 5 ฟีเจอร์ YouTube ที่ต้องรู้';

@@ -24,6 +24,10 @@ import { CalendarDays, Wand2, Info, LayoutList } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import PageShell from '@/components/PageShell';
 
+const PLAN_TYPE_LABELS: Record<string, string> = {
+  weekly: 'รายสัปดาห์', monthly: 'รายเดือน', quarterly: 'รายไตรมาส', yearly: 'รายปี',
+};
+
 export default function ContentPlannerPage() {
   const { toast } = useToast();
   const { confirm } = useConfirm();
@@ -214,6 +218,16 @@ export default function ContentPlannerPage() {
     plan_end: string | null;
     platforms: string[];
   }) => {
+    const planTypeLabel = PLAN_TYPE_LABELS[params.plan_type] ?? params.plan_type;
+    const platformLabel = params.platforms.length > 0
+      ? params.platforms.map(key => PLATFORM_MAP[key]?.label || key).join(', ')
+      : 'ทั้งหมด';
+    const ok = await confirm({
+      title: 'ยืนยันสร้างแผนคอนเทนต์ด้วย AI',
+      description: `คำสั่ง: "${params.trigger_command}" · ประเภทแผน: ${planTypeLabel} · ช่วงวันที่: ${params.plan_start ?? '-'} ถึง ${params.plan_end ?? '-'} · แพลตฟอร์ม: ${platformLabel} — AI จะกำหนดจำนวนโพสต์เองตามคำสั่งและช่วงเวลานี้ อาจสร้างหลายรายการและใช้เวลานานตามจำนวนที่สร้าง`,
+      confirmLabel: 'ยืนยันและสร้างแผน',
+    });
+    if (!ok) return;
     setGenerating(true);
     try {
       const plan: ContentPlan = await apiFetch('/brand-content.php?action=generate-plan', {
@@ -262,7 +276,7 @@ export default function ContentPlannerPage() {
       setGenerating(false);
       setGeneratingArticles(false);
     }
-  }, [qc, toast, runResearch]);
+  }, [qc, toast, runResearch, confirm]);
 
   const handleSelectPlan = useCallback(async (plan: ContentPlan) => {
     try {

@@ -17,6 +17,7 @@ import { useQuery } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { apiFetch } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
+import { useConfirm } from '@/hooks/useConfirm';
 import { useQueryClient } from '@tanstack/react-query';
 import { useContentGlobalSettings } from '@/hooks/useContent';
 import { useResearchRun, RESEARCH_STEP_LABELS, researchSeedTopic } from '@/hooks/useResearchRun';
@@ -79,6 +80,7 @@ export function ContentCardDialog({
 }: Props) {
   const qc = useQueryClient();
   const { toast } = useToast();
+  const { confirm } = useConfirm();
   const [topic, setTopic] = useState('');
   const [caption, setCaption] = useState('');
   const [platforms, setPlatforms] = useState<string[]>([]);
@@ -338,6 +340,23 @@ export function ContentCardDialog({
     } finally {
       setAiGenerating(false);
     }
+  };
+
+  const handleConfirmAndAI = async () => {
+    if (!topic.trim() || !existingItem?.id) return;
+    // ข้อความยืนยันต้องใช้ seed เดียวกับที่ handleAI จะส่งเข้า runResearch() จริง
+    // ไม่ใช่ topic เฉยๆ — ไม่งั้นผู้ใช้เห็นหัวข้อคนละอันกับที่ระบบจะ research จริง
+    const researchTopic = researchSeedTopic(existingItem.source_topic, topic);
+    const platformLabel = platforms.length > 0
+      ? platforms.map(key => PLATFORM_MAP[key]?.label || key).join(', ')
+      : 'ยังไม่เลือก';
+    const ok = await confirm({
+      title: 'ยืนยันให้ AI เขียนเนื้อหา',
+      description: `หัวข้อ (Research seed): "${researchTopic}" · แพลตฟอร์ม: ${platformLabel} — AI จะใช้เวลาประมาณ 30-60 วินาที`,
+      confirmLabel: 'ยืนยันและให้ AI เขียน',
+    });
+    if (!ok) return;
+    handleAI();
   };
 
   const handleGenerateImage = async () => {
@@ -834,7 +853,7 @@ export function ContentCardDialog({
             </Button>
           )}
           <Button variant="outline" onClick={() => onOpenChange(false)}>ยกเลิก</Button>
-          <Button variant="outline" className="gap-1.5" onClick={handleAI} disabled={!topic.trim() || aiGenerating}>
+          <Button variant="outline" className="gap-1.5" onClick={handleConfirmAndAI} disabled={!topic.trim() || aiGenerating}>
             {aiGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
             {aiGenerating ? `${RESEARCH_STEP_LABELS[researchStep] ?? 'กำลังสร้าง'}...` : 'AI เขียนให้'}
           </Button>

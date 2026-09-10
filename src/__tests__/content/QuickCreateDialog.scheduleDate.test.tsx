@@ -18,6 +18,9 @@ const toast = vi.fn();
 vi.mock('@/lib/api', () => ({ apiFetch: vi.fn() }));
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast }) }));
 vi.mock('react-router-dom', () => ({ useNavigate: () => vi.fn() }));
+// QuickCreateDialog เรียก useConfirm() ตรงๆ ไม่มี <ConfirmProvider> ครอบในเทสต์นี้ —
+// mock ให้ confirm() resolve true เพื่อคง flow เดิม (ดู change confirm-before-content-create)
+vi.mock('@/hooks/useConfirm', () => ({ useConfirm: () => ({ confirm: vi.fn().mockResolvedValue(true) }) }));
 
 function renderDialog() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });

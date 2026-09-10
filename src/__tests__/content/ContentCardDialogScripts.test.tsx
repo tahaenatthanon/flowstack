@@ -16,6 +16,9 @@ const toast = vi.fn();
 
 vi.mock('@/lib/api', () => ({ apiFetch: vi.fn(async () => ({})) }));
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast }) }));
+// ContentCardDialog เรียก useConfirm() ตรงๆ ไม่มี <ConfirmProvider> ครอบในเทสต์นี้ —
+// mock กันพังตอน render (ดู change confirm-before-ai-content-write)
+vi.mock('@/hooks/useConfirm', () => ({ useConfirm: () => ({ confirm: vi.fn().mockResolvedValue(true) }) }));
 vi.mock('@/hooks/useContent', () => ({
   useContentGlobalSettings: () => ({ data: undefined }),
 }));
