@@ -114,6 +114,15 @@ if ($action === 'analyze') {
     $stmt->execute([$jobId, $tenantId]);
     $job = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$job) jsonError('ไม่พบ Research job หรือ job ยังไม่พร้อมวิเคราะห์', 404);
+    // Checkpoint ต้นทาง: เช็ค cancel_requested ของ item ที่ผูกกับ job นี้ก่อนเรียก AI วิเคราะห์
+    // เพื่อประหยัด credit ถ้าถูกยกเลิกไปแล้วตั้งแต่ก่อนเริ่มขั้นตอนนี้ (design.md decision 2)
+    if (!empty($job['content_item_id'])) {
+        $cancelCheckStmt = $db->prepare('SELECT cancel_requested FROM content_items WHERE id=? AND tenant_id=?');
+        $cancelCheckStmt->execute([$job['content_item_id'], $tenantId]);
+        if ((int)$cancelCheckStmt->fetchColumn() === 1) {
+            jsonError('ถูกยกเลิกแล้ว', 409);
+        }
+    }
     $keywords = research_keyword_rows($db, $jobId, $tenantId);
     $rawSerp = json_decode((string)($job['raw_serp'] ?? ''), true);
     $serp = is_array($rawSerp['normalized'] ?? null) ? $rawSerp['normalized'] : ['organic' => [], 'people_also_ask' => [], 'related_searches' => []];
@@ -188,6 +197,15 @@ if ($action === 'fetch') {
     $itemStmt = $db->prepare('SELECT id FROM content_items WHERE id=? AND tenant_id=?');
     $itemStmt->execute([$contentItemId, $tenantId]);
     if (!$itemStmt->fetchColumn()) jsonError('ไม่พบ content item ใน tenant นี้', 404);
+    // Reset cancel_requested เมื่อเริ่ม fetch รอบใหม่สำหรับ item นี้ ป้องกัน flag ที่ค้าง
+    // จากรอบก่อนหน้าที่ถูกยกเลิกไปแล้วบล็อกการสร้างเนื้อหาครั้งถัดไปถาวร (design.md decision 2)
+    $db->prepare('UPDATE content_items SET cancel_requested=0 WHERE id=? AND tenant_id=?')->execute([$contentItemId, $tenantId]);
+    // เช็คซ้ำก่อนเรียก provider ภายนอก — edge case ที่ถูกตั้งกลับเป็น 1 แบบ concurrent ก่อน reset ทัน
+    $cancelCheckStmt = $db->prepare('SELECT cancel_requested FROM content_items WHERE id=? AND tenant_id=?');
+    $cancelCheckStmt->execute([$contentItemId, $tenantId]);
+    if ((int)$cancelCheckStmt->fetchColumn() === 1) {
+        jsonError('ถูกยกเลิกแล้ว', 409);
+    }
     $forceRefresh = !empty($body['force_refresh']);
     if (!$forceRefresh && research_cache_enabled($settings['cache_hours'])) {
         $hours = $settings['cache_hours'];

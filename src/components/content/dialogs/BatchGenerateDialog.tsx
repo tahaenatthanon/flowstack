@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+﻿import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api';
@@ -69,7 +69,14 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
   const { data: contexts = [] } = useBrandContexts(open);
   const { data: triggers = [] } = useContentTriggers(open);
 
-  const { run: runResearch, step: researchStep } = useResearchRun();
+  const { run: runResearch, cancel: cancelResearch, step: researchStep } = useResearchRun();
+
+  // Track สิ่งที่สร้างไปแล้วในรอบปัจจุบัน สำหรับ rollback เมื่อกดยกเลิก
+  // BatchGenerateDialog สร้างแยกคนละ content_plans ต่อหัวข้อ จึงต้องเก็บเป็น array
+  // (ดู openspec/changes/cancel-ai-generation-rollback)
+  const createdPlanIdsRef = useRef<string[]>([]);
+  const currentItemIdRef = useRef<string | null>(null);
+  const cancelledRef = useRef(false);
 
   useEffect(() => {
     if (step !== 'progress' || currentTopicIndex < 0 || currentTopicStage !== 'researching') return;
@@ -96,9 +103,28 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
   };
 
   const handleClose = (v: boolean) => {
-    if (!v && step === 'progress') return;
+    if (!v && step === 'progress') { handleCancel(); return; }
     if (!v) handleReset();
     onOpenChange(v);
+  };
+
+  // ยกเลิกระหว่างกำลังสร้าง: ตั้ง flag ฝั่ง backend (fire-and-forget) + ปิด dialog
+  // ทันทีโดยไม่รอ step ที่กำลังรันอยู่ + ลบทุกแผนที่สร้างไปแล้วในรอบนี้ (ไม่ใช่แค่แผนแรก)
+  const handleCancel = () => {
+    cancelledRef.current = true;
+    if (currentItemIdRef.current) cancelResearch(currentItemIdRef.current);
+    toast({ title: 'ยกเลิกแล้ว' });
+    const planIds = createdPlanIdsRef.current;
+    handleReset();
+    onOpenChange(false);
+    if (planIds.length > 0) {
+      Promise.allSettled(
+        planIds.map(id => apiFetch(`/brand-content.php?action=cancel-plan&id=${id}`, { method: 'DELETE' }))
+      ).finally(() => {
+        qc.invalidateQueries({ queryKey: ['content', 'plans'] });
+        qc.invalidateQueries({ queryKey: ['content', 'items'] });
+      });
+    }
   };
 
   const handleStart = async () => {
@@ -144,12 +170,16 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
     setCurrentTopicStage('planning');
     setTopicStatuses(validTopics.map(() => 'pending'));
     setGeneratedDisplayCount(0);
+    cancelledRef.current = false;
+    createdPlanIdsRef.current = [];
+    currentItemIdRef.current = null;
 
     let generatedCount = 0;
     const errors: string[] = [];
     const dateErrors: string[] = [];
 
     for (const [topicIndex, topicConfig] of validTopics.entries()) {
+      if (cancelledRef.current) break;
       setCurrentTopicIndex(topicIndex);
       setCurrentTopicStage('planning');
       setTopicStatuses(statuses => statuses.map((status, index) => index === topicIndex ? 'planning' : status));
@@ -177,8 +207,19 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
           }),
         });
 
+        if (cancelledRef.current) {
+          // ผู้ใช้กดยกเลิกไปแล้วระหว่าง generate-plan ของหัวข้อนี้ยังไม่ resolve — ตอนนั้น
+          // แผนนี้ยังไม่อยู่ใน createdPlanIdsRef ทำให้ handleCancel() ยังลบไม่ถึง
+          // จุดนี้คือจุดตรวจซ้ำ: พอเพิ่งได้ plan id มาสดๆ ให้ลบทันที ไม่เริ่ม research หัวข้อนี้เด็ดขาด
+          apiFetch(`/brand-content.php?action=cancel-plan&id=${result.id}`, { method: 'DELETE' }).catch(() => {});
+          qc.invalidateQueries({ queryKey: ['content', 'plans'] });
+          qc.invalidateQueries({ queryKey: ['content', 'items'] });
+          break;
+        }
+
         qc.invalidateQueries({ queryKey: ['content', 'plans'] });
         if (!plan) setPlan(result);
+        createdPlanIdsRef.current.push(result.id);
 
         const items = result.items ?? [];
         setTotal(current => current + items.length);
@@ -206,6 +247,7 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
             try {
               setCurrentTopicStage('researching');
               setTopicStatuses(statuses => statuses.map((status, index) => index === topicIndex ? 'researching' : status));
+              currentItemIdRef.current = item.id;
               await runResearch({ topic: researchTopic, itemId: item.id });
             } catch {
               topicHadError = true;
@@ -228,6 +270,13 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
 
     qc.invalidateQueries({ queryKey: ['content', 'items'] });
     qc.invalidateQueries({ queryKey: ['content', 'plans'] });
+
+    if (cancelledRef.current) {
+      // handleCancel() จัดการ toast/reset/rollback ไปแล้วทั้งหมดตอนกดยกเลิก — ห้ามให้
+      // tail ของ flow เดิม (ที่ยังรันต่อในเบื้องหลังจนครบ loop) มาทับด้วย toast "สำเร็จ"
+      // หรือ setStep('done') ซึ่งจะขัดแย้งกับสถานะที่ถูกยกเลิก/ลบไปแล้วจริง
+      return;
+    }
 
     if (dateErrors.length > 0) {
       toast({
@@ -559,6 +608,9 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
                 </>
               )}
               {step === 'done' && <p className="text-sm text-muted-foreground">สร้างสำเร็จ {generatedDisplayCount} ชิ้น จาก {total} ชิ้น</p>}
+              {step === 'progress' && (
+                <Button variant="outline" size="sm" onClick={handleCancel}>ยกเลิก</Button>
+              )}
             </div>
 
             {(total > 0 || step === 'done') && (

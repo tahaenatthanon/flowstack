@@ -1,4 +1,4 @@
-﻿import { useState } from 'react';
+﻿import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api';
@@ -37,7 +37,13 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
   const [step, setStep]               = useState<'type' | 'form' | 'progress' | 'done'>('type');
   const [doneTitle, setDoneTitle]     = useState('');
 
-  const { run: runResearch, step: researchStep } = useResearchRun();
+  const { run: runResearch, cancel: cancelResearch, step: researchStep } = useResearchRun();
+
+  // Track สิ่งที่สร้างไปแล้วในรอบปัจจุบัน สำหรับ rollback เมื่อกดยกเลิก
+  // (ดู openspec/changes/cancel-ai-generation-rollback)
+  const createdItemIdRef = useRef<string | null>(null);
+  const createdPlanIdRef = useRef<string | null>(null);
+  const cancelledRef = useRef(false);
 
   const { data: skills   = [] } = useContentSkills(open);
   const { data: contexts = [] } = useBrandContexts(open);
@@ -50,9 +56,28 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
   };
 
   const handleClose = (v: boolean) => {
-    if (!v && step === 'progress') return;
+    if (!v && step === 'progress') { handleCancel(); return; }
     if (!v) handleReset();
     onOpenChange(v);
+  };
+
+  // ยกเลิกระหว่างกำลังสร้าง: ตั้ง flag ฝั่ง backend (fire-and-forget) + ปิด dialog
+  // ทันทีโดยไม่รอ step ที่กำลังรันอยู่ + ลบแผน/item/research job ที่สร้างไปแล้วในรอบนี้ทั้งหมด
+  const handleCancel = () => {
+    cancelledRef.current = true;
+    if (createdItemIdRef.current) cancelResearch(createdItemIdRef.current);
+    toast({ title: 'ยกเลิกแล้ว' });
+    const planId = createdPlanIdRef.current;
+    handleReset();
+    onOpenChange(false);
+    if (planId) {
+      apiFetch(`/brand-content.php?action=cancel-plan&id=${planId}`, { method: 'DELETE' })
+        .catch(() => {})
+        .finally(() => {
+          qc.invalidateQueries({ queryKey: ['content', 'plans'] });
+          qc.invalidateQueries({ queryKey: ['content', 'items'] });
+        });
+    }
   };
 
   const handleSelectType = (type: 'article' | 'video') => {
@@ -73,6 +98,9 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
 
   const handleCreate = async () => {
     if (!topic.trim() || !contentType) return;
+    cancelledRef.current = false;
+    createdItemIdRef.current = null;
+    createdPlanIdRef.current = null;
     setStep('progress');
     const platList = selPlatforms.length > 0 ? selPlatforms : (contentType === 'video' ? ['tiktok'] : ['facebook']);
     // Topic is the only trigger command. Writing/Video configuration is structured
@@ -95,9 +123,23 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
             : { script_style: scriptStyle, duration: VIDEO_DURATION_SECONDS[duration] }),
         }),
       });
+      if (cancelledRef.current) {
+        // ผู้ใช้กดยกเลิกไปแล้วระหว่าง generate-plan ยังไม่ resolve — ตอนนั้น
+        // createdPlanIdRef ยังเป็น null ทำให้ handleCancel() ข้าม cancel-plan ไปเงียบๆ
+        // จุดนี้คือจุดตรวจซ้ำ: พอเพิ่งได้ plan id มาสดๆ ให้เช็คธงแล้วลบทันที ไม่เริ่ม research เด็ดขาด
+        apiFetch(`/brand-content.php?action=cancel-plan&id=${result.id}`, { method: 'DELETE' })
+          .catch(() => {})
+          .finally(() => {
+            qc.invalidateQueries({ queryKey: ['content', 'plans'] });
+            qc.invalidateQueries({ queryKey: ['content', 'items'] });
+          });
+        return;
+      }
       qc.invalidateQueries({ queryKey: ['content', 'plans'] });
+      createdPlanIdRef.current = result.id;
       const item = result.items?.[0];
       if (item) {
+        createdItemIdRef.current = item.id;
         // ตั้ง scheduled_date เป็นวันปัจจุบันก่อนเริ่ม Research เสมอ (เหมือน
         // BatchGenerateDialog) — ถ้า research ล้มเหลวทีหลัง item ยังมีวันที่ที่
         // ถูกต้อง ไม่ตกไปเป็น unscheduled ซ้อนกับความล้มเหลวอื่น แยก try/catch
@@ -119,6 +161,13 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
         // The research runner reuses valid cached data and fetches a fresh job when needed.
         // Seed = Original User Topic ที่เพิ่งส่งไปเป็น source_topic (ไม่ใช่ title ที่ AI ตั้งให้)
         const art = await runResearch({ topic: researchSeedTopic(item.source_topic, topic), itemId: item.id });
+        if (cancelledRef.current) {
+          // handleCancel() จัดการ toast/reset/rollback ไปแล้วตอนกดยกเลิก — ไม่ว่า
+          // runResearch() จะ resolve เป็นผลสำเร็จจริงหรือ {cancelled:true} ก็ตาม
+          // (เพราะ step ที่ค้างอยู่ตอนกดยกเลิกยังรันจนจบเบื้องหลังตามธรรมชาติ)
+          // ห้ามให้ tail นี้มาทับด้วย toast/step "สำเร็จ" ซึ่งขัดแย้งกับของจริงที่ถูกลบไปแล้ว
+          return;
+        }
         setDoneTitle(art?.article?.title ?? item.topic);
         if (art?.generation_status === 'failed') {
           toast({
@@ -132,8 +181,10 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
       setStep('done');
       toast({ title: `สร้าง${contentType === 'video' ? 'วีดีโอสคริปต์' : 'บทความ'}สำเร็จ! 🎉` });
     } catch (e: any) {
-      toast({ title: 'สร้างไม่สำเร็จ', description: e.message, variant: 'destructive' });
-      setStep('form');
+      if (!cancelledRef.current) {
+        toast({ title: 'สร้างไม่สำเร็จ', description: e.message, variant: 'destructive' });
+        setStep('form');
+      }
     }
   };
 
@@ -404,6 +455,7 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
                 </span>
               ))}
             </div>
+            <Button variant="outline" size="sm" onClick={handleCancel}>ยกเลิก</Button>
           </div>
         )}
 

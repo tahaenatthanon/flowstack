@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api';
@@ -66,7 +66,13 @@ export default function ContentPlannerPage() {
 
   const delPlanMut = useDeleteContentPlan();
   const updateItemDateMut = useUpdatePlanItemDate();
-  const { run: runResearch } = useResearchRun();
+  const { run: runResearch, cancel: cancelResearch } = useResearchRun();
+
+  // Track สิ่งที่สร้างไปแล้วในรอบปัจจุบันของ AI panel สำหรับ rollback เมื่อกดยกเลิก
+  // (ดู openspec/changes/cancel-ai-generation-rollback)
+  const createdPlanIdRef = useRef<string | null>(null);
+  const currentItemIdRef = useRef<string | null>(null);
+  const cancelledRef = useRef(false);
 
   const gwModelName = gwSettings?.content_text_model_name ?? gwSettings?.model_name;
 
@@ -228,6 +234,9 @@ export default function ContentPlannerPage() {
       confirmLabel: 'ยืนยันและสร้างแผน',
     });
     if (!ok) return;
+    cancelledRef.current = false;
+    createdPlanIdRef.current = null;
+    currentItemIdRef.current = null;
     setGenerating(true);
     try {
       const plan: ContentPlan = await apiFetch('/brand-content.php?action=generate-plan', {
@@ -238,7 +247,20 @@ export default function ContentPlannerPage() {
           platforms: params.platforms,
         }),
       });
+      if (cancelledRef.current) {
+        // ผู้ใช้กดยกเลิกไปแล้วระหว่าง generate-plan ยังไม่ resolve — ตอนนั้น
+        // createdPlanIdRef ยังเป็น null ทำให้ handleCancelGenerate() ข้าม cancel-plan ไปเงียบๆ
+        // จุดนี้คือจุดตรวจซ้ำ: พอเพิ่งได้ plan id มาสดๆ ให้เช็คธงแล้วลบทันที ไม่เริ่ม research เด็ดขาด
+        apiFetch(`/brand-content.php?action=cancel-plan&id=${plan.id}`, { method: 'DELETE' })
+          .catch(() => {})
+          .finally(() => {
+            qc.invalidateQueries({ queryKey: ['content', 'plans'] });
+            qc.invalidateQueries({ queryKey: ['content', 'items'] });
+          });
+        return;
+      }
       qc.invalidateQueries({ queryKey: ['content', 'plans'] });
+      createdPlanIdRef.current = plan.id;
       toast({ title: 'สร้างแผนสำเร็จ!', description: plan.title });
 
       const items = plan.items || [];
@@ -248,6 +270,7 @@ export default function ContentPlannerPage() {
         let done = 0;
         const total = items.length;
         for (const item of items) {
+          if (cancelledRef.current) break;
           done++;
           setGenerateProgress(`${done}/${total}`);
           // Research seed must be the immutable Original User Topic, never an AI-rewritten item.topic.
@@ -258,6 +281,7 @@ export default function ContentPlannerPage() {
           }
           try {
             // Mandatory Research — Fetch/Reuse → Analyze → Generate
+            currentItemIdRef.current = item.id;
             await runResearch({ topic: itemTopic, itemId: item.id });
           } catch (e: any) {
             // Continue to next item even if one fails
@@ -268,7 +292,7 @@ export default function ContentPlannerPage() {
         qc.invalidateQueries({ queryKey: ['content', 'plans'] });
         qc.invalidateQueries({ queryKey: ['content', 'items'] });
         setGenerateProgress('');
-        toast({ title: `สร้างบทความครบ ${done}/${total} รายการแล้ว` });
+        if (!cancelledRef.current) toast({ title: `สร้างบทความครบ ${done}/${total} รายการแล้ว` });
       }
     } catch (e: any) {
       toast({ title: 'เกิดข้อผิดพลาด', description: e.message, variant: 'destructive' });
@@ -277,6 +301,26 @@ export default function ContentPlannerPage() {
       setGeneratingArticles(false);
     }
   }, [qc, toast, runResearch, confirm]);
+
+  // ยกเลิกระหว่าง AI panel กำลังสร้าง: ตั้ง flag ฝั่ง backend (fire-and-forget) + หยุด
+  // UI ทันทีโดยไม่รอ step ที่กำลังรันอยู่ + ลบแผนที่สร้างไปแล้วในรอบนี้ทั้งหมด
+  const handleCancelGenerate = useCallback(() => {
+    cancelledRef.current = true;
+    if (currentItemIdRef.current) cancelResearch(currentItemIdRef.current);
+    toast({ title: 'ยกเลิกแล้ว' });
+    setGenerating(false);
+    setGeneratingArticles(false);
+    setGenerateProgress('');
+    const planId = createdPlanIdRef.current;
+    if (planId) {
+      apiFetch(`/brand-content.php?action=cancel-plan&id=${planId}`, { method: 'DELETE' })
+        .catch(() => {})
+        .finally(() => {
+          qc.invalidateQueries({ queryKey: ['content', 'plans'] });
+          qc.invalidateQueries({ queryKey: ['content', 'items'] });
+        });
+    }
+  }, [cancelResearch, toast, qc]);
 
   const handleSelectPlan = useCallback(async (plan: ContentPlan) => {
     try {
@@ -512,6 +556,7 @@ export default function ContentPlannerPage() {
           isGenerating={generating}
           isGeneratingArticles={generatingArticles}
           generateProgress={generateProgress}
+          onCancel={handleCancelGenerate}
         />
       </div>
 

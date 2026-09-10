@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -102,7 +102,20 @@ export function ContentCardDialog({
   const [generatingVideo, setGeneratingVideo] = useState(false);
   const [generatingScenes, setGeneratingScenes] = useState(false);
   // Mandatory Research — ทุกการสร้างเนื้อหาต้องผ่าน Fetch/Reuse → Analyze → Generate
-  const { run: runResearch, step: researchStep } = useResearchRun();
+  const { run: runResearch, cancel: cancelResearch, step: researchStep } = useResearchRun();
+
+  // Snapshot ค่าก่อนกด "AI เขียนให้" สำหรับคืนค่าเมื่อยกเลิกแล้ว generate-article
+  // เขียนผลลัพธ์ลง content_items ไปแล้วก่อน checkpoint จะทัน (ดู openspec cancel-ai-generation-rollback)
+  const preAIStateRef = useRef<{
+    articleContent: string | null;
+    articleHtml: string;
+    seoFields: SeoFields;
+    title: string;
+    type: string | null;
+    caption: string;
+    status: string | undefined;
+  } | null>(null);
+  const cancelledAIRef = useRef(false);
 
   // Request approval — author sends draft/revision work into the approval queue
   const [requestApprovalConfirm, setRequestApprovalConfirm] = useState(false);
@@ -296,6 +309,17 @@ export function ContentCardDialog({
   const handleAI = async () => {
     if (!topic.trim() || !existingItem?.id) return;
     setAiGenerating(true);
+    cancelledAIRef.current = false;
+    // Snapshot ค่าก่อนกด — ใช้คืนค่าถ้ายกเลิกแล้ว backend เขียนผลลัพธ์ไปแล้วก่อน checkpoint จะทัน
+    preAIStateRef.current = {
+      articleContent: existingItem.article_content ?? null,
+      articleHtml,
+      seoFields: { ...seoFields },
+      title: existingItem.topic,
+      type: existingItem.content_type ?? null,
+      caption: existingItem.caption,
+      status: contentStatus,
+    };
     toast({ title: 'AI กำลังค้นข้อมูลและเขียนเนื้อหา...', description: 'Research → วิเคราะห์ → เขียนบทความ' });
     try {
       // Research must always use the immutable Original User Topic, never the editable title/topic.
@@ -305,6 +329,39 @@ export function ContentCardDialog({
         itemId: existingItem.id,
         kbArticleId: selectedKbId || null,
       });
+
+      if (cancelledAIRef.current) {
+        // ถูกยกเลิกไปแล้วระหว่างรอผล — ถ้า backend เขียนผลลัพธ์ลง content_items ไปแล้ว
+        // ก่อน checkpoint ปลายทางจะทัน (res มี article จริง ไม่ใช่ {cancelled:true})
+        // ให้คืนค่ากลับเป็น snapshot ก่อนกด "AI เขียนให้" ทันที
+        if (res?.cancelled !== true && res?.article && preAIStateRef.current) {
+          const snap = preAIStateRef.current;
+          apiFetch('/brand-content.php?action=restore-item', {
+            method: 'PUT',
+            body: JSON.stringify({
+              item_id: existingItem.id,
+              article_content: snap.articleContent,
+              title: snap.title,
+              type: snap.type,
+              caption: snap.caption,
+              seo_title: snap.seoFields.seo_title,
+              slug: snap.seoFields.slug,
+              meta_description: snap.seoFields.meta_description,
+              meta_keywords: snap.seoFields.meta_keywords,
+              structured_data: snap.seoFields.structured_data,
+              og_image: snap.seoFields.og_image,
+              status: snap.status,
+            }),
+          }).catch(() => {}).finally(() => {
+            qc.invalidateQueries({ queryKey: ['content', 'items'] });
+            qc.invalidateQueries({ queryKey: ['content', 'plans'] });
+          });
+          setArticleHtml(snap.articleHtml);
+          setSeoFields(snap.seoFields);
+        }
+        return;
+      }
+
       const art = res?.article;
       if (art) {
         // Do not hydrate Quality from the AI response. Quality is shown only
@@ -336,10 +393,23 @@ export function ContentCardDialog({
         });
       }
     } catch (e: any) {
-      toast({ title: 'สร้างเนื้อหาไม่สำเร็จ', description: e?.message, variant: 'destructive' });
+      // ถ้ายกเลิกไปแล้ว error ที่ตามมา (เช่น checkpoint คืน 409 'ถูกยกเลิกแล้ว') เป็นผลที่คาดไว้
+      // ไม่ใช่ความล้มเหลวจริง — ผู้ใช้เห็น toast "ยกเลิกแล้ว" จาก handleCancelAI ไปแล้ว
+      if (!cancelledAIRef.current) {
+        toast({ title: 'สร้างเนื้อหาไม่สำเร็จ', description: e?.message, variant: 'destructive' });
+      }
     } finally {
       setAiGenerating(false);
     }
+  };
+
+  // ยกเลิกระหว่าง AI กำลังเขียนเนื้อหา: ตั้ง flag ฝั่ง backend (fire-and-forget) +
+  // คืนปุ่มกลับสู่สถานะปกติทันทีโดยไม่รอ research/generate ที่กำลังรันอยู่จบ
+  const handleCancelAI = () => {
+    cancelledAIRef.current = true;
+    if (existingItem?.id) cancelResearch(existingItem.id);
+    toast({ title: 'ยกเลิกแล้ว' });
+    setAiGenerating(false);
   };
 
   const handleConfirmAndAI = async () => {
@@ -853,10 +923,16 @@ export function ContentCardDialog({
             </Button>
           )}
           <Button variant="outline" onClick={() => onOpenChange(false)}>ยกเลิก</Button>
-          <Button variant="outline" className="gap-1.5" onClick={handleConfirmAndAI} disabled={!topic.trim() || aiGenerating}>
-            {aiGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-            {aiGenerating ? `${RESEARCH_STEP_LABELS[researchStep] ?? 'กำลังสร้าง'}...` : 'AI เขียนให้'}
-          </Button>
+          {aiGenerating ? (
+            <Button variant="outline" className="gap-1.5" onClick={handleCancelAI}>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ยกเลิก ({RESEARCH_STEP_LABELS[researchStep] ?? 'กำลังสร้าง'})
+            </Button>
+          ) : (
+            <Button variant="outline" className="gap-1.5" onClick={handleConfirmAndAI} disabled={!topic.trim()}>
+              <Sparkles className="h-3.5 w-3.5" />AI เขียนให้
+            </Button>
+          )}
           <Button onClick={handleSave} disabled={saving || !topic.trim()} className="gap-1.5">
             <Save className="h-3.5 w-3.5" />{saving ? 'กำลังบันทึก...' : 'บันทึก'}
           </Button>

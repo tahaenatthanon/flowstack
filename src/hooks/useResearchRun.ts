@@ -90,5 +90,19 @@ export function useResearchRun() {
     }
   }, []);
 
-  return { run, step, error, reset };
+  /**
+   * ตั้ง cancel_requested บน item — fire-and-forget เพราะ caller ต้องการ UI
+   * ตอบสนองทันทีโดยไม่รอผลจาก backend (ดู openspec cancel-ai-generation-rollback)
+   */
+  const cancel = useCallback((itemId: string) => {
+    if (!itemId) return;
+    apiFetch('/brand-content.php?action=cancel-item', {
+      method: 'PUT',
+      body: JSON.stringify({ item_id: itemId }),
+    }).catch(() => {
+      // fire-and-forget: ความล้มเหลวของการตั้ง flag ไม่ควร block การยกเลิกฝั่ง UI
+    });
+  }, []);
+
+  return { run, cancel, step, error, reset };
 }

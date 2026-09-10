@@ -35,12 +35,13 @@ interface Props {
   isGenerating: boolean;
   isGeneratingArticles?: boolean;
   generateProgress?: string;
+  onCancel?: () => void;
 }
 
 export function ContentPlannerAI({
   isOpen, onToggle, plans, skills, contexts, triggers,
   gwModelName, onSelectPlan, selectedPlanId, onDeletePlan, onGenerate, isGenerating,
-  isGeneratingArticles, generateProgress,
+  isGeneratingArticles, generateProgress, onCancel,
 }: Props) {
   const [triggerCmd, setTriggerCmd] = useState('');
   const [selSkillId, setSelSkillId] = useState('__none__');
@@ -258,6 +259,16 @@ export function ContentPlannerAI({
               <><Wand2 className="h-3.5 w-3.5" />สร้างแผนด้วย AI</>
             )}
           </Button>
+
+          {(isGenerating || isGeneratingArticles) && (
+            <Button
+              variant="outline"
+              className="w-full h-8 text-xs"
+              onClick={onCancel}
+            >
+              ยกเลิก
+            </Button>
+          )}
 
           {gwModelName && (
             <div className="text-[10px] text-muted-foreground flex items-center gap-1">

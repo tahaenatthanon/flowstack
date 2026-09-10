@@ -616,6 +616,56 @@ if ($action === 'plans') {
     }
 }
 
+// โ”€โ”€โ”€ CANCEL AI GENERATION + ROLLBACK โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
+// Separate from the normal `plans`/item PUT paths above by design: those paths
+// carry intentional side effects (quality invalidation, SET NULL cache
+// preservation) that must NOT apply when we are undoing a cancelled generation.
+// See openspec/changes/cancel-ai-generation-rollback/design.md decisions 2-4.
+
+// ตั้ง cancel_requested=1 บน item เป้าหมาย (fire-and-forget จาก frontend, idempotent)
+if ($action === 'cancel-item' && $method === 'PUT') {
+    $body = getRequestBody();
+    $itemId = trim((string)($body['item_id'] ?? ''));
+    if (!$itemId) jsonError('Missing item_id');
+    $db->prepare('UPDATE content_items SET cancel_requested=1 WHERE id=? AND tenant_id=?')->execute([$itemId, $tenantId]);
+    jsonResponse(['cancelled' => true]);
+}
+
+// Rollback เต็มรูปแบบสำหรับเนื้อหาที่ "สร้างใหม่ในรอบนี้" (QuickCreate/Batch/PlannerAI)
+// ต่างจาก DELETE ?action=plans&id= เดิมตรงที่ลบ content_research_jobs/keywords ด้วย
+// (endpoint เดิมคง SET NULL ไว้เพื่อรักษา research cache โดยเจตนา — ห้ามแก้)
+if ($action === 'cancel-plan' && $method === 'DELETE') {
+    $id = $_GET['id'] ?? null;
+    if (!$id) jsonError('Missing id');
+    // ลำดับสำคัญ: ต้องลบ content_research_jobs ก่อน content_items เสมอ
+    // เพราะ subquery ต้องอาศัย content_items ที่ยังอยู่เพื่อหา job ที่เกี่ยวข้อง
+    // content_research_keywords cascade ลบเองผ่าน FK ON DELETE CASCADE
+    $db->prepare('DELETE FROM content_research_jobs WHERE content_item_id IN (SELECT id FROM content_items WHERE plan_id=? AND tenant_id=?)')->execute([$id, $tenantId]);
+    $db->prepare('DELETE FROM content_items WHERE plan_id=? AND tenant_id=?')->execute([$id, $tenantId]);
+    $db->prepare('DELETE FROM content_plan_items WHERE plan_id=?')->execute([$id]);
+    $db->prepare('DELETE FROM content_plans WHERE id=? AND tenant_id=?')->execute([$id, $tenantId]);
+    jsonResponse(['cancelled' => true]);
+}
+
+// Rollback สำหรับ "regenerate เนื้อหาเดิม" (ContentCardDialog "AI เขียนให้")
+// คืนค่า field ที่ generate-article เขียนทับกลับเป็น snapshot ก่อนกด
+// ไม่มี logic invalidate quality/approval ใดๆ โดยเจตนา (ต่างจาก PUT ทั่วไปของ item ด้านบน)
+if ($action === 'restore-item' && $method === 'PUT') {
+    $body = getRequestBody();
+    $itemId = trim((string)($body['item_id'] ?? ''));
+    if (!$itemId) jsonError('Missing item_id');
+    $restoreFields = ['article_content', 'title', 'type', 'caption', 'seo_title', 'slug', 'meta_description', 'meta_keywords', 'structured_data', 'og_image', 'status'];
+    $sets = []; $vals = [];
+    foreach ($restoreFields as $f) {
+        if (array_key_exists($f, $body)) { $sets[] = "$f=?"; $vals[] = $body[$f]; }
+    }
+    if ($sets) {
+        $vals[] = $itemId; $vals[] = $tenantId;
+        $db->prepare('UPDATE content_items SET ' . implode(',', $sets) . ',updated_at=NOW() WHERE id=? AND tenant_id=?')->execute($vals);
+    }
+    jsonResponse(['restored' => true]);
+}
+
 // โ”€โ”€โ”€ GENERATE PLAN โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€โ”€
 if ($action === 'generate-plan' && $method === 'POST') {
     $body = getRequestBody();
@@ -2475,6 +2525,13 @@ if ($action === 'generate-article') {
                 "- meta_keywords ต้องเป็น keyword ที่มาจาก Research เท่านั้น ห้ามคิด keyword ใหม่";
         }
     }
+    // Checkpoint ต้นทาง: เช็ค cancel_requested ก่อนเรียก AI Gateway เพื่อประหยัด credit
+    // ถ้าถูกยกเลิกไปแล้วตั้งแต่ก่อนเริ่มขั้นตอนนี้ (design.md decision 2)
+    $cancelCheckStmt = $db->prepare('SELECT cancel_requested FROM content_items WHERE id=? AND tenant_id=?');
+    $cancelCheckStmt->execute([$itemId, $tenantId]);
+    if ((int)$cancelCheckStmt->fetchColumn() === 1) {
+        jsonError('ถูกยกเลิกแล้ว', 409);
+    }
     try {
         $mainRaw = $aiCall($mainSys, "สร้าง content ครบทุกส่วนสำหรับ: $itemCtx");
     } catch (RuntimeException $e) {
@@ -2835,6 +2892,15 @@ if ($action === 'generate-article') {
             'expected' => 'AEO: ต้องผ่านกฎ ' . ($r['key'] ?? ''),
             'quality' => 'AEO',
         ];
+    }
+    // Checkpoint ปลายทาง: เช็ค cancel_requested อีกครั้งทันทีก่อนเขียนผลลัพธ์ AI ที่เพิ่งได้มา
+    // ลง content_items — ถ้าถูกยกเลิกระหว่างรอ AI Gateway (checkpoint ต้นทางเช็คไม่ทัน)
+    // ให้ข้าม UPDATE ทั้งหมดและคืน {cancelled:true} แทน error เพราะ AI ทำงานเสร็จจริงแล้ว
+    // ไม่ใช่ error (design.md decision 2)
+    $cancelCheckStmt2 = $db->prepare('SELECT cancel_requested FROM content_items WHERE id=? AND tenant_id=?');
+    $cancelCheckStmt2->execute([$itemId, $tenantId]);
+    if ((int)$cancelCheckStmt2->fetchColumn() === 1) {
+        jsonResponse(['cancelled' => true]);
     }
     // Update content_items with article content + SEO columns
     $newCaption = $mainData['caption'] ?? null;
