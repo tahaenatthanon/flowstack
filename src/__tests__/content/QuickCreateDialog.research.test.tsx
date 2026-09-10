@@ -37,6 +37,7 @@ function mockApi(calls: string[]) {
     calls.push(u);
     if (u.includes('action=skills') || u.includes('action=contexts') || u.includes('action=triggers')) return [];
     if (u.includes('action=generate-plan')) return { items: [{ id: 'item-1', topic: 'หัวข้อทดสอบ' }] };
+    if (u.includes('action=plan-item-date')) return { updated: true };
     if (u.includes('action=fetch')) return { job_id: 'job-1', status: 'done' };
     if (u.includes('action=analyze')) return { job_id: 'job-1', status: 'done', analysis: {} };
     if (u.includes('action=generate-article')) return { article: { title: 'ok' } };

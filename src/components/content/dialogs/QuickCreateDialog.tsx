@@ -59,6 +59,16 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
     setStep('form');
   };
 
+  // ห้ามใช้ toISOString() — มันแปลงเป็น UTC ทำให้วันที่เพี้ยนถอยหลัง 1 วันใน
+  // โซนเวลาที่เร็วกว่า UTC (เช่น ICT/UTC+7) ต้องอ่านค่าปฏิทิน local ตรงๆ
+  const todayLocalISO = () => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
   const handleCreate = async () => {
     if (!topic.trim() || !contentType) return;
     setStep('progress');
@@ -86,6 +96,23 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
       qc.invalidateQueries({ queryKey: ['content', 'plans'] });
       const item = result.items?.[0];
       if (item) {
+        // ตั้ง scheduled_date เป็นวันปัจจุบันก่อนเริ่ม Research เสมอ (เหมือน
+        // BatchGenerateDialog) — ถ้า research ล้มเหลวทีหลัง item ยังมีวันที่ที่
+        // ถูกต้อง ไม่ตกไปเป็น unscheduled ซ้อนกับความล้มเหลวอื่น แยก try/catch
+        // ของตัวเอง ไม่ให้การตั้งวันที่ล้มเหลวไปหยุด Research/Generate ต่อ
+        try {
+          await apiFetch('/brand-content.php?action=plan-item-date', {
+            method: 'PUT',
+            body: JSON.stringify({ item_id: item.id, scheduled_date: todayLocalISO() }),
+          });
+        } catch {
+          toast({
+            title: 'สร้างสำเร็จ แต่ยังไม่ได้กำหนดวันที่',
+            description: 'ตั้งวันที่เผยแพร่อัตโนมัติไม่สำเร็จ — ไปตั้งเองภายหลังได้จาก Calendar หรือรายการคอนเทนต์',
+            variant: 'destructive',
+          });
+        }
+
         // Research is mandatory for every AI content generation.
         // The research runner reuses valid cached data and fetches a fresh job when needed.
         // Seed = Original User Topic ที่เพิ่งส่งไปเป็น source_topic (ไม่ใช่ title ที่ AI ตั้งให้)

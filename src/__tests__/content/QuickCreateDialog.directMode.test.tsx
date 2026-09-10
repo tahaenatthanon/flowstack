@@ -37,6 +37,7 @@ function mockApi() {
     if (init?.body) bodies.push({ url: u, body: JSON.parse(init.body as string) });
     if (u.includes('action=skills') || u.includes('action=contexts') || u.includes('action=triggers')) return [];
     if (u.includes('action=generate-plan')) return { items: [{ id: 'item-1', topic: AI_REWRITTEN_TOPIC }] };
+    if (u.includes('action=plan-item-date')) return { updated: true };
     if (u.includes('action=fetch')) return { job_id: 'job-1', status: 'done' };
     if (u.includes('action=analyze')) return { job_id: 'job-1', status: 'done', analysis: {} };
     if (u.includes('action=generate-article')) return { article: { title: 'ok' }, seo: { gate: 'passed', score: 95 } };
