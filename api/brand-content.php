@@ -488,6 +488,7 @@ if ($action === 'triggers') {
         $id = $_GET['id'] ?? null;
         if (!$id) jsonError('Missing id');
         $body = getRequestBody();
+        if (empty($body['command'])) jsonError('กรุณาระบุ Trigger Command');
         $contentType = $body['content_type'] ?? 'article';
         $db->prepare('UPDATE content_triggers SET command=?,skill_id=?,description=?,content_type=?,is_active=?,updated_at=NOW() WHERE id=? AND tenant_id=?')
            ->execute([$body['command'] ?? '', $body['skill_id'] ?: null, $body['description'] ?? '', $contentType, isset($body['is_active']) ? (int)$body['is_active'] : 1, $id, $tenantId]);
@@ -663,7 +664,11 @@ if ($action === 'generate-plan' && $method === 'POST') {
     $platforms = array_values(array_filter(array_map('strval', $platforms), fn($p) => $p !== ''));
     // Content type chosen by the user (article/video) — drives AI prompt flow later
     $type = normalizeContentType($body['type'] ?? null);
-    if ($sourceTopic === '') jsonError('กรุณาระบุหัวข้อ');
+    // Direct mode always requires an explicit user-typed Topic. Legacy/Trigger-only
+    // Content Plan mode has no such Topic (AI invents a topic per item) — it is
+    // already guarded above (line 633) to require at least one of
+    // triggerIds/triggerCommand/sourceTopic, so it must not be re-blocked here.
+    if ($isDirect && $sourceTopic === '') jsonError('กรุณาระบุหัวข้อ');
 
     // Load global settings
     $stmt = $db->prepare('SELECT global_instruction FROM content_global_settings WHERE tenant_id=?');
@@ -974,8 +979,11 @@ if ($action === 'generate-plan' && $method === 'POST') {
         // Also create content_items row as primary content store
         $ciId = generateUUID();
         $platformsJson = !empty($item['platforms']) && is_array($item['platforms']) ? json_encode($item['platforms']) : null;
+        // source_topic must never be empty — see content_plan_item_source_topic()
+        // for the Direct-mode-vs-legacy-mode resolution rule.
+        $itemSourceTopic = content_plan_item_source_topic($originalTopic, $item['topic'] ?? null);
         $db->prepare('INSERT INTO content_items (id, tenant_id, title, source_topic, type, tone, script_style, duration_sec, status, created_by, plan_item_id, plan_id, platform, platforms, scheduled_date, caption, image_brief) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-           ->execute([$ciId, $tenantId, $item['topic'] ?? '', $originalTopic, $type, $type === 'article' ? $tone : null, $type === 'video' ? $scriptStyle : null, $type === 'video' ? $durationSeconds : null, 'draft', $userId, $itemId, $planId, $item['platform'] ?? '', $platformsJson, $item['scheduled_date'] ?? null, $item['caption'] ?? '', $item['image_brief'] ?? '']);
+           ->execute([$ciId, $tenantId, $item['topic'] ?? '', $itemSourceTopic, $type, $type === 'article' ? $tone : null, $type === 'video' ? $scriptStyle : null, $type === 'video' ? $durationSeconds : null, 'draft', $userId, $itemId, $planId, $item['platform'] ?? '', $platformsJson, $item['scheduled_date'] ?? null, $item['caption'] ?? '', $item['image_brief'] ?? '']);
     }
 
     $stmt = $db->prepare('SELECT * FROM content_plans WHERE id=? AND tenant_id=?');

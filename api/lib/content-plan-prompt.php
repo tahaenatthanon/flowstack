@@ -76,6 +76,21 @@ function content_plan_day_defs(bool $isDirect, int $itemCount): array
     return $days;
 }
 
+/**
+ * `content_items.source_topic` ที่จะบันทึกสำหรับ item หนึ่งตัว
+ *
+ * มี Topic ที่ผู้ใช้พิมพ์เอง (Direct mode) → ใช้ค่านั้นตรงตัว เหมือนกันทุก item
+ * ไม่มี Topic ที่ผู้ใช้พิมพ์ (legacy Content Plan — AI คิดหัวข้อเอง) → แช่แข็ง
+ * topic ที่ AI สร้างให้ item นั้นโดยเฉพาะ ณ ตอนสร้าง เพื่อให้ยังทำหน้าที่ป้องกัน
+ * Research ไม่ให้ seed จาก title/topic ที่ถูกแก้ไขภายหลังได้เหมือนเดิม
+ */
+function content_plan_item_source_topic(string $requestSourceTopic, ?string $itemTopic): string
+{
+    $requestSourceTopic = trim($requestSourceTopic);
+    if ($requestSourceTopic !== '') return $requestSourceTopic;
+    return trim((string)($itemTopic ?? ''));
+}
+
 /** วันที่กำหนดเผยแพร่: Direct mode ไม่มีวัน จึงเป็น null */
 function content_plan_scheduled_date(bool $isDirect, string $weekStart, int $dayOrder): ?string
 {
@@ -134,6 +149,12 @@ PROMPT;
  *
  * `$args` รับ: source_topic, trigger_command, trigger_commands, week_start, day_label, day_order, platforms_str
  * Topic เป็น Source of Truth; Trigger/Skill เป็น instructions และห้ามแทนที่ Topic
+ *
+ * Branch non-direct (legacy Content Plan) ไม่พึ่ง caller ว่าจะเตรียม source_topic
+ * ที่ไม่ว่างมาให้เสมอ — ฟังก์ชัน resolve เอง: source_topic (trim แล้ว) ก่อน ถ้าว่าง
+ * จึงใช้ trigger command ตัวแรกที่ไม่ว่างจาก trigger_commands/trigger_command
+ * ถ้า resolve แล้วยังว่างสนิททุกแหล่ง จะไม่พิมพ์บรรทัด "Original User Topic/Seed"
+ * เลย (ไม่มี placeholder ใดมาแทน) เพื่อไม่ให้ AI ได้รับบรรทัด label ที่ไม่มีเนื้อหา
  */
 function content_plan_user_message(bool $isDirect, array $args): string
 {
@@ -158,7 +179,18 @@ function content_plan_user_message(bool $isDirect, array $args): string
         return implode("\n", $lines);
     }
 
-    $lines[] = 'Original User Topic/Seed (SOURCE OF TRUTH): ' . (string)($args['source_topic'] ?? '');
+    // Resolve เอง แทนที่จะเชื่อว่า caller เตรียม source_topic ที่ไม่ว่างมาให้เสมอ —
+    // ไม่มี source_topic (legacy: AI คิดหัวข้อเอง) จึงใช้ trigger command ตัวแรกที่ไม่ว่าง
+    $topicText = trim((string)($args['source_topic'] ?? ''));
+    if ($topicText === '') {
+        foreach ($triggerCommands as $tc) {
+            $tc = trim((string)$tc);
+            if ($tc !== '') { $topicText = $tc; break; }
+        }
+    }
+    if ($topicText !== '') {
+        $lines[] = 'Original User Topic/Seed (SOURCE OF TRUTH): ' . $topicText;
+    }
     if ($triggerCommands) {
         $lines[] = 'Trigger Instructions (apply all selected Triggers; do not replace the Topic): ' . implode(' | ', $triggerCommands);
     }
