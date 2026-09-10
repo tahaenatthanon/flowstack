@@ -44,6 +44,31 @@ function content_plan_is_direct(mixed $generationMode): bool
 }
 
 /**
+ * request ของ generate-plan มีอย่างน้อยหนึ่งใน trigger/topic source หรือไม่
+ *
+ * เป็น guard แรกก่อน resolve Trigger ใดๆ — ใช้ได้ทั้ง Direct mode และ legacy
+ * Content Plan mode: Direct creation อาจไม่มี Trigger เลยก็ได้ (มีแค่ Topic)
+ * ส่วน legacy/Trigger-only Content Plan ไม่มี Topic ที่ผู้ใช้พิมพ์เอง (มีแค่
+ * Trigger) — ต้องมีอย่างน้อยหนึ่งอย่างเสมอ ไม่งั้นไม่มีอะไรให้ AI ทำงานด้วยเลย
+ */
+function content_plan_has_any_topic_source(array $triggerIds, string $triggerCommand, string $sourceTopic): bool
+{
+    return (bool)$triggerIds || $triggerCommand !== '' || $sourceTopic !== '';
+}
+
+/**
+ * Direct mode ต้องมี source_topic ที่ผู้ใช้พิมพ์เองเสมอ
+ *
+ * Legacy/Trigger-only Content Plan mode ไม่มี Topic แบบนี้ (AI คิดหัวข้อเอง
+ * ต่อ item) — ถูก guard ไว้แล้วด้วย content_plan_has_any_topic_source() จึง
+ * ต้องไม่ถูกบังคับซ้ำที่นี่ (ไม่งั้น legacy mode จะสร้าง Content ไม่ได้เลย)
+ */
+function content_plan_direct_requires_topic(bool $isDirect, string $sourceTopic): bool
+{
+    return $isDirect && $sourceTopic === '';
+}
+
+/**
  * จำนวน item ที่จะสร้าง
  *
  * Direct mode = 1 item เสมอ และ `days` ไม่มีผล (ห้ามใช้ `days` เป็นตัวขับ weekly logic)

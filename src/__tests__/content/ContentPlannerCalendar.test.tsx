@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { ContentPlannerCalendar } from '@/components/content/ContentPlannerCalendar';
 import type { ContentPlan, PlanItem, CalendarView } from '@/components/content/types';
 
@@ -119,5 +119,27 @@ describe('ContentPlannerCalendar — unscheduled item bucket', () => {
     expect(onDateClick).toHaveBeenCalledTimes(1);
     const [, items] = onDateClick.mock.calls[0];
     expect(items).toEqual([item]);
+  });
+
+  it('ลาก chip จาก bucket ตั้ง dataTransfer payload ตรงกับที่ day cell onDrop ใช้อยู่แล้ว', () => {
+    // Regression: chip ใน unscheduled bucket ต้องใช้ dataTransfer shape เดียวกับ
+    // chip ใน day cell (renderItemChip ตัวเดียวกัน) เพื่อให้ลากไปวางบนวันที่ใน
+    // Calendar ได้โดยไม่ต้องแก้ onDateDrop/onDateDragOver ที่มีอยู่แล้วเลย —
+    // ยืนยัน payload ตรงๆ แทนการจำลอง drop ทั้ง flow (HTML5 DnD จำลองผ่าน
+    // browser automation ยาก ตามที่บันทึกไว้ตอน apply ขั้น 4)
+    const item = makeItem({ id: 'unscheduled-1', plan_id: 'plan-1', scheduled_date: null, topic: 'ลากได้' });
+    renderCalendar({ plans: [makePlan([item])] });
+
+    const chip = screen.getByText('ลากได้');
+    const setData = vi.fn();
+    const dataTransfer = { setData, effectAllowed: '' };
+
+    fireEvent.dragStart(chip, { dataTransfer });
+
+    expect(setData).toHaveBeenCalledTimes(1);
+    const [format, payload] = setData.mock.calls[0];
+    expect(format).toBe('text/plain');
+    expect(JSON.parse(payload)).toEqual({ itemId: 'unscheduled-1', planId: 'plan-1' });
+    expect(dataTransfer.effectAllowed).toBe('move');
   });
 });

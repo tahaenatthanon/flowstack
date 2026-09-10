@@ -631,7 +631,7 @@ if ($action === 'generate-plan' && $method === 'POST') {
     if (!$skillIds && !empty($body['skill_id'])) $skillIds = [(string)$body['skill_id']];
     $brandContextIds = $body['brand_context_ids'] ?? [];
     // Direct creation may have no Trigger; preserve the legacy command only as metadata.
-    if (!$triggerIds && $triggerCommand === '' && !$sourceTopic) jsonError('กรุณาระบุหัวข้อ');
+    if (!content_plan_has_any_topic_source($triggerIds, $triggerCommand, $sourceTopic)) jsonError('กรุณาระบุหัวข้อ');
 
     // Resolve selected Triggers and their mandatory linked Skills within this tenant.
     $triggerRows = [];
@@ -666,9 +666,10 @@ if ($action === 'generate-plan' && $method === 'POST') {
     $type = normalizeContentType($body['type'] ?? null);
     // Direct mode always requires an explicit user-typed Topic. Legacy/Trigger-only
     // Content Plan mode has no such Topic (AI invents a topic per item) — it is
-    // already guarded above (line 633) to require at least one of
-    // triggerIds/triggerCommand/sourceTopic, so it must not be re-blocked here.
-    if ($isDirect && $sourceTopic === '') jsonError('กรุณาระบุหัวข้อ');
+    // already guarded above (content_plan_has_any_topic_source) to require at
+    // least one of triggerIds/triggerCommand/sourceTopic, so it must not be
+    // re-blocked here.
+    if (content_plan_direct_requires_topic($isDirect, $sourceTopic)) jsonError('กรุณาระบุหัวข้อ');
 
     // Load global settings
     $stmt = $db->prepare('SELECT global_instruction FROM content_global_settings WHERE tenant_id=?');
