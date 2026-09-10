@@ -128,7 +128,7 @@ export function ContentPlannerAI({
         <div className="space-y-3">
           <div className="space-y-1">
             <Label className="text-[11px]">
-              Trigger Command <span className="text-destructive">*</span>
+              หัวข้อ/คำสั่งสำหรับแผน <span className="text-destructive">*</span>
             </Label>
             <Input
               value={triggerCmd}
@@ -136,6 +136,9 @@ export function ContentPlannerAI({
               placeholder='เช่น "แผนคอนเทนต์เดือนนี้"'
               className="h-8 text-xs font-mono"
             />
+            <p className="text-[10px] text-muted-foreground">
+              AI จะคิดหัวข้อย่อยของแต่ละโพสต์เองจากคำสั่งนี้
+            </p>
           </div>
 
           <div className="space-y-1">
