@@ -16,7 +16,7 @@ import {
   getQuarterLabel,
   getQuarterRange,
 } from './calendarUtils';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CalendarX2 } from 'lucide-react';
 
 interface Props {
   plans: ContentPlan[];
@@ -47,19 +47,25 @@ export function ContentPlannerCalendar({
   typeFilter = 'all',
   platformFilter = 'all',
 }: Props) {
-  const itemsByDate = useMemo(() => {
+  // `day_label` (เช่น "จันทร์") ไม่เคยตรงกับรูปแบบ key ที่ renderCell ใช้ค้นหา
+  // (toDateKey คืน "YYYY-MM-DD" เสมอ) — ใช้เป็น fallback key ไม่ได้จริง มีแต่จะ
+  // ทำให้ item ถูกเก็บไว้ใต้ key ที่ grid ไม่มีทาง render ได้ (dead key) จึง
+  // ตัดสินด้วย scheduled_date เพียงตัวเดียวว่า item นี้มี real date key หรือไม่
+  // — ไม่มี scheduled_date = unscheduled เสมอ ไม่ว่า day_label จะมีค่าอะไร
+  const { itemsByDate, unscheduledItems } = useMemo(() => {
     const map = new Map<string, PlanItem[]>();
+    const unscheduled: PlanItem[] = [];
     for (const plan of plans) {
       for (const item of plan.items || []) {
         if (typeFilter !== 'all' && item.content_type !== typeFilter) continue;
         if (platformFilter !== 'all' && item.platform !== platformFilter) continue;
-        const key = item.scheduled_date || item.day_label;
-        if (!key) continue;
+        if (!item.scheduled_date) { unscheduled.push(item); continue; }
+        const key = item.scheduled_date;
         if (!map.has(key)) map.set(key, []);
         map.get(key)!.push(item);
       }
     }
-    return map;
+    return { itemsByDate: map, unscheduledItems: unscheduled };
   }, [plans, typeFilter, platformFilter]);
 
   const year = currentDate.getFullYear();
@@ -93,6 +99,35 @@ export function ContentPlannerCalendar({
     return `${year + 543}`;
   }, [view, year, month]);
 
+  // Chip ตัวเดียวที่ทั้ง day cell และ unscheduled bucket ใช้ร่วมกัน — คลิกแล้ว
+  // เปิด dialog แก้ไข item นั้น (ผ่าน onDateClick เดิม ไม่มี prop ใหม่) ลากได้
+  // ด้วย dataTransfer shape เดียวกับที่ day cell's onDrop รอรับอยู่แล้ว
+  // `clickDate` คือวันที่จะส่งเข้า onDateClick เมื่อคลิก chip นี้ — สำหรับ chip
+  // ใน day cell คือวันของ cell นั้นจริงๆ, สำหรับ chip ใน unscheduled bucket
+  // คือ placeholder (วันนี้) เพราะ item ยังไม่มีวันที่จริง
+  const renderItemChip = (item: PlanItem, clickDate: Date) => {
+    const colors = getPlatformColors(item.platform);
+    return (
+      <div
+        key={item.id}
+        className="text-[10px] px-1.5 py-0.5 rounded truncate font-medium flex items-center gap-1 cursor-pointer hover:opacity-80"
+        style={{ backgroundColor: colors.bg, color: colors.text }}
+        draggable
+        onDragStart={e => {
+          e.dataTransfer.setData('text/plain', JSON.stringify({ itemId: item.id, planId: item.plan_id }));
+          e.dataTransfer.effectAllowed = 'move';
+        }}
+        onClick={e => {
+          e.stopPropagation();
+          onDateClick(clickDate, [item]);
+        }}
+      >
+        <PlatformIcon platform={item.platform} size={10} className="shrink-0" />
+        {item.topic}
+      </div>
+    );
+  };
+
   const renderCell = (date: Date | null) => {
     if (!date) return <div className="min-h-[80px] bg-muted/20 rounded" />;
 
@@ -123,33 +158,33 @@ export function ContentPlannerCalendar({
           )}
         </div>
         <div className="space-y-0.5">
-          {items.slice(0, 3).map((item) => {
-              const colors = getPlatformColors(item.platform);
-              return (
-                <div
-                  key={item.id}
-                  className="text-[10px] px-1.5 py-0.5 rounded truncate font-medium flex items-center gap-1 cursor-pointer hover:opacity-80"
-                  style={{ backgroundColor: colors.bg, color: colors.text }}
-                  draggable
-                  onDragStart={e => {
-                    e.dataTransfer.setData('text/plain', JSON.stringify({ itemId: item.id, planId: item.plan_id }));
-                    e.dataTransfer.effectAllowed = 'move';
-                  }}
-                  onClick={e => {
-                    e.stopPropagation();
-                    onDateClick(date, [item]);
-                  }}
-                >
-                  <PlatformIcon platform={item.platform} size={10} className="shrink-0" />
-                  {item.topic}
-                </div>
-              );
-            })}
+          {items.slice(0, 3).map((item) => renderItemChip(item, date))}
           {items.length > 3 && (
             <span className="text-[10px] text-muted-foreground px-1.5">
               +{items.length - 3} เพิ่มเติม
             </span>
           )}
+        </div>
+      </div>
+    );
+  };
+
+  // แสดงเหนือ grid ทุก view (month/quarter/year) เฉพาะเมื่อมีรายการ — ใช้
+  // visual language เดียวกับแถว "ยังไม่กำหนด" ใน ContentItemList.tsx
+  const renderUnscheduledBucket = () => {
+    if (unscheduledItems.length === 0) return null;
+    return (
+      <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/10 p-2 space-y-1.5">
+        <div className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-700 dark:text-amber-400">
+          <CalendarX2 className="h-3.5 w-3.5" />
+          ยังไม่กำหนดวันที่ ({unscheduledItems.length})
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {unscheduledItems.map(item => (
+            <div key={item.id} className="w-40">
+              {renderItemChip(item, new Date())}
+            </div>
+          ))}
         </div>
       </div>
     );
@@ -310,6 +345,8 @@ export function ContentPlannerCalendar({
           </Button>
         </div>
       </div>
+
+      {!isLoading && renderUnscheduledBucket()}
 
       {isLoading ? (
         <div className="space-y-2">
