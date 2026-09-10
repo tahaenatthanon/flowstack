@@ -9,7 +9,7 @@ import {
   useBrandContexts, usePublishChannels, useAIGatewaySettings,
   useDeleteContentPlan, usePostingAnalytics, useUpdatePlanItemDate,
 } from '@/hooks/useContent';
-import { useResearchRun } from '@/hooks/useResearchRun';
+import { useResearchRun, researchSeedTopic } from '@/hooks/useResearchRun';
 import type { ContentPlan, PlanItem, CalendarView } from '@/components/content/types';
 import { TYPE_MAP, PLATFORM_MAP } from '@/components/content/types';
 import { ContentPlannerCalendar } from '@/components/content/ContentPlannerCalendar';
@@ -167,7 +167,7 @@ export default function ContentPlannerPage() {
     }
     // Research must always use the immutable Original User Topic.
     // The editable card topic may have been rewritten by AI or changed by the user.
-    const seedTopic = (item.source_topic ?? '').trim() || data.topic.trim();
+    const seedTopic = researchSeedTopic(item.source_topic, data.topic);
     if (!seedTopic) {
       toast({ title: 'สร้างบทความไม่สำเร็จ', description: 'ต้องมีหัวข้อก่อนเริ่ม Research', variant: 'destructive' });
       return;
@@ -237,7 +237,7 @@ export default function ContentPlannerPage() {
           done++;
           setGenerateProgress(`${done}/${total}`);
           // Research seed must be the immutable Original User Topic, never an AI-rewritten item.topic.
-          const itemTopic = (item.source_topic ?? '').trim() || (item.topic || '').trim();
+          const itemTopic = researchSeedTopic(item.source_topic, item.topic);
           if (!itemTopic) {
             toast({ title: `ข้าม "${item.topic}" — ไม่มีหัวข้อสำหรับ Research`, variant: 'destructive' });
             continue;
