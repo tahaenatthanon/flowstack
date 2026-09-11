@@ -25,6 +25,7 @@ import { apiFetch } from '@/lib/api';
 import {
   STATUS_MAP, PLATFORM_MAP, TYPE_MAP, type ContentItem, type SeoChecklistResult,
 } from '@/components/content/types';
+import { parsePlatforms } from '@/lib/contentPlatforms';
 import ContentDetailView from '@/components/content/views/ContentDetailView';
 
 export default function ContentApprovalTab() {
@@ -89,7 +90,10 @@ export default function ContentApprovalTab() {
 
   const visibleItems = statusFiltered
     .filter(item => typeFilter === 'all' || item.type === typeFilter)
-    .filter(item => platformFilter === 'all' || item.platform === platformFilter)
+    // item.platform อาจเป็นสตริงรวมหลายแพลตฟอร์มคั่นด้วย comma — เทียบ === ตรงๆ
+    // ไม่มีทาง match กับตัวกรองแพลตฟอร์มเดี่ยวได้เลยแม้ item จะมีแพลตฟอร์มนั้น
+    // รวมอยู่ด้วยจริง ดู openspec/changes/content-approval-platform-fix
+    .filter(item => platformFilter === 'all' || parsePlatforms(item.platforms ?? item.platform).includes(platformFilter))
     .filter(item =>
       !searchQuery ||
       item.title?.toLowerCase().includes(searchQuery.toLowerCase())
@@ -154,7 +158,9 @@ export default function ContentApprovalTab() {
   const platformOptions = Object.entries(PLATFORM_MAP).map(([k, v]) => ({ value: k, label: v.label }));
   // Options come from the tab-filtered set so the current selection doesn't hide the alternatives
   const usedTypes = [...new Set(statusFiltered.map(i => i.type).filter(Boolean))];
-  const usedPlatforms = [...new Set(statusFiltered.map(i => i.platform).filter(Boolean))];
+  // item.platform อาจเป็นสตริงรวมหลายแพลตฟอร์มคั่นด้วย comma — map ตรงๆ ไม่แยก
+  // ค่าดิบทั้งก้อนออกมาเป็นตัวเลือกเดียวที่ไม่มีทาง match ตัวเลือกใน PLATFORM_MAP
+  const usedPlatforms = [...new Set(statusFiltered.flatMap(i => parsePlatforms(i.platforms ?? i.platform)))];
 
   const formatDate = (d?: string | null) => {
     if (!d) return '-';
@@ -286,7 +292,12 @@ export default function ContentApprovalTab() {
             </TableHeader>
             <TableBody>
               {visibleItems.map((item) => {
-                const platform = PLATFORM_MAP[item.platform ?? ''] ?? null;
+                // item.platform อาจเป็นสตริงรวมหลายแพลตฟอร์มคั่นด้วย comma — lookup
+                // ด้วยค่าดิบทั้งก้อนไม่มีทาง match key ใน PLATFORM_MAP เลย ตกไปที่ '-'
+                // เสมอ ดู openspec/changes/content-approval-platform-fix
+                const itemPlatforms = parsePlatforms(item.platforms ?? item.platform);
+                const firstPlatform = itemPlatforms.length > 0 ? PLATFORM_MAP[itemPlatforms[0]] ?? null : null;
+                const extraPlatformCount = itemPlatforms.length - 1;
                 const type = TYPE_MAP[item.type] ?? TYPE_MAP.article;
                 const status = STATUS_MAP[item.status] ?? { label: item.status, color: 'bg-gray-100 text-gray-600' };
                 const isPending = item.status === 'pending_approval';
@@ -301,8 +312,13 @@ export default function ContentApprovalTab() {
                       <Badge variant="outline" className={type.color}>{type.label}</Badge>
                     </TableCell>
                     <TableCell className="hidden md:table-cell">
-                      {platform ? (
-                        <Badge variant="outline" className={platform.color}>{platform.label}</Badge>
+                      {firstPlatform ? (
+                        <div className="flex items-center gap-1 whitespace-nowrap">
+                          <Badge variant="outline" className={firstPlatform.color}>{firstPlatform.label}</Badge>
+                          {extraPlatformCount > 0 && (
+                            <span className="text-[11px] text-muted-foreground">+{extraPlatformCount}</span>
+                          )}
+                        </div>
                       ) : '-'}
                     </TableCell>
                     <TableCell className="hidden sm:table-cell text-muted-foreground text-sm">

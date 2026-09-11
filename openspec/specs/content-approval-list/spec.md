@@ -37,6 +37,18 @@
 - **WHEN** สถานะที่เลือกไม่มี content items
 - **THEN** ระบบแสดงข้อความ "ไม่มีรายการ" พร้อมระบุสถานะที่เกี่ยวข้อง
 
+#### Scenario: คอลัมน์แพลตฟอร์มแสดง badge แรกพร้อมตัวเลขที่เหลือเมื่อ item มีหลายแพลตฟอร์ม
+- **WHEN** content item มีมากกว่า 1 แพลตฟอร์ม (parse จาก `platforms` หรือ `platform`)
+- **THEN** คอลัมน์ "แพลตฟอร์ม" แสดง badge ของแพลตฟอร์มแรก (ตามลำดับที่ parse ได้) ตามด้วยป้าย `+N` โดย N คือจำนวนแพลตฟอร์มที่เหลือ โดยไม่ทำให้ความสูงแถวเปลี่ยนไป
+
+#### Scenario: คอลัมน์แพลตฟอร์มแสดง badge เดียวเมื่อ item มีแพลตฟอร์มเดียว
+- **WHEN** content item มีแพลตฟอร์มเดียว
+- **THEN** คอลัมน์ "แพลตฟอร์ม" แสดง badge ของแพลตฟอร์มนั้นโดยไม่มีป้าย `+N`
+
+#### Scenario: คอลัมน์แพลตฟอร์มแสดง "-" เมื่อ item ไม่มีแพลตฟอร์ม
+- **WHEN** content item ไม่มีแพลตฟอร์มเลย (parse ได้ array ว่าง)
+- **THEN** คอลัมน์ "แพลตฟอร์ม" แสดง "-" เหมือนพฤติกรรมเดิม
+
 ### Requirement: User can approve a content item
 ระบบ SHALL ให้ผู้ใช้ที่มีสิทธิ์สามารถอนุมัติ content item จากหน้ารายการอนุมัติ โดยเปลี่ยนสถานะเป็น `approved`
 
@@ -88,9 +100,17 @@
 - **WHEN** ผู้ใช้เลือกสถานะ "รออนุมัติ" จาก Filter Status และ Type Filter "วีดีโอ"
 - **THEN** ระบบแสดงเฉพาะรายการที่สถานะ `pending_approval` และ `content_type` เป็น `video`
 
-#### Scenario: Filter by platform
-- **WHEN** ผู้ใช้เลือก filter แพลตฟอร์ม
-- **THEN** ระบบแสดงเฉพาะรายการที่ตรงกับแพลตฟอร์มที่เลือก
+#### Scenario: Filter by platform matches items with multiple platforms
+- **WHEN** ผู้ใช้เลือก filter แพลตฟอร์ม `platformFilter='facebook'` และมี content item ที่มีหลายแพลตฟอร์ม (เช่น `platforms=["facebook","linkedin"]`)
+- **THEN** ระบบแสดง content item นั้นในผลกรอง เนื่องจากระบบ parse รายการแพลตฟอร์มของ item ก่อนเช็คว่ามีแพลตฟอร์มที่เลือกกรองอยู่หรือไม่ (ไม่เทียบค่าดิบทั้งก้อนแบบ exact-match)
+
+#### Scenario: Filter by platform excludes items without that platform
+- **WHEN** ผู้ใช้เลือก filter แพลตฟอร์ม `platformFilter='youtube'` และมี content item ที่ `platforms=["facebook","linkedin"]`
+- **THEN** content item นั้นไม่ปรากฏในผลกรอง
+
+#### Scenario: Platform filter dropdown lists individual platforms from multi-platform items
+- **WHEN** มี content item ที่มีหลายแพลตฟอร์ม (เช่น `platforms=["facebook","linkedin"]`) อยู่ในรายการที่กรองด้วยสถานะ/ประเภทปัจจุบันแล้ว
+- **THEN** Platform Filter Dropdown แสดงตัวเลือก "Facebook" และ "LinkedIn" แยกกัน ไม่แสดงค่าดิบรวม (เช่น "facebook,linkedin") เป็นตัวเลือกเดียว
 
 #### Scenario: Search across filtered results
 - **WHEN** ผู้ใช้พิมพ์คำค้นหาในช่องค้นหา และเลือกสถานะ "รออนุมัติ" จาก Filter Status
