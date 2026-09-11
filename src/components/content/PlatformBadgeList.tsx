@@ -1,29 +1,7 @@
 import { cn } from '@/lib/utils';
 import { PlatformIcon } from './PlatformIcon';
 import { getPlatformColorClass, getPlatformLabel } from '@/lib/platformConfig';
-
-/**
- * Parse ค่า platforms ของ content item ให้เป็น array เดี่ยว lowercase ไม่ซ้ำ
- * ไม่มีค่าว่าง — รองรับทั้งรูปแบบ array ที่ parse แล้ว, JSON string
- * (`content_items.platforms`), และ comma-joined string เดิม
- * (`content_items.platform` เช่น "facebook,linkedin,twitter") ตรรกะเดียวกับที่
- * ContentDetailView.tsx และ ContentCardDialog.tsx เคยเขียนแยกกันเองมาก่อน —
- * ดู openspec/changes/platform-color-catalog
- */
-export function parsePlatforms(raw: string[] | string | null | undefined): string[] {
-  let list: string[] = [];
-  if (Array.isArray(raw)) {
-    list = raw;
-  } else if (typeof raw === 'string' && raw.trim() !== '') {
-    try {
-      const parsed = JSON.parse(raw);
-      list = Array.isArray(parsed) ? parsed : raw.split(',');
-    } catch {
-      list = raw.split(',');
-    }
-  }
-  return Array.from(new Set(list.map(p => String(p).trim().toLowerCase()).filter(Boolean)));
-}
+import { parsePlatforms } from '@/lib/contentPlatforms';
 
 interface Props {
   /** ค่า platforms ของ content item — ยังไม่ต้อง parse มาก่อน ส่งดิบเข้ามาได้เลย */

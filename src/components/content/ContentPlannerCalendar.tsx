@@ -5,7 +5,7 @@ import type { ContentPlan, PlanItem, CalendarView, PostingAnalyticsResponse } fr
 import { TYPE_MAP, getCanonicalContentType } from '@/components/content/types';
 import { BestTimeIndicator } from './BestTimeIndicator';
 import { ContentTypeBadge } from './ContentTypeBadge';
-import { parsePlatforms } from './PlatformBadgeList';
+import { parsePlatforms } from '@/lib/contentPlatforms';
 import {
   generateMonthGrid,
   generateQuarterGrids,

@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 import type { ContentPlan, PlanItem } from '@/components/content/types';
 import { getCanonicalContentType } from '@/components/content/types';
 import { ContentTypeBadge } from './ContentTypeBadge';
-import { parsePlatforms } from './PlatformBadgeList';
+import { parsePlatforms } from '@/lib/contentPlatforms';
 import { formatThaiDate } from './calendarUtils';
 import { Pencil, Trash2, GripVertical, Search, CalendarX2, ArrowUpDown, Image as ImageIcon } from 'lucide-react';
 

@@ -16,6 +16,7 @@ import ImageViewer from '@/components/content/ImageViewer';
 import { SchedulePublishDialog } from '@/components/content/SchedulePublishDialog';
 import { PlatformIcon } from '@/components/content/PlatformIcon';
 import { getPlatformColors } from '@/lib/platformConfig';
+import { parsePlatforms } from '@/lib/contentPlatforms';
 
 export default function ContentListTab() {
   const { toast } = useToast();
@@ -154,29 +155,12 @@ export default function ContentListTab() {
     }
   };
 
-  const getItemPlatforms = (item: ContentItem): string[] => {
-    const normalize = (values: unknown[]): string[] => Array.from(new Set(
-      values
-        .filter((p): p is string => typeof p === 'string' && p.trim() !== '')
-        .flatMap(p => p.split(','))
-        .map(p => p.trim().toLowerCase())
-        .filter(Boolean),
-    ));
-
-    const raw = (item as ContentItem & { platforms?: unknown }).platforms;
-    if (Array.isArray(raw)) return normalize(raw);
-
-    if (typeof raw === 'string' && raw.trim() !== '') {
-      try {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) return normalize(parsed);
-      } catch {
-        // Fall through and normalize the legacy platform field.
-      }
-    }
-
-    return normalize([item.platform || '']);
-  };
+  // เดิมมีตรรกะ parse comma/JSON ของตัวเองซ้ำกับ parsePlatforms() เกือบทั้งหมด
+  // ทำให้บั๊กที่แก้ใน parsePlatforms() แล้ว ยังหลงเหลืออยู่ที่นี่ได้โดยไม่มีใครรู้
+  // ตอนนี้ delegate ให้ implementation เดียวใน @/lib/contentPlatforms แทน ดู
+  // openspec/changes/content-platforms-parser-refactor
+  const getItemPlatforms = (item: ContentItem): string[] =>
+    parsePlatforms(item.platforms ?? item.platform);
 
   const platformCounts = useMemo(() => {
     const map = new Map<string, number>();
