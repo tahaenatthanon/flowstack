@@ -516,6 +516,9 @@ export function ContentCardDialog({
   // Never route UI behavior from legacy article_content.platform_type.
   const contentType = existingItem ? getCanonicalContentType(existingItem) : 'article';
   const isVideo = contentType === 'video';
+  // เผยแพร่ไปแล้วอย่างน้อย 1 แพลตฟอร์ม → ห้ามแก้วันที่ผ่านฟอร์มนี้เช่นกัน (ครอบคลุม
+  // เส้นทางเดียวกับที่ล็อกการลากบนปฏิทิน — ดู openspec/changes/lock-published-content-date)
+  const dateLocked = !!existingItem?.has_published_platform;
 
   // Check if all scene images are generated
   const scenes = (articleData?.scenes ?? []) as any[];
@@ -739,7 +742,17 @@ export function ContentCardDialog({
                   </div>
                   <div className="space-y-1.5">
                     <Label>วันที่โพสต์</Label>
-                    <Input type="date" value={scheduledDate} onChange={e => setScheduledDate(e.target.value)} />
+                    <Input
+                      type="date"
+                      value={scheduledDate}
+                      onChange={e => setScheduledDate(e.target.value)}
+                      disabled={dateLocked}
+                    />
+                    {dateLocked && (
+                      <p className="text-[11px] text-muted-foreground">
+                        เผยแพร่ไปแล้วบางแพลตฟอร์ม ไม่สามารถเปลี่ยนวันที่ได้
+                      </p>
+                    )}
                   </div>
                 </div>
 

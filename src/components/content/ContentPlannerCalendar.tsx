@@ -16,7 +16,7 @@ import {
   getQuarterLabel,
   getQuarterRange,
 } from './calendarUtils';
-import { ChevronLeft, ChevronRight, CalendarX2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CalendarX2, Lock } from 'lucide-react';
 
 interface Props {
   plans: ContentPlan[];
@@ -107,12 +107,20 @@ export function ContentPlannerCalendar({
   // คือ placeholder (วันนี้) เพราะ item ยังไม่มีวันที่จริง
   const renderItemChip = (item: PlanItem, clickDate: Date) => {
     const colors = getPlatformColors(item.platform);
+    // เผยแพร่ไปแล้วอย่างน้อย 1 แพลตฟอร์ม → ห้ามลากเปลี่ยนวัน (ล็อกเฉพาะการ์ดนี้
+    // การ์ดอื่นในวันเดียวกันที่ยังไม่เผยแพร่ไม่ได้รับผลกระทบ — ดู
+    // openspec/changes/lock-published-content-date) คลิกดู/แก้รายละเอียดยังทำได้ปกติ
+    const locked = !!item.has_published_platform;
     return (
       <div
         key={item.id}
-        className="text-[10px] px-1.5 py-0.5 rounded truncate font-medium flex items-center gap-1 cursor-pointer hover:opacity-80"
+        className={cn(
+          'text-[10px] px-1.5 py-0.5 rounded truncate font-medium flex items-center gap-1 cursor-pointer hover:opacity-80',
+          locked && 'opacity-70 cursor-not-allowed'
+        )}
         style={{ backgroundColor: colors.bg, color: colors.text }}
-        draggable
+        draggable={!locked}
+        title={locked ? 'เผยแพร่ไปแล้วบางแพลตฟอร์ม ไม่สามารถลากเปลี่ยนวันที่ได้' : undefined}
         onDragStart={e => {
           e.dataTransfer.setData('text/plain', JSON.stringify({ itemId: item.id, planId: item.plan_id }));
           e.dataTransfer.effectAllowed = 'move';
@@ -122,6 +130,7 @@ export function ContentPlannerCalendar({
           onDateClick(clickDate, [item]);
         }}
       >
+        {locked && <Lock className="h-2.5 w-2.5 shrink-0" />}
         <PlatformIcon platform={item.platform} size={10} className="shrink-0" />
         {item.topic}
       </div>

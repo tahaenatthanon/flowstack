@@ -111,8 +111,20 @@ export default function ContentPlannerPage() {
     try {
       const data = JSON.parse(e.dataTransfer.getData('text/plain'));
       if (data.itemId) {
-        updateItemDateMut.mutate({ item_id: data.itemId, scheduled_date: key });
-        toast({ title: 'ย้ายรายการแล้ว', description: key });
+        // Chip ที่เผยแพร่ไปแล้วถูกปิด draggable ไว้แล้วที่ต้นทาง แต่ backend เป็น
+        // แหล่งความจริงสุดท้าย (state ฝั่ง client อาจไม่ทันอัปเดต) — ถ้าถูกปฏิเสธ
+        // (409) ต้องแจ้งเหตุผลจริง ไม่ใช่ทึกทักว่าสำเร็จเหมือนเดิม
+        updateItemDateMut.mutate(
+          { item_id: data.itemId, scheduled_date: key },
+          {
+            onSuccess: () => toast({ title: 'ย้ายรายการแล้ว', description: key }),
+            onError: (err: any) => toast({
+              title: 'ย้ายรายการไม่สำเร็จ',
+              description: err?.message,
+              variant: 'destructive',
+            }),
+          }
+        );
       }
     } catch {
       // drop from external source — ignore

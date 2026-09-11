@@ -143,3 +143,56 @@ describe('ContentPlannerCalendar — unscheduled item bucket', () => {
     expect(dataTransfer.effectAllowed).toBe('move');
   });
 });
+
+/**
+ * openspec/changes/lock-published-content-date — content item ที่มีอย่างน้อย
+ * 1 แพลตฟอร์มเผยแพร่สำเร็จแล้ว (has_published_platform=true) ห้ามลากเปลี่ยนวัน
+ * บนปฏิทิน ส่วน item อื่นในวันเดียวกันที่ยังไม่เผยแพร่ต้องไม่ได้รับผลกระทบ
+ * (การล็อกเป็นแบบ per-item ไม่ใช่ per-day)
+ */
+describe('ContentPlannerCalendar — published platform lock', () => {
+  it('chip ของ item ที่เผยแพร่แล้วบางแพลตฟอร์ม ไม่สามารถลากได้ (draggable=false)', () => {
+    const item = makeItem({
+      id: 'published-1', scheduled_date: '2026-01-10', topic: 'เผยแพร่ Facebook แล้ว',
+      has_published_platform: true,
+    });
+    renderCalendar({ plans: [makePlan([item])] });
+
+    const chip = screen.getByText('เผยแพร่ Facebook แล้ว');
+    expect(chip.getAttribute('draggable')).toBe('false');
+  });
+
+  it('chip ของ item ที่ยังไม่เผยแพร่แพลตฟอร์มใดเลย ยังลากได้ตามปกติ (draggable=true)', () => {
+    const item = makeItem({
+      id: 'not-published-1', scheduled_date: '2026-01-10', topic: 'ยังไม่เผยแพร่',
+      has_published_platform: false,
+    });
+    renderCalendar({ plans: [makePlan([item])] });
+
+    const chip = screen.getByText('ยังไม่เผยแพร่');
+    expect(chip.getAttribute('draggable')).toBe('true');
+  });
+
+  it('item ที่ไม่ได้ระบุ has_published_platform เลย (undefined) ถือว่ายังลากได้ตามปกติ', () => {
+    const item = makeItem({ id: 'legacy-1', scheduled_date: '2026-01-10', topic: 'ไม่มี field ใหม่' });
+    renderCalendar({ plans: [makePlan([item])] });
+
+    const chip = screen.getByText('ไม่มี field ใหม่');
+    expect(chip.getAttribute('draggable')).toBe('true');
+  });
+
+  it('วันเดียวกันมีทั้ง item ที่ล็อกและไม่ล็อก — ล็อกเฉพาะ item ที่เผยแพร่แล้ว ไม่กระทบ item ข้างเคียง', () => {
+    const lockedItem = makeItem({
+      id: 'locked', scheduled_date: '2026-01-10', topic: 'ล็อกอยู่',
+      has_published_platform: true,
+    });
+    const unlockedItem = makeItem({
+      id: 'unlocked', scheduled_date: '2026-01-10', topic: 'ไม่ล็อก',
+      has_published_platform: false,
+    });
+    renderCalendar({ plans: [makePlan([lockedItem, unlockedItem])] });
+
+    expect(screen.getByText('ล็อกอยู่').getAttribute('draggable')).toBe('false');
+    expect(screen.getByText('ไม่ล็อก').getAttribute('draggable')).toBe('true');
+  });
+});

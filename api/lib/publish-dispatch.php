@@ -225,6 +225,20 @@ function get_published_content_platforms(PDO $db, string $tenantId, string $cont
 }
 
 /**
+ * Guard for scheduled_date mutations (drag/drop on the calendar, manual date field
+ * in the edit dialog). Rejects with HTTP 409 when ANY platform of this content item
+ * has already been published — not just when every platform is done (that would be
+ * content_items.published_at, a stricter/looser condition we intentionally don't use
+ * here). See openspec/changes/lock-published-content-date/design.md Decision 1.
+ */
+function assert_scheduled_date_editable(PDO $db, string $tenantId, string $contentId): void {
+    $published = get_published_content_platforms($db, $tenantId, $contentId);
+    if (!empty($published)) {
+        jsonError('ไม่สามารถเปลี่ยนวันที่ได้ เนื่องจากเผยแพร่ไปแล้วบางแพลตฟอร์ม (' . implode(', ', $published) . ')', 409);
+    }
+}
+
+/**
  * Sync content-level status from per-platform publish history.
  * Approved remains the actionable state while at least one selected platform
  * is still unpublished. It becomes published only when every selected platform

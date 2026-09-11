@@ -33,6 +33,20 @@ function sanitizeAIOutput(string $text): string {
     );
 }
 
+/**
+ * plan-item list rows compute `has_published_platform` via an EXISTS(...) SQL
+ * expression — PDO returns that as "0"/"1" (MySQL has no native boolean), which
+ * json_encode would serialize as the number 0/1, not JSON true/false. Cast it
+ * to a real bool so the frontend always gets a boolean regardless of PDO driver
+ * settings. See openspec/changes/lock-published-content-date.
+ */
+function normalize_plan_item_row(array $row): array {
+    if (array_key_exists('has_published_platform', $row)) {
+        $row['has_published_platform'] = (bool)$row['has_published_platform'];
+    }
+    return $row;
+}
+
 $db       = getDB();
 $auth     = requireAuth();
 $userId   = $auth['user_id'];
@@ -511,18 +525,18 @@ if ($action === 'plans') {
             $stmt->execute([$id, $tenantId]);
             $plan = $stmt->fetch();
             if (!$plan) jsonError('Plan not found', 404);
-            $stmt2 = $db->prepare("SELECT ci.id AS id, ci.plan_id, ci.title AS topic, ci.source_topic, ci.tone, ci.platform, ci.platforms, ci.scheduled_date, ci.caption, ci.image_brief, ci.generated_image_url, COALESCE(ci.image_gen_status, 'none') AS image_gen_status, ci.article_content, ci.id AS content_item_id, ci.type AS content_type, ci.seo_title, ci.slug, ci.meta_description, ci.meta_keywords, ci.structured_data, ci.og_image, COALESCE(cpi.day_label, '') AS day_label, COALESCE(cpi.day_order, 0) AS day_order FROM content_items ci LEFT JOIN content_plan_items cpi ON cpi.id = ci.plan_item_id WHERE ci.plan_id = ? ORDER BY COALESCE(cpi.day_order, 0), ci.scheduled_date");
+            $stmt2 = $db->prepare("SELECT ci.id AS id, ci.plan_id, ci.title AS topic, ci.source_topic, ci.tone, ci.platform, ci.platforms, ci.scheduled_date, ci.caption, ci.image_brief, ci.generated_image_url, COALESCE(ci.image_gen_status, 'none') AS image_gen_status, ci.article_content, ci.id AS content_item_id, ci.type AS content_type, ci.seo_title, ci.slug, ci.meta_description, ci.meta_keywords, ci.structured_data, ci.og_image, (EXISTS(SELECT 1 FROM content_publish_queue q WHERE q.content_id = ci.id AND q.status='sent') OR EXISTS(SELECT 1 FROM content_schedules cs WHERE cs.plan_item_id = ci.plan_item_id AND cs.status='sent')) AS has_published_platform, COALESCE(cpi.day_label, '') AS day_label, COALESCE(cpi.day_order, 0) AS day_order FROM content_items ci LEFT JOIN content_plan_items cpi ON cpi.id = ci.plan_item_id WHERE ci.plan_id = ? ORDER BY COALESCE(cpi.day_order, 0), ci.scheduled_date");
             $stmt2->execute([$id]);
-            $plan['items'] = $stmt2->fetchAll();
+            $plan['items'] = array_map('normalize_plan_item_row', $stmt2->fetchAll());
             jsonResponse($plan);
         }
         $stmt = $db->prepare('SELECT * FROM content_plans WHERE tenant_id=? ORDER BY created_at DESC LIMIT 50');
         $stmt->execute([$tenantId]);
         $plans = $stmt->fetchAll();
         foreach ($plans as &$p) {
-            $stmt2 = $db->prepare("SELECT ci.id AS id, ci.plan_id, ci.title AS topic, ci.source_topic, ci.platform, ci.platforms, ci.scheduled_date, ci.caption, ci.image_brief, ci.generated_image_url, COALESCE(ci.image_gen_status, 'none') AS image_gen_status, ci.article_content, ci.id AS content_item_id, ci.type AS content_type, ci.seo_title, ci.slug, ci.meta_description, ci.meta_keywords, ci.structured_data, ci.og_image, COALESCE(cpi.day_label, '') AS day_label, COALESCE(cpi.day_order, 0) AS day_order FROM content_items ci LEFT JOIN content_plan_items cpi ON cpi.id = ci.plan_item_id WHERE ci.plan_id = ? ORDER BY COALESCE(cpi.day_order, 0), ci.scheduled_date");
+            $stmt2 = $db->prepare("SELECT ci.id AS id, ci.plan_id, ci.title AS topic, ci.source_topic, ci.platform, ci.platforms, ci.scheduled_date, ci.caption, ci.image_brief, ci.generated_image_url, COALESCE(ci.image_gen_status, 'none') AS image_gen_status, ci.article_content, ci.id AS content_item_id, ci.type AS content_type, ci.seo_title, ci.slug, ci.meta_description, ci.meta_keywords, ci.structured_data, ci.og_image, (EXISTS(SELECT 1 FROM content_publish_queue q WHERE q.content_id = ci.id AND q.status='sent') OR EXISTS(SELECT 1 FROM content_schedules cs WHERE cs.plan_item_id = ci.plan_item_id AND cs.status='sent')) AS has_published_platform, COALESCE(cpi.day_label, '') AS day_label, COALESCE(cpi.day_order, 0) AS day_order FROM content_items ci LEFT JOIN content_plan_items cpi ON cpi.id = ci.plan_item_id WHERE ci.plan_id = ? ORDER BY COALESCE(cpi.day_order, 0), ci.scheduled_date");
             $stmt2->execute([$p['id']]);
-            $p['items'] = $stmt2->fetchAll();
+            $p['items'] = array_map('normalize_plan_item_row', $stmt2->fetchAll());
         }
         unset($p);
         jsonResponse($plans);
@@ -544,6 +558,21 @@ if ($action === 'plans') {
         // Update a single item field
         if (!empty($body['item_id'])) {
             $itemId  = $body['item_id'];
+            // Editing scheduled_date here (manual date field in the edit dialog) must
+            // respect the same publish lock as the drag/drop path. ContentCardDialog
+            // always resends scheduled_date on every save (even when the user only
+            // touched caption/topic), so guard only on an actual VALUE change — not
+            // mere presence of the key — or every save on a locked item would be
+            // rejected outright. See openspec/changes/lock-published-content-date.
+            if (array_key_exists('scheduled_date', $body)) {
+                $currentDateStmt = $db->prepare('SELECT scheduled_date FROM content_items WHERE id=? AND tenant_id=?');
+                $currentDateStmt->execute([$itemId, $tenantId]);
+                $currentScheduledDate = $currentDateStmt->fetchColumn();
+                $currentScheduledDate = $currentScheduledDate === false ? null : $currentScheduledDate;
+                if ((string)($currentScheduledDate ?? '') !== (string)($body['scheduled_date'] ?? '')) {
+                    assert_scheduled_date_editable($db, $tenantId, $itemId);
+                }
+            }
             $allowed = ['caption', 'image_brief', 'topic', 'platform', 'platforms', 'day_label', 'day_order', 'scheduled_date'];
             // Map frontend field names to content_items column names
             $ciMap = ['topic'=>'title', 'caption'=>'caption', 'image_brief'=>'image_brief', 'platform'=>'platform', 'platforms'=>'platforms', 'scheduled_date'=>'scheduled_date'];
@@ -1040,9 +1069,9 @@ if ($action === 'generate-plan' && $method === 'POST') {
     $stmt = $db->prepare('SELECT * FROM content_plans WHERE id=? AND tenant_id=?');
     $stmt->execute([$planId, $tenantId]);
     $plan = $stmt->fetch();
-    $stmt2 = $db->prepare("SELECT ci.id AS id, ci.plan_id, ci.title AS topic, ci.source_topic, ci.platform, ci.platforms, ci.scheduled_date, ci.caption, ci.image_brief, ci.generated_image_url, COALESCE(ci.image_gen_status, 'none') AS image_gen_status, ci.article_content, ci.id AS content_item_id, ci.type AS content_type, ci.seo_title, ci.slug, ci.meta_description, ci.meta_keywords, ci.structured_data, ci.og_image, COALESCE(cpi.day_label, '') AS day_label, COALESCE(cpi.day_order, 0) AS day_order FROM content_items ci LEFT JOIN content_plan_items cpi ON cpi.id = ci.plan_item_id WHERE ci.plan_id = ? ORDER BY COALESCE(cpi.day_order, 0), ci.scheduled_date");
+    $stmt2 = $db->prepare("SELECT ci.id AS id, ci.plan_id, ci.title AS topic, ci.source_topic, ci.platform, ci.platforms, ci.scheduled_date, ci.caption, ci.image_brief, ci.generated_image_url, COALESCE(ci.image_gen_status, 'none') AS image_gen_status, ci.article_content, ci.id AS content_item_id, ci.type AS content_type, ci.seo_title, ci.slug, ci.meta_description, ci.meta_keywords, ci.structured_data, ci.og_image, (EXISTS(SELECT 1 FROM content_publish_queue q WHERE q.content_id = ci.id AND q.status='sent') OR EXISTS(SELECT 1 FROM content_schedules cs WHERE cs.plan_item_id = ci.plan_item_id AND cs.status='sent')) AS has_published_platform, COALESCE(cpi.day_label, '') AS day_label, COALESCE(cpi.day_order, 0) AS day_order FROM content_items ci LEFT JOIN content_plan_items cpi ON cpi.id = ci.plan_item_id WHERE ci.plan_id = ? ORDER BY COALESCE(cpi.day_order, 0), ci.scheduled_date");
     $stmt2->execute([$planId]);
-    $plan['items'] = $stmt2->fetchAll();
+    $plan['items'] = array_map('normalize_plan_item_row', $stmt2->fetchAll());
     jsonResponse($plan, 201);
 }
 
@@ -3686,6 +3715,10 @@ if ($action === 'plan-item-date' && $method === 'PUT') {
     $itemId = $body['item_id'] ?? '';
     $scheduledDate = $body['scheduled_date'] ?? '';
     if (!$itemId || !$scheduledDate) jsonError('item_id and scheduled_date required', 400);
+
+    // Drag/drop must never move the date of a content item that already published
+    // to at least one platform — see openspec/changes/lock-published-content-date.
+    assert_scheduled_date_editable($db, $tenantId, $itemId);
 
     $ts = strtotime($scheduledDate);
     $dayOfWeek = (int)date('w', $ts);

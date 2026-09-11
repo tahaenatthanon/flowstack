@@ -155,6 +155,13 @@ export interface PlanItem {
   content_item_id?: string | null;
   content_type?: string | null;
   reject_reason?: string | null;
+  /**
+   * true = มีอย่างน้อย 1 แพลตฟอร์มใน `platforms` เผยแพร่สำเร็จแล้ว (content_publish_queue
+   * หรือ content_schedules status='sent') — ต่างจาก content_items.status==='published'
+   * ที่ต้องครบทุกแพลตฟอร์ม ใช้ล็อกการแก้ scheduled_date เท่านั้น ไม่ใช่ field อื่น
+   * (ดู openspec/changes/lock-published-content-date/design.md)
+   */
+  has_published_platform?: boolean;
 }
 
 export interface PublishChannel {

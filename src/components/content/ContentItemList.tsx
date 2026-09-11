@@ -128,14 +128,19 @@ export function ContentItemList({ plans, onEditItem, onDeleteItem, typeFilter = 
             {filtered.map(item => {
               const pf = PLATFORM_MAP[item.platform || ''];
               const hasDate = !!item.scheduled_date;
+              // เผยแพร่ไปแล้วอย่างน้อย 1 แพลตฟอร์ม → ห้ามลาก เช่นเดียวกับ chip บนปฏิทิน
+              // (ดู openspec/changes/lock-published-content-date)
+              const locked = !!item.has_published_platform;
               return (
                 <div
                   key={item.id}
                   className={cn(
                     'grid grid-cols-12 gap-2 px-3 py-2 border-b border-border/40 text-xs hover:bg-muted/20 transition-colors group',
-                    !hasDate && 'bg-amber-50 dark:bg-amber-950/10'
+                    !hasDate && 'bg-amber-50 dark:bg-amber-950/10',
+                    locked && 'opacity-70'
                   )}
-                  draggable
+                  draggable={!locked}
+                  title={locked ? 'เผยแพร่ไปแล้วบางแพลตฟอร์ม ไม่สามารถลากเปลี่ยนวันที่ได้' : undefined}
                   onDragStart={e => {
                     e.dataTransfer.setData('text/plain', JSON.stringify({ itemId: item.id, planId: item.plan_id }));
                     e.dataTransfer.effectAllowed = 'move';
