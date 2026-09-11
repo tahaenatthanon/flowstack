@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import type { ContentPlan, PlanItem } from '@/components/content/types';
 import { getCanonicalContentType } from '@/components/content/types';
 import { ContentTypeBadge } from './ContentTypeBadge';
+import { parsePlatforms } from './PlatformBadgeList';
 import { formatThaiDate } from './calendarUtils';
 import { Pencil, Trash2, GripVertical, Search, CalendarX2, ArrowUpDown, Image as ImageIcon } from 'lucide-react';
 
@@ -49,9 +50,11 @@ export function ContentItemList({ plans, onEditItem, onDeleteItem, typeFilter = 
     if (typeFilter !== 'all') {
       result = result.filter(item => item.content_type === typeFilter);
     }
-    // Platform filter
+    // Platform filter — item.platform อาจเป็นสตริงรวมหลายแพลตฟอร์มคั่นด้วย comma
+    // เทียบ === ตรงๆ ไม่มีทาง match กับตัวกรองแพลตฟอร์มเดี่ยวได้เลยแม้ item จะมี
+    // แพลตฟอร์มนั้นรวมอยู่ด้วยจริง ดู openspec/changes/content-planner-platform-filter-fix
     if (platformFilter !== 'all') {
-      result = result.filter(item => item.platform === platformFilter);
+      result = result.filter(item => parsePlatforms(item.platforms ?? item.platform).includes(platformFilter));
     }
     result.sort((a, b) => {
       const dir = sortAsc ? 1 : -1;

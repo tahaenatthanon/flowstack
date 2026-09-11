@@ -259,3 +259,51 @@ describe('ContentPlannerCalendar — content type badge (แทนที่ไ�
     expect(chip.className).toMatch(/bg-red-50/);
   });
 });
+
+/**
+ * openspec/changes/content-planner-platform-filter-fix — platformFilter เคย
+ * เทียบ item.platform === platformFilter แบบ exact-match ซึ่ง item.platform
+ * เป็นสตริงรวมหลายแพลตฟอร์มคั่นด้วย comma (เช่น "facebook,linkedin") ทำให้
+ * item หลายแพลตฟอร์มไม่มีทาง match กับตัวกรองใดๆ เลยแม้จะมีแพลตฟอร์มนั้นจริง
+ */
+describe('ContentPlannerCalendar — platformFilter match กับ content item หลายแพลตฟอร์ม', () => {
+  it('item ที่มีหลายแพลตฟอร์ม ปรากฏเมื่อกรองด้วยแพลตฟอร์มที่มันมี', () => {
+    const item = makeItem({
+      id: 'multi-1', scheduled_date: '2026-01-10', topic: 'มีหลายแพลตฟอร์ม',
+      platforms: ['facebook', 'linkedin'],
+    });
+    renderCalendar({ plans: [makePlan([item])], platformFilter: 'linkedin' });
+
+    expect(screen.getByText('มีหลายแพลตฟอร์ม')).toBeInTheDocument();
+  });
+
+  it('item ที่มีหลายแพลตฟอร์ม ไม่ปรากฏเมื่อกรองด้วยแพลตฟอร์มที่มันไม่มี', () => {
+    const item = makeItem({
+      id: 'multi-2', scheduled_date: '2026-01-10', topic: 'ไม่มี youtube',
+      platforms: ['facebook', 'linkedin'],
+    });
+    renderCalendar({ plans: [makePlan([item])], platformFilter: 'youtube' });
+
+    expect(screen.queryByText('ไม่มี youtube')).not.toBeInTheDocument();
+  });
+
+  it('item แพลตฟอร์มเดียวยังกรองถูกต้องเหมือนเดิม (ไม่ถดถอย)', () => {
+    const item = makeItem({
+      id: 'single-1', scheduled_date: '2026-01-10', topic: 'แพลตฟอร์มเดียว',
+      platform: 'facebook',
+    });
+    renderCalendar({ plans: [makePlan([item])], platformFilter: 'facebook' });
+
+    expect(screen.getByText('แพลตฟอร์มเดียว')).toBeInTheDocument();
+  });
+
+  it('platformFilter="all" แสดงทุก item โดยไม่กรองตามแพลตฟอร์ม', () => {
+    const item = makeItem({
+      id: 'multi-3', scheduled_date: '2026-01-10', topic: 'ไม่กรอง',
+      platforms: ['facebook', 'linkedin'],
+    });
+    renderCalendar({ plans: [makePlan([item])], platformFilter: 'all' });
+
+    expect(screen.getByText('ไม่กรอง')).toBeInTheDocument();
+  });
+});

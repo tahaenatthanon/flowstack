@@ -5,6 +5,7 @@ import type { ContentPlan, PlanItem, CalendarView, PostingAnalyticsResponse } fr
 import { TYPE_MAP, getCanonicalContentType } from '@/components/content/types';
 import { BestTimeIndicator } from './BestTimeIndicator';
 import { ContentTypeBadge } from './ContentTypeBadge';
+import { parsePlatforms } from './PlatformBadgeList';
 import {
   generateMonthGrid,
   generateQuarterGrids,
@@ -58,7 +59,10 @@ export function ContentPlannerCalendar({
     for (const plan of plans) {
       for (const item of plan.items || []) {
         if (typeFilter !== 'all' && item.content_type !== typeFilter) continue;
-        if (platformFilter !== 'all' && item.platform !== platformFilter) continue;
+        // item.platform อาจเป็นสตริงรวมหลายแพลตฟอร์มคั่นด้วย comma — เทียบ === ตรงๆ
+        // ไม่มีทาง match กับตัวกรองแพลตฟอร์มเดี่ยวได้เลยแม้ item จะมีแพลตฟอร์มนั้น
+        // รวมอยู่ด้วยจริง ดู openspec/changes/content-planner-platform-filter-fix
+        if (platformFilter !== 'all' && !parsePlatforms(item.platforms ?? item.platform).includes(platformFilter)) continue;
         if (!item.scheduled_date) { unscheduled.push(item); continue; }
         const key = item.scheduled_date;
         if (!map.has(key)) map.set(key, []);
