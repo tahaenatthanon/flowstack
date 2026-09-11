@@ -22,6 +22,7 @@ vi.mock('@/lib/api', () => ({ apiFetch: vi.fn() }));
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast }) }));
 vi.mock('@/hooks/useContent', () => ({
   useContentGlobalSettings: () => ({ data: undefined }),
+  useQualityRecheck: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 vi.mock('@/components/content/ArticleEditor', () => ({ default: () => null }));
 vi.mock('@/components/content/ImageViewer', () => ({ default: () => null }));

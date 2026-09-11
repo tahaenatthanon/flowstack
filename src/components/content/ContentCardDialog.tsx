@@ -13,19 +13,19 @@ import { Badge } from '@/components/ui/badge';
 import type { PlanItem } from '@/components/content/types';
 import { getCanonicalContentType, PLATFORM_MAP, platformsNeedScriptSections } from '@/components/content/types';
 import { getThaiDayName, formatThaiDate } from './calendarUtils';
-import { CalendarDays, Save, Trash2, Sparkles, ImagePlus, RefreshCw, Loader2, Image as ImageIcon, FileText, Hash, Lightbulb, Clapperboard, MessageSquare, Share2, BookOpen, ChevronDown, Video, Play, Send } from 'lucide-react';
+import { CalendarDays, Save, Trash2, Sparkles, ImagePlus, RefreshCw, Loader2, Image as ImageIcon, FileText, Hash, Lightbulb, Clapperboard, MessageSquare, Share2, BookOpen, ChevronDown, Video, Play, Send, ShieldCheck } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { apiFetch } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import { useConfirm } from '@/hooks/useConfirm';
 import { useQueryClient } from '@tanstack/react-query';
-import { useContentGlobalSettings } from '@/hooks/useContent';
+import { useContentGlobalSettings, useQualityRecheck } from '@/hooks/useContent';
 import { useResearchRun, RESEARCH_STEP_LABELS, researchSeedTopic } from '@/hooks/useResearchRun';
 import ArticleEditor from '@/components/content/ArticleEditor';
 import ImageViewer from '@/components/content/ImageViewer';
 import type { SeoFields } from '@/components/content/types';
-import { emptySeoFields } from '@/components/content/types';
+import { emptySeoFields, SEO_GATE_LABEL } from '@/components/content/types';
 
 function CollapsibleSection({ title, defaultOpen = false, children }: { title: string; defaultOpen?: boolean; children: React.ReactNode }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -105,6 +105,12 @@ export function ContentCardDialog({
   // Mandatory Research — ทุกการสร้างเนื้อหาต้องผ่าน Fetch/Reuse → Analyze → Generate
   const { run: runResearch, cancel: cancelResearch, step: researchStep } = useResearchRun();
 
+  // ตรวจ Quality โดยไม่เขียนเนื้อหาใหม่ — ต่างจาก "AI เขียนให้" ที่ generate ทั้งชุด
+  // ปุ่มนี้แค่ประเมิน SEO/AEO ซ้ำแล้วเซ็ต quality_checked_at เพื่อปลดล็อก publish gate
+  const qualityRecheck = useQualityRecheck();
+  // override ค่าจาก response ทันทีหลังกด — ไม่ต้องรอ invalidate query ของรายการ content ทั้งชุด
+  const [qualityRecheckedAt, setQualityRecheckedAt] = useState<string | null>(null);
+
   // Snapshot ค่าก่อนกด "AI เขียนให้" สำหรับคืนค่าเมื่อยกเลิกแล้ว generate-article
   // เขียนผลลัพธ์ลง content_items ไปแล้วก่อน checkpoint จะทัน (ดู openspec cancel-ai-generation-rollback)
   const preAIStateRef = useRef<{
@@ -149,6 +155,9 @@ export function ContentCardDialog({
   }, [existingItem?.article_content]);
 
   const hasArticle = !!(articleData?.html || articleData?.title);
+  // ค่านี้ใช้ทั้งโชว์ "ตรวจ Quality ล่าสุด" และเตือนที่ปุ่ม "บันทึก" ว่าการบันทึกจะล้างค่านี้ทิ้ง
+  // (api/content-items.php ล้าง quality_checked_at ทุกครั้งที่ body มีฟิลด์เนื้อหา ไม่ว่าค่าจะเปลี่ยนจริงหรือไม่)
+  const qualityCheckedAtValue = qualityRecheckedAt ?? articleData?.quality_checked_at ?? null;
 
   // Select all product refs by default when dialog opens or refs load
   useEffect(() => {
@@ -158,6 +167,7 @@ export function ContentCardDialog({
   useEffect(() => {
     if (open) {
       setLocalImageUrl(null);
+      setQualityRecheckedAt(null);
       if (existingItem) {
         setTopic(existingItem.topic || '');
         setCaption(existingItem.caption || '');
@@ -411,6 +421,27 @@ export function ContentCardDialog({
     if (existingItem?.id) cancelResearch(existingItem.id);
     toast({ title: 'ยกเลิกแล้ว' });
     setAiGenerating(false);
+  };
+
+  // ตรวจ Quality ซ้ำบนเนื้อหาที่บันทึกล่าสุด — ไม่เรียก AI ไม่แก้เนื้อหา แค่ประเมิน SEO/AEO
+  // แล้วเซ็ต quality_checked_at เพื่อปลดล็อก publish gate (ดู openspec/changes/content-quality-recheck-action)
+  const handleQualityRecheck = async () => {
+    if (!existingItem?.id) return;
+    try {
+      const res = await qualityRecheck.mutateAsync({ item_id: existingItem.id });
+      setQualityRecheckedAt(res.quality_checked_at);
+      const seoGate = SEO_GATE_LABEL[res.seo.gate];
+      const aeoGate = SEO_GATE_LABEL[res.aeo.gate];
+      const failCount =
+        res.seo.rules.filter(r => r.status === 'failed').length +
+        res.aeo.rules.filter(r => r.status === 'failed').length;
+      toast({
+        title: 'ตรวจ Quality เสร็จแล้ว',
+        description: `SEO: ${seoGate.label} · AEO: ${aeoGate.label}` + (failCount > 0 ? ` · มี ${failCount} ข้อไม่ผ่าน` : ''),
+      });
+    } catch (e: any) {
+      toast({ title: 'ตรวจ Quality ไม่สำเร็จ', description: e?.message, variant: 'destructive' });
+    }
   };
 
   const handleConfirmAndAI = async () => {
@@ -933,6 +964,20 @@ export function ContentCardDialog({
             </Button>
           )}
           <Button variant="outline" onClick={() => onOpenChange(false)}>ยกเลิก</Button>
+          {qualityCheckedAtValue && (
+            <span className="text-[11px] text-muted-foreground self-center hidden sm:inline">
+              ตรวจ Quality ล่าสุด {formatThaiDate(new Date(String(qualityCheckedAtValue).replace(' ', 'T')))}
+            </span>
+          )}
+          <Button
+            variant="outline"
+            className="gap-1.5"
+            onClick={handleQualityRecheck}
+            disabled={!existingItem?.id || qualityRecheck.isPending}
+          >
+            {qualityRecheck.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />}
+            ตรวจ Quality
+          </Button>
           {aiGenerating ? (
             <Button variant="outline" className="gap-1.5" onClick={handleCancelAI}>
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -943,7 +988,12 @@ export function ContentCardDialog({
               <Sparkles className="h-3.5 w-3.5" />AI เขียนให้
             </Button>
           )}
-          <Button onClick={handleSave} disabled={saving || !topic.trim()} className="gap-1.5">
+          <Button
+            onClick={handleSave}
+            disabled={saving || !topic.trim()}
+            className="gap-1.5"
+            title={qualityCheckedAtValue ? 'การบันทึกจะล้างผลตรวจ Quality เดิม ต้องกด "ตรวจ Quality" ใหม่ก่อนเผยแพร่' : undefined}
+          >
             <Save className="h-3.5 w-3.5" />{saving ? 'กำลังบันทึก...' : 'บันทึก'}
           </Button>
           {canRequestApproval && (

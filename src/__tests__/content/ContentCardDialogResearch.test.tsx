@@ -25,6 +25,7 @@ vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast }) }));
 vi.mock('@/hooks/useConfirm', () => ({ useConfirm: () => ({ confirm: vi.fn().mockResolvedValue(true) }) }));
 vi.mock('@/hooks/useContent', () => ({
   useContentGlobalSettings: () => ({ data: undefined }),
+  useQualityRecheck: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 vi.mock('@/components/content/ArticleEditor', () => ({ default: () => null }));
 vi.mock('@/components/content/ImageViewer', () => ({ default: () => null }));

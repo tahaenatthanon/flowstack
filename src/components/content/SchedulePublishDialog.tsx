@@ -104,13 +104,26 @@ export function SchedulePublishDialog({ open, onOpenChange, contentId, contentTi
         const rows = res?.results ?? [];
         const ok      = rows.filter(r => r.status === 'success');
         const skipped = rows.filter(r => r.status === 'skipped');
+        const blocked = rows.filter(r => r.status === 'blocked');
         const failed  = rows.filter(r => r.status === 'failed');
 
         // ไม่มีช่องใดสำเร็จและมีช่องล้มเหลว → แจ้งล้มเหลวและคง dialog ไว้ให้ลองใหม่
+        // (backend ส่งเหตุผลมาเป็นคีย์ `reason` เดียวเสมอ ไม่มีคีย์ `error` แยก)
         if (ok.length === 0 && failed.length > 0) {
           toast({
             title: 'ส่งไม่สำเร็จ',
-            description: failed[0].error || `ล้มเหลว ${failed.length} channel`,
+            description: failed[0].reason || `ล้มเหลว ${failed.length} channel`,
+            variant: 'destructive',
+          });
+          return;
+        }
+        // ถูกเกตปฏิเสธก่อนเผยแพร่ (approval/quality/SEO gate ฯลฯ) — ไม่มี request ออกไปยัง
+        // ปลายทางเลย ต่างจาก failed ที่ยิงปลายทางแล้วแต่ไม่สำเร็จ ต้องแสดงเหตุผลจริงจาก backend
+        // ไม่ใช่ข้อความทั่วไป ไม่งั้นผู้ใช้ไม่รู้ว่าต้องแก้อะไรก่อนถึงจะส่งได้
+        if (ok.length === 0 && blocked.length > 0) {
+          toast({
+            title: 'ถูกบล็อกก่อนเผยแพร่',
+            description: blocked[0].reason || `${blocked.length} ช่องทางถูกบล็อกโดยเงื่อนไขเผยแพร่`,
             variant: 'destructive',
           });
           return;
@@ -127,11 +140,12 @@ export function SchedulePublishDialog({ open, onOpenChange, contentId, contentTi
         } else {
           const parts = [`สำเร็จ ${ok.length}`];
           if (skipped.length) parts.push(`ข้าม ${skipped.length}`);
+          if (blocked.length) parts.push(`ถูกบล็อก ${blocked.length}`);
           if (failed.length)  parts.push(`ล้มเหลว ${failed.length}`);
           toast({
-            title: failed.length ? 'ส่งบางส่วนไม่สำเร็จ' : 'ส่งสำเร็จ!',
+            title: (failed.length || blocked.length) ? 'ส่งบางส่วนไม่สำเร็จ' : 'ส่งสำเร็จ!',
             description: parts.length > 1 ? parts.join(' · ') : undefined,
-            variant: failed.length ? 'destructive' : undefined,
+            variant: (failed.length || blocked.length) ? 'destructive' : undefined,
           });
         }
       } else {

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-กำหนด idempotency guard ของ `send_now` — ข้ามการเผยแพร่ซ้ำของคู่ `(content_id, channel_id)` ในกรอบ 10 นาที, ใช้ payload ที่ถูกต้องต่อ platform, และรายงานผลรายช่องทางตามจริง (สำเร็จ / ข้าม / ล้มเหลว)
+กำหนด idempotency guard ของ `send_now` — ข้ามการเผยแพร่ซ้ำของคู่ `(content_id, channel_id)` ในกรอบ 10 นาที, ใช้ payload ที่ถูกต้องต่อ platform, และรายงานผลรายช่องทางตามจริง (สำเร็จ / ข้าม / ถูกบล็อกก่อนเผยแพร่ / ล้มเหลว)
 
 ## Requirements
 
@@ -57,7 +57,9 @@
 - **AND** channel B ถูก dispatch ด้วย script ของ B เพียงครั้งเดียว
 
 ### Requirement: send_now รายงานผลรายช่องทางตามจริง
-คำตอบของ `send_now` SHALL ระบุสถานะรายช่องทางที่แยกได้ 3 กรณี: สำเร็จ / ข้าม (`skipped`) / ล้มเหลว และ UI SHALL แสดงตามผลจริงนั้น การ dispatch ของแต่ละ channel SHALL ใช้ payload ที่เหมาะกับ platform นั้น โดย SHALL ใช้ channel override ก่อน, ใช้ `article_content.scripts[platform]` เมื่อมีค่า, และ fallback ไปเนื้อหาเดิมเมื่อไม่มี script
+คำตอบของ `send_now` SHALL ระบุสถานะรายช่องทางที่แยกได้ 4 กรณี: สำเร็จ / ข้าม (`skipped`) / ถูกบล็อกก่อนเผยแพร่ (`blocked`) / ล้มเหลว (`failed`) และ UI SHALL แสดงตามผลจริงนั้น การ dispatch ของแต่ละ channel SHALL ใช้ payload ที่เหมาะกับ platform นั้น โดย SHALL ใช้ channel override ก่อน, ใช้ `article_content.scripts[platform]` เมื่อมีค่า, และ fallback ไปเนื้อหาเดิมเมื่อไม่มี script
+
+`blocked` SHALL หมายถึงกรณีที่ `publish_via_central_flow()` ปฏิเสธก่อนเรียก `dispatch_content()` (เช่น approval gate, quality gate, SEO/AEO gate, หรือ channel ปิดใช้งาน) ซึ่งต่างจาก `failed` ที่หมายถึงมีการเรียกปลายทางจริงแล้วแต่ปลายทางตอบล้มเหลวหรือ `dispatch_content()` มีข้อผิดพลาด — UI SHALL แสดงเหตุผลของ `blocked` จาก `result.reason` ตรง ๆ แยกจากข้อความทั่วไป ไม่ตกไปใช้ข้อความ generic เมื่อไม่มีช่องทางใดสำเร็จ
 
 #### Scenario: ใช้ script เฉพาะ platform
 - **GIVEN** `article_content.scripts.facebook` และ `article_content.scripts.instagram` มีข้อความต่างกัน
@@ -88,3 +90,13 @@
 - **GIVEN** ทุกช่องทางในคำขอเข้าเงื่อนไข idempotency guard
 - **WHEN** คำขอเสร็จสิ้น
 - **THEN** UI แจ้งว่าถูกข้ามเพราะเพิ่งส่งไปแล้ว ไม่ใช่ทั้งสำเร็จและไม่ใช่ล้มเหลว
+
+#### Scenario: ถูก gate บล็อกก่อนเผยแพร่ต้องแสดงเหตุผลจริง ไม่ใช่ข้อความทั่วไป
+- **GIVEN** คอนเทนต์ยังไม่มีผล Quality ของเวอร์ชันปัจจุบัน (`quality_checked_at` เป็น NULL) ทำให้ `final_publish_gate_check()` คืน `blocked`
+- **WHEN** ผู้ใช้กด "ส่งเลย" ไปยังช่องทางเดียวและไม่มีช่องทางอื่น
+- **THEN** UI แสดงเหตุผลจริงจาก `result.reason` (เช่น ข้อความเกี่ยวกับ Quality gate) ไม่ใช่ข้อความทั่วไป "ไม่มีช่องทางที่ถูกส่ง"
+
+#### Scenario: ผลผสมที่มี blocked ปนกับสถานะอื่นแสดงแยกกัน
+- **GIVEN** คำขอมี 2 ช่องทาง: สำเร็จ 1 และถูกบล็อก 1
+- **WHEN** คำขอเสร็จสิ้น
+- **THEN** UI แสดงจำนวน "สำเร็จ" และ "ถูกบล็อก" แยกกัน ไม่นับรวมเป็นก้อนเดียวกับ `failed` หรือ `skipped`

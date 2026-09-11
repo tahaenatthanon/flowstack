@@ -1,7 +1,7 @@
 // src/hooks/useContent.ts
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api';
-import type { ContentItem, BrandContext, ContentSkill, ContentTrigger, ContentPlan, PlanItem, PublishChannel, ContentSchedule, PublishQueueItem, GlobalSettings, AIGatewaySettings, PostingAnalyticsResponse, ResultMetricsResponse, ContentOverview, ContentAnalytics } from '@/components/content/types';
+import type { ContentItem, BrandContext, ContentSkill, ContentTrigger, ContentPlan, PlanItem, PublishChannel, ContentSchedule, PublishQueueItem, GlobalSettings, AIGatewaySettings, PostingAnalyticsResponse, ResultMetricsResponse, ContentOverview, ContentAnalytics, SeoChecklistResult, AeoChecklistResult } from '@/components/content/types';
 
 // ── Query keys ─────────────────────────────────────────────────
 
@@ -392,6 +392,34 @@ export function useTestResearchProvider() {
   });
 }
 
+/** ผลจาก quality-recheck — ประเมิน SEO/AEO ซ้ำบนเนื้อหาที่บันทึกล่าสุดโดยไม่ generate ใหม่ */
+export interface QualityRecheckResponse {
+  seo: SeoChecklistResult;
+  aeo: AeoChecklistResult;
+  quality_checked_at: string;
+}
+
+/**
+ * ตรวจ Quality โดยไม่เขียนบทความใหม่ — ต่างจาก generate-article ("AI เขียนให้") ตรงที่ไม่เรียก AI
+ * และไม่แก้เนื้อหาเลย ใช้เมื่อผู้ใช้แค่ต้องการปลดล็อก publish gate ที่บล็อกเพราะ quality_checked_at
+ * ว่าง (ดู openspec/changes/content-quality-recheck-action)
+ */
+export function useQualityRecheck() {
+  const qc = useQueryClient();
+  return useMutation<QualityRecheckResponse, Error, { item_id: string }>({
+    mutationFn: (payload) =>
+      apiFetch('/brand-content.php?action=quality-recheck', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    onSuccess: () => {
+      // quality_checked_at อยู่ใน content_items.article_content — invalidate รายการทั้งชุด
+      // เหมือนกับ mutation อื่นที่แก้ content_items (ดู useCancelQueue ด้านล่าง)
+      qc.invalidateQueries({ queryKey: contentKeys.items() });
+    },
+  });
+}
+
 export function useScheduleContent() {
   const qc = useQueryClient();
   return useMutation({
@@ -407,15 +435,20 @@ export function useScheduleContent() {
   });
 }
 
-/** ผลรายช่องทางจาก send_now — แยก สำเร็จ / ข้าม (idempotency guard) / ล้มเหลว ได้ตามจริง */
+/**
+ * ผลรายช่องทางจาก send_now — แยก สำเร็จ / ข้าม (idempotency guard) / ถูกบล็อกก่อนเผยแพร่
+ * (approval/quality/SEO gate ฯลฯ — ไม่มีการเรียกปลายทางเลย) / ล้มเหลว (เรียกปลายทางแล้วแต่ไม่สำเร็จ)
+ * ได้ตามจริง — ดู openspec/specs/publish-send-now-idempotency
+ */
 export interface SendNowChannelResult {
   channel_id: string;
   success: boolean;
-  status: 'success' | 'skipped' | 'failed';
-  /** เหตุผลที่ถูกข้าม (มีเฉพาะ status='skipped') */
+  status: 'success' | 'skipped' | 'blocked' | 'failed';
+  /**
+   * เหตุผลจริงจาก backend — มีให้ทุกสถานะที่ไม่ใช่ success (`api/content-publish.php`
+   * ส่งมาเป็นคีย์ `reason` เดียวเสมอ ไม่มีคีย์ `error` แยกต่างหาก)
+   */
   reason?: string;
-  /** ข้อความล้มเหลวจากปลายทาง (มีเฉพาะ status='failed') */
-  error?: string;
 }
 
 export interface SendNowResponse {

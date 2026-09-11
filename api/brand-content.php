@@ -440,6 +440,67 @@ if ($action === 'aeo-checklist') {
     jsonResponse(['score' => $eval['score'], 'gate' => $eval['gate'], 'rules' => $eval['rules']]);
 }
 
+// ─── QUALITY RECHECK (ประเมิน SEO/AEO ซ้ำบนเนื้อหาที่บันทึกล่าสุด + เซ็ต quality_checked_at) ──
+// ต่างจาก generate-article ตรงที่ไม่เรียก AI และไม่แก้ไขเนื้อหาบทความเลย — ใช้เมื่อผู้ใช้แก้ไข
+// เนื้อหาเล็กน้อยแล้วแค่ต้องการปลดล็อก publish gate โดยไม่ต้องรอ generate ใหม่ทั้งชุด
+// (ดู openspec/changes/content-quality-recheck-action)
+if ($action === 'quality-recheck') {
+    if ($method !== 'POST') jsonError('Method not allowed', 405);
+    $body = getRequestBody();
+    $itemId = trim((string)($body['item_id'] ?? ''));
+    if ($itemId === '') jsonError('item_id required', 400);
+
+    $stmt = $db->prepare('SELECT * FROM content_items WHERE id=? AND tenant_id=?');
+    $stmt->execute([$itemId, $tenantId]);
+    $item = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$item) jsonError('Content not found', 404);
+
+    // แนบ research brief (ถ้ามี) — เหมือน seo-checklist/aeo-checklist ทุกประการ
+    $researchBrief = null;
+    $rs = $db->prepare("SELECT analysis FROM content_research_jobs WHERE content_item_id=? AND tenant_id=? AND status='done' ORDER BY created_at DESC LIMIT 1");
+    $rs->execute([$itemId, $tenantId]);
+    $rr = $rs->fetch(PDO::FETCH_ASSOC);
+    if ($rr && !empty($rr['analysis'])) {
+        $decoded = json_decode((string)$rr['analysis'], true);
+        if (is_array($decoded)) $researchBrief = $decoded;
+    }
+    $item['research_brief'] = $researchBrief;
+
+    $seoEval = seo_evaluate($item);
+    $aeoEval = aeo_evaluate($item);
+
+    $cfgStmt = $db->prepare('SELECT seo_gate_enabled, seo_gate_min_score FROM content_global_settings WHERE tenant_id=?');
+    $cfgStmt->execute([$tenantId]);
+    $cfg = $cfgStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+    // เซ็ต quality_checked_at เสมอไม่ว่าผลจะผ่านเกณฑ์หรือไม่ — marker นี้บอกว่า "ประเมินแล้วบน
+    // เวอร์ชันนี้" ไม่ใช่ "ผ่านแล้ว" (ความหมายเดียวกับที่ generate-article เซ็ตตอน generate สำเร็จ
+    // ที่ brand-content.php:2902-2903) เกณฑ์ผ่าน/ไม่ผ่านของ web platform ยังคงตัดสินแยกโดย
+    // final_publish_gate_check() ที่ publish-dispatch.php ตามเดิม ไม่เกี่ยวกับ marker นี้
+    $art = json_decode((string)($item['article_content'] ?? ''), true);
+    if (!is_array($art)) $art = [];
+    $checkedAt = dbNow($db);
+    $art['quality_checked_at'] = $checkedAt;
+    $db->prepare('UPDATE content_items SET article_content=?, updated_at=NOW() WHERE id=? AND tenant_id=?')
+       ->execute([json_encode($art, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), $itemId, $tenantId]);
+
+    jsonResponse([
+        'seo' => [
+            'score'              => $seoEval['score'],
+            'gate'               => $seoEval['gate'],
+            'rules'              => $seoEval['rules'],
+            'seo_gate_enabled'   => (int)($cfg['seo_gate_enabled'] ?? 0),
+            'seo_gate_min_score' => (int)($cfg['seo_gate_min_score'] ?? 0),
+        ],
+        'aeo' => [
+            'score' => $aeoEval['score'],
+            'gate'  => $aeoEval['gate'],
+            'rules' => $aeoEval['rules'],
+        ],
+        'quality_checked_at' => $checkedAt,
+    ]);
+}
+
 if ($action === 'skills') {
     if ($method === 'GET') {
         $stmt = $db->prepare('SELECT * FROM content_skills WHERE tenant_id=? ORDER BY created_at DESC');
