@@ -196,3 +196,66 @@ describe('ContentPlannerCalendar — published platform lock', () => {
     expect(screen.getByText('ไม่ล็อก').getAttribute('draggable')).toBe('true');
   });
 });
+
+/**
+ * openspec/changes/content-type-badge-display — chip เคยแสดงไอคอนแพลตฟอร์ม
+ * แยกทีละอัน (สูงสุด 7 อันในพื้นที่ ~80px) เปลี่ยนเป็นแสดงสี/ไอคอนตามประเภท
+ * เนื้อหา (บทความ/วีดีโอ) แทน — ไม่ขึ้นกับจำนวนแพลตฟอร์มที่เลือกไว้อีกต่อไป
+ */
+describe('ContentPlannerCalendar — content type badge (แทนที่ไอคอนแพลตฟอร์ม)', () => {
+  it('chip ของ content item ประเภทบทความ มีพื้นหลังโทนฟ้า ไม่มีไอคอนแพลตฟอร์ม', () => {
+    const item = makeItem({
+      id: 'article-1', scheduled_date: '2026-01-10', topic: 'บทความทดสอบ',
+      content_type: 'article', platforms: ['facebook', 'linkedin', 'twitter'],
+    });
+    renderCalendar({ plans: [makePlan([item])] });
+
+    const chip = screen.getByText('บทความทดสอบ');
+    expect(chip.className).toMatch(/bg-blue-50/);
+    // ไม่มีไอคอนแพลตฟอร์มเหลืออยู่ — เหลือแค่ไอคอนประเภทเดียว (1 svg)
+    expect(chip.querySelectorAll('svg')).toHaveLength(1);
+  });
+
+  it('chip ของ content item ประเภทวีดีโอ มีพื้นหลังโทนแดง', () => {
+    const item = makeItem({
+      id: 'video-1', scheduled_date: '2026-01-10', topic: 'วีดีโอทดสอบ',
+      content_type: 'video',
+    });
+    renderCalendar({ plans: [makePlan([item])] });
+
+    const chip = screen.getByText('วีดีโอทดสอบ');
+    expect(chip.className).toMatch(/bg-red-50/);
+  });
+
+  it('content item ที่มี 7 แพลตฟอร์ม กับ item ที่มี 1 แพลตฟอร์ม แสดง chip เหมือนกันทุกประการเมื่อประเภทเดียวกัน', () => {
+    const many = makeItem({
+      id: 'many', scheduled_date: '2026-01-10', topic: 'มีหลายแพลตฟอร์ม',
+      content_type: 'article', platforms: ['facebook', 'linkedin', 'twitter', 'instagram', 'lineoa', 'wordpress', 'wix'],
+    });
+    const one = makeItem({
+      id: 'one', scheduled_date: '2026-01-11', topic: 'มีแพลตฟอร์มเดียว',
+      content_type: 'article', platforms: ['facebook'],
+    });
+    renderCalendar({ plans: [makePlan([many, one])] });
+
+    const manyChip = screen.getByText('มีหลายแพลตฟอร์ม');
+    const oneChip = screen.getByText('มีแพลตฟอร์มเดียว');
+    expect(manyChip.querySelectorAll('svg')).toHaveLength(1);
+    expect(oneChip.querySelectorAll('svg')).toHaveLength(1);
+    expect(manyChip.className.match(/bg-blue-50/)).toBeTruthy();
+    expect(oneChip.className.match(/bg-blue-50/)).toBeTruthy();
+  });
+
+  it('ไอคอนล็อกยังแสดงคู่กับ type badge ได้ตามปกติเมื่อเผยแพร่แล้ว', () => {
+    const item = makeItem({
+      id: 'locked-typed', scheduled_date: '2026-01-10', topic: 'ล็อกแล้วมี type badge',
+      content_type: 'video', has_published_platform: true,
+    });
+    renderCalendar({ plans: [makePlan([item])] });
+
+    const chip = screen.getByText('ล็อกแล้วมี type badge');
+    // ไอคอน Lock + ไอคอนประเภท = 2 svg
+    expect(chip.querySelectorAll('svg')).toHaveLength(2);
+    expect(chip.className).toMatch(/bg-red-50/);
+  });
+});

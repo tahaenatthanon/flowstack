@@ -8,9 +8,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
 import { apiFetch } from '@/lib/api';
 
-import { cn } from '@/lib/utils';
 import type { ContentItem, PlanItem } from '@/components/content/types';
-import { PLATFORM_MAP } from '@/components/content/types';
+import { PlatformBadgeList } from '@/components/content/PlatformBadgeList';
 import { useResearchRun, RESEARCH_STEP_LABELS, researchSeedTopic } from '@/hooks/useResearchRun';
 import ContentArticleView from './ContentArticleView';
 import ContentVideoView from './ContentVideoView';
@@ -282,20 +281,7 @@ export default function ContentDetailView({
             <span className="text-xs text-muted-foreground flex items-center gap-1">
               {isVideo ? <><Play className="h-3 w-3" />วิดีโอ</> : <><FileText className="h-3 w-3" />บทความ</>}
             </span>
-            {(() => {
-              const raw = item.platforms;
-              const savedPlatforms = Array.isArray(raw)
-                ? raw
-                : typeof raw === 'string' && raw.trim()
-                  ? (() => { try { const parsed = JSON.parse(raw); return Array.isArray(parsed) ? parsed : raw.split(','); } catch { return raw.split(','); } })()
-                  : item.platform ? item.platform.split(',') : [];
-              const normalizedPlatforms = Array.from(new Set(savedPlatforms.map(p => String(p).trim().toLowerCase()).filter(Boolean)));
-              return normalizedPlatforms.map(platform => (
-                <span key={platform} className={cn('text-xs px-2 py-0.5 rounded font-medium', PLATFORM_MAP[platform]?.color ?? 'bg-muted text-muted-foreground')}>
-                  {PLATFORM_MAP[platform]?.label ?? platform}
-                </span>
-              ));
-            })()}
+            <PlatformBadgeList platforms={item.platforms ?? item.platform} variant="pill" size={12} />
             {(item.scheduled_date || item.day_label) && (
               <span className="text-xs text-muted-foreground flex items-center gap-1">
                 <Clock className="h-3 w-3" />

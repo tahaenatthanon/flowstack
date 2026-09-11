@@ -3,7 +3,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import type { ContentPlan, PlanItem } from '@/components/content/types';
-import { PLATFORM_MAP } from '@/components/content/types';
+import { getCanonicalContentType } from '@/components/content/types';
+import { ContentTypeBadge } from './ContentTypeBadge';
 import { formatThaiDate } from './calendarUtils';
 import { Pencil, Trash2, GripVertical, Search, CalendarX2, ArrowUpDown, Image as ImageIcon } from 'lucide-react';
 
@@ -15,7 +16,7 @@ interface Props {
   platformFilter?: string;
 }
 
-type SortKey = 'date' | 'platform' | 'topic' | 'plan';
+type SortKey = 'date' | 'type' | 'topic' | 'plan';
 
 export function ContentItemList({ plans, onEditItem, onDeleteItem, typeFilter = 'all', platformFilter = 'all' }: Props) {
   const [search, setSearch] = useState('');
@@ -57,8 +58,8 @@ export function ContentItemList({ plans, onEditItem, onDeleteItem, typeFilter = 
       if (sortBy === 'date') {
         return ((a.scheduled_date || '9999').localeCompare(b.scheduled_date || '9999')) * dir;
       }
-      if (sortBy === 'platform') {
-        return ((a.platform || '').localeCompare(b.platform || '')) * dir;
+      if (sortBy === 'type') {
+        return getCanonicalContentType(a).localeCompare(getCanonicalContentType(b)) * dir;
       }
       if (sortBy === 'topic') {
         return ((a.topic || '').localeCompare(b.topic || '')) * dir;
@@ -118,7 +119,7 @@ export function ContentItemList({ plans, onEditItem, onDeleteItem, typeFilter = 
         <div className="border rounded-lg overflow-hidden">
           <div className="grid grid-cols-12 gap-2 px-3 py-2 bg-muted/50 border-b text-[10px] font-semibold text-muted-foreground">
             <div className="col-span-3">{renderSortBtn('topic', 'หัวข้อ')}</div>
-            <div className="col-span-1">{renderSortBtn('platform', 'แพลตฟอร์ม')}</div>
+            <div className="col-span-1">{renderSortBtn('type', 'ประเภท')}</div>
             <div className="col-span-2">{renderSortBtn('date', 'วันที่')}</div>
             <div className="col-span-2">{renderSortBtn('plan', 'แผน')}</div>
             <div className="col-span-3">แคปชั่น</div>
@@ -126,7 +127,6 @@ export function ContentItemList({ plans, onEditItem, onDeleteItem, typeFilter = 
           </div>
           <div className="sm:max-h-[60vh] overflow-y-auto">
             {filtered.map(item => {
-              const pf = PLATFORM_MAP[item.platform || ''];
               const hasDate = !!item.scheduled_date;
               // เผยแพร่ไปแล้วอย่างน้อย 1 แพลตฟอร์ม → ห้ามลาก เช่นเดียวกับ chip บนปฏิทิน
               // (ดู openspec/changes/lock-published-content-date)
@@ -158,9 +158,7 @@ export function ContentItemList({ plans, onEditItem, onDeleteItem, typeFilter = 
                     <span className="truncate font-medium">{item.topic}</span>
                   </div>
                   <div className="col-span-1 flex items-center">
-                    <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full', pf?.color || 'bg-gray-100 text-gray-600')}>
-                      {pf?.label || item.platform || '-'}
-                    </span>
+                    <ContentTypeBadge contentType={item.content_type} variant="pill" size={11} />
                   </div>
                   <div className="col-span-2 flex items-center gap-1">
                     {hasDate ? (

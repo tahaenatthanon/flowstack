@@ -1,6 +1,7 @@
 // ─── Content Types — single source of truth ────────────────────────
 
 import { FileText, Image, Video, BookOpen, ListChecks, CheckCircle2, Clock, Stamp, RotateCcw, Edit3, XCircle } from 'lucide-react';
+import { PLATFORM_CATALOG, getPlatformLabel, getPlatformColorClass } from '@/lib/platformConfig';
 
 export interface ContentItem {
   id: string; title: string; source_topic?: string | null; type: string; status: string;
@@ -565,16 +566,11 @@ export function platformsNeedScriptSections(platforms: string[]): boolean {
   return platforms.some(p => VIDEO_SCRIPT_PLATFORMS.includes(p.toLowerCase()));
 }
 
-export const PLATFORM_MAP: Record<string, { label: string; color: string }> = {
-  wordpress: { label: 'WordPress',   color: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300' },
-  wix:       { label: 'Wix',         color: 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300' },
-  custom:    { label: 'Custom API',  color: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300' },
-  facebook:  { label: 'Facebook',    color: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' },
-  lineoa:    { label: 'Line OA',     color: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300' },
-  instagram: { label: 'Instagram',   color: 'bg-pink-100 text-pink-700 dark:bg-pink-950 dark:text-pink-300' },
-  tiktok:    { label: 'TikTok',      color: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300' },
-  linkedin:  { label: 'LinkedIn',    color: 'bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300' },
-  twitter:      { label: 'Twitter / X',             color: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300' },
-  lotusdomino:  { label: 'Lotus Notes / Domino',    color: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300' },
-  youtube:      { label: 'YouTube',                 color: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300' },
-};
+// เดิม PLATFORM_MAP นิยามสี/label ของตัวเองซ้ำกับ PLATFORM_CATALOG ใน
+// platformConfig.ts (getPlatformColors) ทำให้สีแพลตฟอร์มเดียวกันไม่ตรงกันเป๊ะ
+// ระหว่าง 2 ที่ และมี dark mode แค่ที่นี่ที่เดียว — ตอนนี้ derive จาก
+// PLATFORM_CATALOG แหล่งเดียวแทน คง shape {label,color} เดิมทุกประการเพื่อไม่ให้
+// ผู้ import เดิม (16+ ไฟล์) ต้องแก้ ดู openspec/changes/platform-color-catalog
+export const PLATFORM_MAP: Record<string, { label: string; color: string }> = Object.fromEntries(
+  Object.keys(PLATFORM_CATALOG).map(key => [key, { label: getPlatformLabel(key), color: getPlatformColorClass(key) }])
+);

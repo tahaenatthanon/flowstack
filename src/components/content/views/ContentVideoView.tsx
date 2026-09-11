@@ -17,6 +17,10 @@ export function allVideoScenesHaveImages(scenes: Array<{ image_url?: string | nu
   return Array.isArray(scenes) && scenes.length > 0 && scenes.every((scene) => Boolean(scene?.image_url?.trim()));
 }
 
+// ตั้งใจแยกจาก catalog กลางใน platformConfig.ts — badge นี้ทับอยู่บนตัวเล่นวิดีโอ
+// จึงต้องใช้โทนสีทึบเข้มให้คมชัด ต่างจากโทนอ่อนที่ catalog กลางใช้ทั่วทั้งแอป
+// ซึ่งจะกลืนไปกับพื้นหลังวิดีโอ — ไม่ใช่ความซ้ำซ้อนที่ต้องรวม (ดู
+// openspec/changes/platform-color-catalog/design.md Decision 4)
 const PLATFORM_COLORS: Record<string, string> = {
   tiktok: 'bg-black text-white', youtube: 'bg-red-600 text-white',
   instagram: 'bg-pink-500 text-white', facebook: 'bg-indigo-600 text-white',

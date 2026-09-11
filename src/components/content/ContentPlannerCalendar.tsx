@@ -2,9 +2,9 @@ import { useCallback, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { ContentPlan, PlanItem, CalendarView, PostingAnalyticsResponse } from '@/components/content/types';
+import { TYPE_MAP, getCanonicalContentType } from '@/components/content/types';
 import { BestTimeIndicator } from './BestTimeIndicator';
-import { PlatformIcon } from './PlatformIcon';
-import { getPlatformColors } from '@/lib/platformConfig';
+import { ContentTypeBadge } from './ContentTypeBadge';
 import {
   generateMonthGrid,
   generateQuarterGrids,
@@ -106,7 +106,11 @@ export function ContentPlannerCalendar({
   // ใน day cell คือวันของ cell นั้นจริงๆ, สำหรับ chip ใน unscheduled bucket
   // คือ placeholder (วันนี้) เพราะ item ยังไม่มีวันที่จริง
   const renderItemChip = (item: PlanItem, clickDate: Date) => {
-    const colors = getPlatformColors(item.platform);
+    // Chip สื่อ "ประเภทเนื้อหา" (บทความ/วีดีโอ) ไม่ใช่แพลตฟอร์มอีกต่อไป — พื้นที่
+    // chip แคบเกินกว่าจะอัดไอคอนแพลตฟอร์มได้ถึง 7 อันอย่างมีความหมาย รายละเอียด
+    // แพลตฟอร์มยังดูได้ครบเมื่อคลิกเปิด dialog (ContentCardDialog ยังโชว์ทุก
+    // แพลตฟอร์มเหมือนเดิม) ดู openspec/changes/content-type-badge-display
+    const typeMeta = TYPE_MAP[getCanonicalContentType(item)];
     // เผยแพร่ไปแล้วอย่างน้อย 1 แพลตฟอร์ม → ห้ามลากเปลี่ยนวัน (ล็อกเฉพาะการ์ดนี้
     // การ์ดอื่นในวันเดียวกันที่ยังไม่เผยแพร่ไม่ได้รับผลกระทบ — ดู
     // openspec/changes/lock-published-content-date) คลิกดู/แก้รายละเอียดยังทำได้ปกติ
@@ -116,9 +120,9 @@ export function ContentPlannerCalendar({
         key={item.id}
         className={cn(
           'text-[10px] px-1.5 py-0.5 rounded truncate font-medium flex items-center gap-1 cursor-pointer hover:opacity-80',
+          typeMeta.color,
           locked && 'opacity-70 cursor-not-allowed'
         )}
-        style={{ backgroundColor: colors.bg, color: colors.text }}
         draggable={!locked}
         title={locked ? 'เผยแพร่ไปแล้วบางแพลตฟอร์ม ไม่สามารถลากเปลี่ยนวันที่ได้' : undefined}
         onDragStart={e => {
@@ -131,7 +135,7 @@ export function ContentPlannerCalendar({
         }}
       >
         {locked && <Lock className="h-2.5 w-2.5 shrink-0" />}
-        <PlatformIcon platform={item.platform} size={10} className="shrink-0" />
+        <ContentTypeBadge contentType={item.content_type} variant="icon-only" size={10} />
         {item.topic}
       </div>
     );

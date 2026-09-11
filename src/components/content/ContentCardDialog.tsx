@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { PlatformIcon } from '@/components/content/PlatformIcon';
+import { PlatformBadgeList } from '@/components/content/PlatformBadgeList';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import type { PlanItem } from '@/components/content/types';
@@ -540,13 +541,9 @@ export function ContentCardDialog({
           <DialogDescription>
             {dateStr}{effectiveDate ? ` — ${getThaiDayName(effectiveDate)}` : ''}
           </DialogDescription>
-          {(existingItem?.platform || isVideo) && (
+          {(platforms.length > 0 || isVideo) && (
             <div className="flex items-center gap-1.5 mt-0.5">
-              {existingItem?.platform && (
-                <Badge variant="secondary" className="text-[10px]">
-                  {PLATFORM_MAP[existingItem.platform]?.label ?? existingItem.platform}
-                </Badge>
-              )}
+              {platforms.length > 0 && <PlatformBadgeList platforms={platforms} variant="pill" size={11} />}
               {isVideo && <Badge variant="outline" className="text-[10px]">วีดีโอ</Badge>}
             </div>
           )}

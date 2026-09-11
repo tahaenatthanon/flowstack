@@ -1,6 +1,7 @@
 import { Heart, Eye, ThumbsUp, FileText, TrendingUp, Info, ExternalLink, BarChart3, Trophy } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { getPlatformLabel } from '@/lib/platformConfig';
 import type { SocialEngagementSummary } from './types';
 
 /**
@@ -15,16 +16,11 @@ import type { SocialEngagementSummary } from './types';
  * เพราะต้องเชื่อมต่อ OAuth page insights ซึ่งเป็นงาน integration เฟสถัดไป
  */
 
-const PLATFORM_LABELS: Record<string, string> = {
-  facebook: 'Facebook',
-  instagram: 'Instagram',
-};
-
 function platformLabel(platform: string): string {
   // cross-post คั่นด้วย '/' — แปลงทีละส่วนแล้วต่อกลับ
   return platform
     .split('/')
-    .map(p => PLATFORM_LABELS[p] ?? p)
+    .map(p => getPlatformLabel(p))
     .join(' / ');
 }
 
