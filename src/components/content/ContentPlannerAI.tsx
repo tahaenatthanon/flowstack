@@ -7,6 +7,8 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import type { ContentPlan, ContentSkill, ContentTrigger, BrandContext } from '@/components/content/types';
 import { PLAN_STATUS, PLATFORM_MAP, getTriggerDisplayLabel } from '@/components/content/types';
+import { parsePlatforms } from '@/lib/contentPlatforms';
+import { getPlatformColors } from '@/lib/platformConfig';
 import {
   Sparkles, Wand2, Loader2, PanelRightClose, PanelRightOpen,
   Zap, Bot, Trash2,
@@ -339,22 +341,21 @@ export function ContentPlannerAI({
                     </div>
                     {(pl.items?.length ?? 0) > 0 && (
                       <div className="mt-1.5 pt-1.5 border-t border-border/50 space-y-0.5">
-                        {pl.items!.slice(0, 5).map(item => (
-                          <div key={item.id} className="flex items-center gap-1 text-[10px]">
-                            <span className={cn(
-                              'w-1.5 h-1.5 rounded-full shrink-0',
-                              item.platform === 'facebook' ? 'bg-indigo-500' :
-                              item.platform === 'instagram' ? 'bg-pink-500' :
-                              item.platform === 'tiktok' ? 'bg-slate-700' :
-                              item.platform === 'lineoa' ? 'bg-green-500' :
-                              item.platform === 'linkedin' ? 'bg-sky-500' :
-                              item.platform === 'twitter' ? 'bg-zinc-500' :
-                              'bg-gray-400'
-                            )} />
-                            <span className="truncate flex-1">{item.topic}</span>
-                            <span className="text-muted-foreground shrink-0">{item.scheduled_date ?? item.day_label}</span>
-                          </div>
-                        ))}
+                        {pl.items!.slice(0, 5).map(item => {
+                          // เดิม hardcode สีแพลตฟอร์มซ้ำกับ PLATFORM_CATALOG และเทียบ
+                          // item.platform === 'facebook' แบบ exact-match ซึ่งพังเมื่อ item
+                          // มีหลายแพลตฟอร์ม (comma-joined string) ตกไปสีเทาเสมอ ดู
+                          // openspec/changes/content-planner-ai-history-dot-color-fix
+                          const firstPlatform = parsePlatforms(item.platforms ?? item.platform)[0];
+                          const dotColor = firstPlatform ? getPlatformColors(firstPlatform).text : '#9ca3af';
+                          return (
+                            <div key={item.id} className="flex items-center gap-1 text-[10px]">
+                              <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: dotColor }} />
+                              <span className="truncate flex-1">{item.topic}</span>
+                              <span className="text-muted-foreground shrink-0">{item.scheduled_date ?? item.day_label}</span>
+                            </div>
+                          );
+                        })}
                         {(pl.items!.length > 5) && (
                           <p className="text-[10px] text-muted-foreground pl-2">+{pl.items!.length - 5} เพิ่มเติม</p>
                         )}

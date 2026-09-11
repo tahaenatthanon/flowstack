@@ -64,7 +64,9 @@ The dashboard SHALL render a single Card titled "เนื้อหาล่า�
 
 #### Scenario: แสดงประเภทและแพลตฟอร์มในบรรทัดเดียวกัน
 - **WHEN** a recent content item is rendered
-- **THEN** the type badge (`TYPE_MAP`) and the platform badge (`PLATFORM_MAP`, or "-" when absent) appear on the same line, with the type before the platform
+- **THEN** the type badge (`TYPE_MAP`) and the platform badge appear on the same line, with the type before the platform
+- **AND** when the item has at least one platform, the platform badge is rendered via `PlatformBadgeList` (parsed from `platform`/`platforms`, one pill per platform with its own icon/color) — not a raw `PLATFORM_MAP[item.platform]` lookup, which fails to render anything when the item has more than one platform
+- **AND** when the item has no platform at all, the placeholder `-` is shown instead (unchanged)
 
 #### Scenario: แสดงสถานะและวันที่สร้างในบรรทัดเดียวกัน
 - **WHEN** a recent content item is rendered

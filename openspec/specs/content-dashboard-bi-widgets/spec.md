@@ -80,6 +80,14 @@
 - **WHEN** มีรายการค้างท่อ
 - **THEN** widget แสดงรายการ 5 รายการที่เก่าสุด (เรียงตาม `created_at` เก่า→ใหม่)
 
+#### Scenario: แสดง platform badge แยกทีละแพลตฟอร์มในรายการที่เก่าสุด
+- **WHEN** รายการที่เก่าสุดมี content item ที่มีหลายแพลตฟอร์ม (เช่น `platform="facebook,linkedin"`)
+- **THEN** แถวของ item นั้นแสดง badge แยกทีละแพลตฟอร์มด้วย `PlatformBadgeList` (ไม่ใช่การ lookup `PLATFORM_MAP[item.platform]` ตรงๆ ซึ่งไม่แสดง badge ใดๆ เมื่อมีมากกว่า 1 แพลตฟอร์ม)
+
+#### Scenario: ไม่แสดง platform badge เมื่อ content item ไม่มีแพลตฟอร์ม
+- **WHEN** รายการที่เก่าสุดมี content item ที่ไม่มีแพลตฟอร์มเลย
+- **THEN** แถวของ item นั้นแสดง badge สถานะ (`STATUS_MAP`) ตามปกติ แต่ไม่แสดง platform badge ใดๆ
+
 ### Requirement: Widget สถานะสร้างสื่อ AI
 แท็บ "ภาพรวม" SHALL แสดง widget "สถานะสร้างสื่อ AI" ที่สรุปจำนวนตาม `image_gen_status` และ `video_gen_status` (`none`/`generating`/`done`/`failed`)
 

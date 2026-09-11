@@ -10,6 +10,7 @@ import { useContentItems, useOverdueCount, useAllSchedules, usePublishChannels, 
 import PageShell from '@/components/PageShell';
 import { STATUS_MAP, PLATFORM_MAP, TYPE_MAP } from '@/components/content/types';
 import { PlatformIcon } from '@/components/content/PlatformIcon';
+import { PlatformBadgeList } from '@/components/content/PlatformBadgeList';
 import { AnalyticsContentTab } from '@/components/content/AnalyticsContentTab';
 import { AnalyticsSocialTab } from '@/components/content/AnalyticsSocialTab';
 import { AnalyticsWebsiteTab } from '@/components/content/AnalyticsWebsiteTab';
@@ -396,13 +397,12 @@ export default function ContentDashboardPage() {
                           <p className="text-xs font-medium text-muted-foreground">ค้างนานที่สุด</p>
                           {aging.items.map(item => {
                             const status = STATUS_MAP[item.status] ?? { label: item.status, color: 'bg-gray-100 text-gray-600' };
-                            const platform = item.platform ? PLATFORM_MAP[item.platform] : null;
                             return (
                               <div key={item.id} className="flex items-center justify-between gap-3">
                                 <div className="flex min-w-0 items-center gap-2">
                                   <p className="truncate text-sm">{item.title}</p>
                                   <Badge variant="outline" className={`shrink-0 ${status.color}`}>{status.label}</Badge>
-                                  {platform && <Badge variant="outline" className={`shrink-0 ${platform.color}`}>{platform.label}</Badge>}
+                                  <PlatformBadgeList platforms={item.platform} variant="pill" />
                                 </div>
                                 <span className={`shrink-0 text-xs font-medium tabular-nums ${item.age_days > 90 ? 'text-red-600' : 'text-muted-foreground'}`}>
                                   {item.age_days.toLocaleString()} วัน
@@ -476,7 +476,6 @@ export default function ContentDashboardPage() {
                         {recentItems.map(item => {
                           const type = TYPE_MAP[item.type] ?? TYPE_MAP.article;
                           const status = STATUS_MAP[item.status] ?? { label: item.status, color: 'bg-gray-100 text-gray-600' };
-                          const platform = item.platform ? PLATFORM_MAP[item.platform] : null;
                           const TypeIcon = type.icon;
                           return (
                             <div key={item.id} className="flex gap-3">
@@ -501,8 +500,8 @@ export default function ContentDashboardPage() {
                                 {/* Line 2: type | platform */}
                                 <div className="flex items-center gap-2">
                                   <Badge variant="outline" className={type.color}>{type.label}</Badge>
-                                  {platform ? (
-                                    <Badge variant="outline" className={platform.color}>{platform.label}</Badge>
+                                  {item.platform ? (
+                                    <PlatformBadgeList platforms={item.platform} variant="pill" />
                                   ) : (
                                     <span className="text-xs text-muted-foreground">-</span>
                                   )}

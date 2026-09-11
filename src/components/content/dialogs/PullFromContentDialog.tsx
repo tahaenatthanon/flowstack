@@ -9,7 +9,7 @@ import { useToast } from '@/hooks/use-toast';
 import { apiFetch } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import type { ContentItem, ArticleContent } from '@/components/content/types';
-import { PLATFORM_MAP } from '@/components/content/types';
+import { PlatformBadgeList } from '@/components/content/PlatformBadgeList';
 
 interface Props {
   open: boolean;
@@ -98,11 +98,10 @@ export default function PullFromContentDialog({ open, onOpenChange, onSelect }: 
                       <TypeIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                       <span className="font-medium text-sm flex-1 truncate">{item.title}</span>
                       <Eye className={cn('h-3.5 w-3.5 shrink-0', isPreviewed ? 'text-primary' : 'text-muted-foreground')} />
-                      {item.platform && (
-                        <span className={cn('text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0', PLATFORM_MAP[item.platform]?.color)}>
-                          {PLATFORM_MAP[item.platform]?.label}
-                        </span>
-                      )}
+                      {/* item.platform อาจเป็นสตริงรวมหลายแพลตฟอร์มคั่นด้วย comma — lookup
+                          ด้วยค่าดิบทั้งก้อนไม่มีทาง match key ใน PLATFORM_MAP เลย ทำให้ badge
+                          ว่างเปล่า ดู openspec/changes/pull-from-content-platform-badge-fix */}
+                      <PlatformBadgeList platforms={item.platforms ?? item.platform} variant="pill" size={10} className="shrink-0" />
                     </div>
                     {(excerpt || item.caption) && (
                       <p className="text-xs text-muted-foreground line-clamp-2">{excerpt || item.caption}</p>
