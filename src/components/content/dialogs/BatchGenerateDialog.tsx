@@ -64,6 +64,8 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
   const [currentTopicStage, setCurrentTopicStage] = useState<TopicProgressStatus>('pending');
   const [topicStatuses, setTopicStatuses] = useState<TopicProgressStatus[]>([]);
   const [generatedDisplayCount, setGeneratedDisplayCount] = useState(0);
+  const [triggerSearch, setTriggerSearch] = useState<Record<number, string>>({});
+  const [skillSearch, setSkillSearch] = useState<Record<number, string>>({});
 
   const { data: skills = [] } = useContentSkills(open);
   const { data: contexts = [] } = useBrandContexts(open);
@@ -100,6 +102,8 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
     setCurrentTopicStage('pending');
     setTopicStatuses([]);
     setGeneratedDisplayCount(0);
+    setTriggerSearch({});
+    setSkillSearch({});
   };
 
   const handleClose = (v: boolean) => {
@@ -387,17 +391,30 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
                           </div>
 
                           <div className="space-y-1.5">
-                            <Label>Trigger ({item.triggerIds.length === 0 ? 'ไม่เลือก' : item.triggerIds.length})</Label>
+                            <div className="flex items-center justify-between gap-2">
+                              <Label>Trigger ({item.triggerIds.length === 0 ? 'ไม่เลือก' : item.triggerIds.length})</Label>
+                              <Input value={triggerSearch[index] ?? ''} onChange={e => setTriggerSearch(values => ({ ...values, [index]: e.target.value }))} placeholder="ค้นหา Trigger..." className="h-8 text-xs w-48" />
+                            </div>
                             <div className="flex flex-wrap gap-1.5 p-2 border rounded-md min-h-[38px] max-h-32 overflow-y-auto bg-background items-center">
-                              {triggers.map(tr => { const selected = item.triggerIds.includes(tr.id); return <button key={tr.id} type="button" onClick={() => setTopics(rows => rows.map((row, i) => { if (i !== index) return row; const next = selected ? row.triggerIds.filter(x => x !== tr.id) : [...row.triggerIds, tr.id]; const linked = Array.from(new Set(triggers.filter(t => next.includes(t.id) && t.skill_id).map(t => t.skill_id as string))); return { ...row, triggerIds: next, autoSkillIds: linked, skillIds: Array.from(new Set([...row.skillIds.filter(id => !row.autoSkillIds.includes(id)), ...linked])) }; }))} className={cn('text-[11px] px-2 py-1 rounded border font-mono flex items-center gap-1', selected ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-muted')}><Zap className="h-3 w-3 text-amber-500" />{getTriggerDisplayLabel(tr.command)}</button>; })}
+                              {triggers.filter(tr => {
+                                const q = (triggerSearch[index] ?? '').trim().toLowerCase();
+                                return !q || getTriggerDisplayLabel(tr.command).toLowerCase().includes(q) || tr.command.toLowerCase().includes(q);
+                              }).map(tr => { const selected = item.triggerIds.includes(tr.id); return <button key={tr.id} type="button" onClick={() => setTopics(rows => rows.map((row, i) => { if (i !== index) return row; const next = selected ? row.triggerIds.filter(x => x !== tr.id) : [...row.triggerIds, tr.id]; const linked = Array.from(new Set(triggers.filter(t => next.includes(t.id) && t.skill_id).map(t => t.skill_id as string))); return { ...row, triggerIds: next, autoSkillIds: linked, skillIds: Array.from(new Set([...row.skillIds.filter(id => !row.autoSkillIds.includes(id)), ...linked])) }; }))} className={cn('text-[11px] px-2 py-1 rounded border font-mono flex items-center gap-1', selected ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-muted')}><Zap className="h-3 w-3 text-amber-500" />{getTriggerDisplayLabel(tr.command)}</button>; })}
+                              {triggers.filter(tr => {
+                                const q = (triggerSearch[index] ?? '').trim().toLowerCase();
+                                return !q || getTriggerDisplayLabel(tr.command).toLowerCase().includes(q) || tr.command.toLowerCase().includes(q);
+                              }).length === 0 && <span className="text-xs text-muted-foreground">ไม่พบ Trigger</span>}
                             </div>
                           </div>
 
                           <div className="space-y-1.5">
-                            <Label>Skill ({item.skillIds.length === 0 ? 'ไม่เลือก' : item.skillIds.length})</Label>
+                            <div className="flex items-center justify-between gap-2">
+                              <Label>Skill ({item.skillIds.length === 0 ? 'ไม่เลือก' : item.skillIds.length})</Label>
+                              <Input value={skillSearch[index] ?? ''} onChange={e => setSkillSearch(values => ({ ...values, [index]: e.target.value }))} placeholder="ค้นหา Skill..." className="h-8 text-xs w-48" />
+                            </div>
                             <div className="flex flex-wrap gap-1.5 p-2 border rounded-md min-h-[38px] max-h-32 overflow-y-auto bg-background items-center">
-                              {skills.map(sk => { const selected = item.skillIds.includes(sk.id); const locked = item.autoSkillIds.includes(sk.id); return <button key={sk.id} type="button" disabled={locked} onClick={() => setTopics(rows => rows.map((row, i) => i === index ? { ...row, skillIds: selected ? row.skillIds.filter(x => x !== sk.id) : [...row.skillIds, sk.id] } : row))} className={cn('text-[11px] px-2 py-1 rounded border transition-colors', locked ? 'bg-primary text-primary-foreground border-primary cursor-not-allowed' : selected ? 'bg-primary text-primary-foreground border-primary' : 'border-border hover:bg-muted')}>{sk.name}{locked ? ' 🔒' : ''}</button>; })}
-                              {skills.length === 0 && <span className="text-xs text-muted-foreground">ยังไม่มี Skill</span>}
+                              {skills.filter(sk => !skillSearch[index]?.trim() || sk.name.toLowerCase().includes(skillSearch[index].trim().toLowerCase())).map(sk => { const selected = item.skillIds.includes(sk.id); const locked = item.autoSkillIds.includes(sk.id); return <button key={sk.id} type="button" disabled={locked} onClick={() => setTopics(rows => rows.map((row, i) => i === index ? { ...row, skillIds: selected ? row.skillIds.filter(x => x !== sk.id) : [...row.skillIds, sk.id] } : row))} className={cn('text-[11px] px-2 py-1 rounded border transition-colors', locked ? 'bg-primary text-primary-foreground border-primary cursor-not-allowed' : selected ? 'bg-primary text-primary-foreground border-primary' : 'border-border hover:bg-muted')}>{sk.name}{locked ? ' 🔒' : ''}</button>; })}
+                              {skills.filter(sk => !skillSearch[index]?.trim() || sk.name.toLowerCase().includes(skillSearch[index].trim().toLowerCase())).length === 0 && <span className="text-xs text-muted-foreground">ไม่พบ Skill</span>}
                             </div>
                           </div>
 

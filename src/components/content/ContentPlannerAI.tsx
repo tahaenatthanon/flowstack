@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import type { ContentPlan, ContentSkill, ContentTrigger, BrandContext } from '@/components/content/types';
-import { PLAN_STATUS, PLATFORM_MAP } from '@/components/content/types';
+import { PLAN_STATUS, PLATFORM_MAP, getTriggerDisplayLabel } from '@/components/content/types';
 import {
   Sparkles, Wand2, Loader2, PanelRightClose, PanelRightOpen,
   Zap, Bot, Trash2,
@@ -44,6 +44,8 @@ export function ContentPlannerAI({
   isGeneratingArticles, generateProgress, onCancel,
 }: Props) {
   const [triggerCmd, setTriggerCmd] = useState('');
+  const [triggerSearch, setTriggerSearch] = useState('');
+  const [skillSearch, setSkillSearch] = useState('');
   const [selSkillId, setSelSkillId] = useState('__none__');
   const [selContextIds, setSelContextIds] = useState<string[]>([]);
   const [selPlatforms, setSelPlatforms] = useState<string[]>([]);
@@ -103,29 +105,6 @@ export function ContentPlannerAI({
           </Button>
         </div>
 
-        {triggers.length > 0 && (
-          <div className="space-y-1">
-            <Label className="text-[11px]">Quick Triggers</Label>
-            <div className="flex flex-wrap gap-1">
-              {triggers.map(tr => (
-                <Button
-                  key={tr.id}
-                  size="sm"
-                  variant="outline"
-                  className="h-6 text-[11px] font-mono gap-1"
-                  onClick={() => {
-                    setTriggerCmd(tr.command);
-                    if (tr.skill_id) setSelSkillId(tr.skill_id);
-                  }}
-                >
-                  <Zap className="h-2.5 w-2.5 text-amber-500" />
-                  {tr.command}
-                </Button>
-              ))}
-            </div>
-          </div>
-        )}
-
         <div className="space-y-3">
           <div className="space-y-1">
             <Label className="text-[11px]">
@@ -142,49 +121,51 @@ export function ContentPlannerAI({
             </p>
           </div>
 
-          <div className="space-y-1">
-            <Label className="text-[11px]">ประเภทแผน</Label>
-            <Select value={planType} onValueChange={setPlanType}>
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="weekly">รายสัปดาห์</SelectItem>
-                <SelectItem value="monthly">รายเดือน</SelectItem>
-                <SelectItem value="quarterly">รายไตรมาส</SelectItem>
-                <SelectItem value="yearly">รายปี</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
+          {triggers.length > 0 && (
             <div className="space-y-1">
-              <Label className="text-[11px]">เริ่ม</Label>
-              <Input
-                type="date"
-                value={planStart}
-                onChange={e => setPlanStart(e.target.value)}
-                className="h-8 text-xs"
-              />
+              <div className="flex items-center justify-between gap-2">
+                <Label className="text-[11px]">Quick Triggers</Label>
+                <Input value={triggerSearch} onChange={e => setTriggerSearch(e.target.value)} placeholder="ค้นหา Trigger..." className="h-8 text-xs w-48" />
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {triggers.filter(tr => {
+                  const q = triggerSearch.trim().toLowerCase();
+                  return !q || getTriggerDisplayLabel(tr.command).toLowerCase().includes(q) || tr.command.toLowerCase().includes(q);
+                }).map(tr => (
+                  <Button
+                    key={tr.id}
+                    size="sm"
+                    variant="outline"
+                    className="h-6 text-[11px] font-mono gap-1"
+                    onClick={() => {
+                      setTriggerCmd(tr.command);
+                      if (tr.skill_id) setSelSkillId(tr.skill_id);
+                    }}
+                  >
+                    <Zap className="h-2.5 w-2.5 text-amber-500" />
+                    {getTriggerDisplayLabel(tr.command)}
+                  </Button>
+                ))}
+                {triggers.filter(tr => {
+                    const q = triggerSearch.trim().toLowerCase();
+                    return !q || getTriggerDisplayLabel(tr.command).toLowerCase().includes(q) || tr.command.toLowerCase().includes(q);
+                  }).length === 0 && (
+                  <span className="text-[10px] text-muted-foreground">ไม่พบ Trigger</span>
+                )}
+              </div>
             </div>
-            <div className="space-y-1">
-              <Label className="text-[11px]">สิ้นสุด</Label>
-              <Input
-                type="date"
-                value={planEnd}
-                onChange={e => setPlanEnd(e.target.value)}
-                className="h-8 text-xs"
-              />
-            </div>
-          </div>
+          )}
 
           <div className="space-y-1">
-            <Label className="text-[11px]">Skill</Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label className="text-[11px]">Skill</Label>
+              <Input value={skillSearch} onChange={e => setSkillSearch(e.target.value)} placeholder="ค้นหา Skill..." className="h-8 text-xs w-48" />
+            </div>
             <Select value={selSkillId} onValueChange={setSelSkillId}>
               <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="ไม่เลือก" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="__none__">ไม่เลือก Skill</SelectItem>
-                {skills.map(sk => (
+                {skills.filter(sk => !skillSearch.trim() || sk.name.toLowerCase().includes(skillSearch.trim().toLowerCase())).map(sk => (
                   <SelectItem key={sk.id} value={sk.id}>{sk.name}</SelectItem>
                 ))}
               </SelectContent>
@@ -243,6 +224,42 @@ export function ContentPlannerAI({
                   </button>
                 );
               })}
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <Label className="text-[11px]">ประเภทแผน</Label>
+            <Select value={planType} onValueChange={setPlanType}>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="weekly">รายสัปดาห์</SelectItem>
+                <SelectItem value="monthly">รายเดือน</SelectItem>
+                <SelectItem value="quarterly">รายไตรมาส</SelectItem>
+                <SelectItem value="yearly">รายปี</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <Label className="text-[11px]">เริ่ม</Label>
+              <Input
+                type="date"
+                value={planStart}
+                onChange={e => setPlanStart(e.target.value)}
+                className="h-8 text-xs"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-[11px]">สิ้นสุด</Label>
+              <Input
+                type="date"
+                value={planEnd}
+                onChange={e => setPlanEnd(e.target.value)}
+                className="h-8 text-xs"
+              />
             </div>
           </div>
 
@@ -305,7 +322,7 @@ export function ContentPlannerAI({
                       <div className="flex-1 min-w-0">
                         <p className="font-medium truncate">{pl.title}</p>
                         <p className="text-[10px] text-muted-foreground font-mono truncate">
-                          {pl.trigger_command}
+                          {getTriggerDisplayLabel(pl.trigger_command)}
                         </p>
                       </div>
                       <div className="flex items-center gap-0.5 shrink-0">

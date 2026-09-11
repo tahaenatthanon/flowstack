@@ -34,6 +34,8 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
   const [selSkillIds, setSelSkillIds]   = useState<string[]>([]);
   const [autoSkillIds, setAutoSkillIds] = useState<string[]>([]);
   const [selContextIds, setSelContextIds] = useState<string[]>([]);
+  const [triggerSearch, setTriggerSearch] = useState('');
+  const [skillSearch, setSkillSearch] = useState('');
   const [step, setStep]               = useState<'type' | 'form' | 'progress' | 'done'>('type');
   const [doneTitle, setDoneTitle]     = useState('');
 
@@ -52,7 +54,8 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
   const handleReset = () => {
     setContentType(null); setTopic(''); setSelPlatforms([]); setTone('friendly');
     setScriptStyle('hook-story'); setDuration('60s');
-    setSelTriggerIds([]); setSelSkillIds([]); setAutoSkillIds([]); setSelContextIds([]); setStep('type'); setDoneTitle('');
+    setSelTriggerIds([]); setSelSkillIds([]); setAutoSkillIds([]); setSelContextIds([]);
+    setTriggerSearch(''); setSkillSearch(''); setStep('type'); setDoneTitle('');
   };
 
   const handleClose = (v: boolean) => {
@@ -282,9 +285,15 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
             {/* Trigger shortcuts */}
             {triggers.length > 0 && (
               <div className="space-y-1.5">
-                <Label>Trigger ({selTriggerIds.length === 0 ? 'ไม่เลือก' : selTriggerIds.length})</Label>
+                <div className="flex items-center justify-between gap-2">
+                  <Label>Trigger ({selTriggerIds.length === 0 ? 'ไม่เลือก' : selTriggerIds.length})</Label>
+                  <Input value={triggerSearch} onChange={e => setTriggerSearch(e.target.value)} placeholder="ค้นหา Trigger..." className="h-8 text-xs w-48" />
+                </div>
                 <div className="flex flex-wrap gap-1.5 p-2 border rounded-md min-h-[38px] max-h-32 overflow-y-auto bg-background items-center">
-                  {triggers.map(tr => (
+                  {triggers.filter(tr => {
+                    const q = triggerSearch.trim().toLowerCase();
+                    return !q || getTriggerDisplayLabel(tr.command).toLowerCase().includes(q) || tr.command.toLowerCase().includes(q);
+                  }).map(tr => (
                     <button key={tr.id} type="button"
                       onClick={() => {
                         setSelTriggerIds(ids => {
@@ -306,14 +315,21 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
                       <Zap className="h-3 w-3 text-amber-500" />{getTriggerDisplayLabel(tr.command)}
                     </button>
                   ))}
+                  {triggers.filter(tr => {
+                    const q = triggerSearch.trim().toLowerCase();
+                    return !q || getTriggerDisplayLabel(tr.command).toLowerCase().includes(q) || tr.command.toLowerCase().includes(q);
+                  }).length === 0 && <span className="text-xs text-muted-foreground">ไม่พบ Trigger</span>}
                 </div>
               </div>
             )}
             {/* Skill */}
             <div className="space-y-1.5">
-              <Label>Skill ({selSkillIds.length === 0 ? 'ไม่เลือก' : selSkillIds.length})</Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label>Skill ({selSkillIds.length === 0 ? 'ไม่เลือก' : selSkillIds.length})</Label>
+                <Input value={skillSearch} onChange={e => setSkillSearch(e.target.value)} placeholder="ค้นหา Skill..." className="h-8 text-xs w-48" />
+              </div>
               <div className="flex flex-wrap gap-1.5 p-2 border rounded-md min-h-[38px] max-h-32 overflow-y-auto bg-background items-center">
-                {skills.map(sk => {
+                {skills.filter(sk => !skillSearch.trim() || sk.name.toLowerCase().includes(skillSearch.trim().toLowerCase())).map(sk => {
                   const sel = selSkillIds.includes(sk.id);
                   const locked = autoSkillIds.includes(sk.id);
                   return (
@@ -329,7 +345,9 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
                     </button>
                   );
                 })}
-                {skills.length === 0 && <span className="text-xs text-muted-foreground">ยังไม่มี Skill</span>}
+                {skills.filter(sk => !skillSearch.trim() || sk.name.toLowerCase().includes(skillSearch.trim().toLowerCase())).length === 0 && (
+                  <span className="text-xs text-muted-foreground">{skills.length === 0 ? 'ยังไม่มี Skill' : 'ไม่พบ Skill'}</span>
+                )}
               </div>
               {autoSkillIds.length > 0 && <p className="text-[10px] text-muted-foreground">🔒 Skill ที่มาจาก Trigger ถูกเลือกอัตโนมัติและเอาออกไม่ได้</p>}
             </div>
