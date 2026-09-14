@@ -225,6 +225,75 @@ export default function ContentDashboardPage() {
               onRangeChange={setTrendRange}
             />
 
+            {/* คิวเผยแพร่ + กำหนดการโพสต์ถัดไป (1:1) — ย้ายมาอยู่ใต้กราฟแนวโน้ม Engagement ตามคำขอ */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* คิวเผยแพร่ */}
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
+                    <Send className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate">คิวเผยแพร่</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {biLoading ? (
+                    <p className="py-8 text-center text-sm text-muted-foreground">กำลังโหลด...</p>
+                  ) : !queue || queue.total === 0 ? (
+                    <p className="py-8 text-center text-sm text-muted-foreground">ยังไม่มีรายการในคิวเผยแพร่</p>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2">
+                      {queueStatuses.filter(s => s.key !== 'failed' && s.key !== 'processing').map(s => {
+                        const StatusIcon = s.icon;
+                        return (
+                          <div key={s.key} className="flex items-center gap-2 rounded-lg border p-2">
+                            <StatusIcon className={`h-4 w-4 shrink-0 ${s.color}`} />
+                            <div className="min-w-0">
+                              <p className="truncate text-xs text-muted-foreground">{s.label}</p>
+                              <p className={`text-base font-bold tabular-nums ${s.color}`}>{queue[s.key].toLocaleString()}</p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Upcoming Schedule */}
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
+                    <CalendarClock className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate">กำหนดการโพสต์ถัดไป</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {upcomingSchedules.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-8">ไม่มีโพสต์ที่กำลังจะถึง</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {upcomingSchedules.map(s => {
+                        const platform = s.platform ? PLATFORM_MAP[s.platform] : null;
+                        return (
+                          <div key={s.id} className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium truncate">{s.topic || s.plan_title || 'ไม่มีชื่อ'}</p>
+                              <p className="text-xs text-muted-foreground">{formatDateTime(s.scheduled_at)}</p>
+                            </div>
+                            {platform ? (
+                              <Badge variant="outline" className={platform.color}>{platform.label}</Badge>
+                            ) : s.channel_name ? (
+                              <span className="text-xs text-muted-foreground shrink-0">{s.channel_name}</span>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
             {/* Overdue Alert */}
             {overdueCount > 0 && (
               <div className="flex items-center gap-3 px-4 py-3 rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-200 text-sm">
@@ -236,7 +305,7 @@ export default function ContentDashboardPage() {
               </div>
             )}
 
-            {/* 3 แถวอิสระ อัตราส่วนต่อแถว (mirror HomePage.tsx) — แต่ละแถวไม่ผูกความสูงกับแถวอื่น */}
+            {/* 2 แถวอิสระ อัตราส่วนต่อแถว (mirror HomePage.tsx) — แต่ละแถวไม่ผูกความสูงกับแถวอื่น (แถว "คิวเผยแพร่ + กำหนดการโพสต์ถัดไป" ย้ายไปอยู่ใต้กราฟแนวโน้ม Engagement ด้านบนแล้ว) */}
             <div className="space-y-6">
               {/* แถว 1: เผยแพร่ล้มเหลว + คอนเทนต์รอดำเนินการ (1:1) */}
               {actionColumnEmpty ? (
@@ -269,13 +338,18 @@ export default function ContentDashboardPage() {
                             <div key={f.id} className="space-y-1.5 rounded-lg border border-red-200 bg-red-50/50 p-2 dark:border-red-900 dark:bg-red-950/20">
                               <div className="flex items-start justify-between gap-2">
                                 <p className="min-w-0 flex-1 truncate text-sm font-medium">{f.title}</p>
-                                <Badge variant="outline" className="shrink-0 text-xs">ลอง {f.retry_count.toLocaleString()} ครั้ง</Badge>
+                                <Badge variant="outline" className="shrink-0 text-xs">
+                                  {f.retry_count > 0 ? `ลอง ${f.retry_count.toLocaleString()} ครั้ง` : 'ยังไม่ลองส่งใหม่'}
+                                </Badge>
                               </div>
                               <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                                 {f.platform && PLATFORM_MAP[f.platform] ? (
                                   <Badge variant="outline" className={PLATFORM_MAP[f.platform].color}>{PLATFORM_MAP[f.platform].label}</Badge>
                                 ) : null}
-                                {f.channel_name && <span className="truncate">{f.channel_name}</span>}
+                                {/* ไม่แสดงชื่อ channel ซ้ำเมื่อตรงกับชื่อแพลตฟอร์มที่ badge ข้างบนแสดงไปแล้ว (เช่น channel ชื่อ "Facebook" ของแพลตฟอร์ม facebook) */}
+                                {f.channel_name && f.channel_name !== PLATFORM_MAP[f.platform ?? '']?.label && (
+                                  <span className="truncate">{f.channel_name}</span>
+                                )}
                                 <span>{formatDateTime(f.scheduled_at)}</span>
                               </div>
                               {f.error_msg && (
@@ -460,75 +534,6 @@ export default function ContentDashboardPage() {
                       <span className="text-sm text-muted-foreground">เนื้อหาทั้งหมด</span>
                       <span className="text-lg font-bold">{totalItems.toLocaleString()} ชิ้น</span>
                     </div>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* แถว 3: คิวเผยแพร่ + กำหนดการโพสต์ถัดไป (1:1) */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* คิวเผยแพร่ */}
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
-                      <Send className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <span className="truncate">คิวเผยแพร่</span>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {biLoading ? (
-                      <p className="py-8 text-center text-sm text-muted-foreground">กำลังโหลด...</p>
-                    ) : !queue || queue.total === 0 ? (
-                      <p className="py-8 text-center text-sm text-muted-foreground">ยังไม่มีรายการในคิวเผยแพร่</p>
-                    ) : (
-                      <div className="grid grid-cols-3 gap-2">
-                        {queueStatuses.filter(s => s.key !== 'failed').map(s => {
-                          const StatusIcon = s.icon;
-                          return (
-                            <div key={s.key} className="flex items-center gap-2 rounded-lg border p-2">
-                              <StatusIcon className={`h-4 w-4 shrink-0 ${s.color}`} />
-                              <div className="min-w-0">
-                                <p className="truncate text-xs text-muted-foreground">{s.label}</p>
-                                <p className={`text-base font-bold tabular-nums ${s.color}`}>{queue[s.key].toLocaleString()}</p>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-
-                {/* Upcoming Schedule */}
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
-                      <CalendarClock className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <span className="truncate">กำหนดการโพสต์ถัดไป</span>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {upcomingSchedules.length === 0 ? (
-                      <p className="text-sm text-muted-foreground text-center py-8">ไม่มีโพสต์ที่กำลังจะถึง</p>
-                    ) : (
-                      <div className="space-y-3">
-                        {upcomingSchedules.map(s => {
-                          const platform = s.platform ? PLATFORM_MAP[s.platform] : null;
-                          return (
-                            <div key={s.id} className="flex items-center justify-between gap-3">
-                              <div className="min-w-0">
-                                <p className="text-sm font-medium truncate">{s.topic || s.plan_title || 'ไม่มีชื่อ'}</p>
-                                <p className="text-xs text-muted-foreground">{formatDateTime(s.scheduled_at)}</p>
-                              </div>
-                              {platform ? (
-                                <Badge variant="outline" className={platform.color}>{platform.label}</Badge>
-                              ) : s.channel_name ? (
-                                <span className="text-xs text-muted-foreground shrink-0">{s.channel_name}</span>
-                              ) : null}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
                   </CardContent>
                 </Card>
               </div>

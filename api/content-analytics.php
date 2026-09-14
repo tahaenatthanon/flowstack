@@ -273,6 +273,11 @@ if ($action === 'overview') {
         ? date('Y-m-d 00:00:00')
         : date('Y-m-d 00:00:00', strtotime($platformPeriod === 'week' ? '-6 days' : '-29 days'));
     $periodToDt = date('Y-m-d 23:59:59');
+    // Window length in days — used to normalize engagement into a per-week rate
+    // regardless of which period is selected (1 day → ×7 extrapolation, 7 days →
+    // as-is, 30 days → ÷~4.29), so "เฉลี่ย/สัปดาห์" means the same thing no matter
+    // which of the 3 period buttons is active.
+    $platformPeriodDays = $platformPeriod === 'day' ? 1 : ($platformPeriod === 'week' ? 7 : 30);
 
     $platStmt = $db->prepare(
         "SELECT DISTINCT platform FROM publish_channels
@@ -282,24 +287,38 @@ if ($action === 'overview') {
     $basePlatforms = array_column($platStmt->fetchAll(PDO::FETCH_ASSOC), 'platform');
 
     $periodRows = fetchSocialSeriesRows($db, $tenantId, $periodFromDt, $periodToDt);
-    $perfAgg = []; // platform => ['items' => set, 'engagement' => int]
+    $perfAgg = []; // platform => ['items' => set, 'views' => int, 'engagement' => int]
     foreach ($periodRows as $r) {
         $plat = $r['platform'];
-        if (!isset($perfAgg[$plat])) $perfAgg[$plat] = ['items' => [], 'engagement' => 0];
+        if (!isset($perfAgg[$plat])) $perfAgg[$plat] = ['items' => [], 'views' => 0, 'engagement' => 0];
         $perfAgg[$plat]['items'][$r['content_item_id']] = true;
+        $perfAgg[$plat]['views']      += (int)$r['views'];
         $perfAgg[$plat]['engagement'] += (int)$r['views'] + (int)$r['likes'];
     }
     $allPlatforms = array_values(array_unique(array_merge($basePlatforms, array_keys($perfAgg))));
 
-    $platformPerformance = array_map(static function ($plat) use ($perfAgg) {
+    $platformPerformance = array_map(static function ($plat) use ($perfAgg, $platformPeriodDays) {
         $agg        = $perfAgg[$plat] ?? null;
         $posts      = $agg ? count($agg['items']) : 0;
+        $views      = $agg ? $agg['views'] : 0;
         $engagement = $agg ? $agg['engagement'] : 0;
         return [
-            'platform'                 => $plat,
-            'posts'                    => $posts,
-            'engagement'               => $engagement,
-            'avg_engagement_per_post'  => $posts > 0 ? (int)round($engagement / $posts) : null,
+            'platform'                  => $plat,
+            'posts'                     => $posts,
+            // Facebook feed posts always report views=0 (Graph API limitation, not
+            // a sync bug — see AnalyticsSocialTab.tsx) — null lets the frontend
+            // show "—" ("not measured") instead of a misleading literal 0 when
+            // there is real engagement but no view count for this platform.
+            'views'                     => $views === 0 && $engagement > 0 ? null : $views,
+            'engagement'                => $engagement,
+            // null when views aren't measured (views=0) — cannot divide by zero,
+            // and a rate computed against an unmeasured denominator would mislead.
+            'engagement_rate'           => $views > 0 ? round($engagement / $views * 100, 1) : null,
+            'avg_engagement_per_post'   => $posts > 0 ? (int)round($engagement / $posts) : null,
+            // Unlike avg/post, this is always a real number (0 is a valid "no
+            // activity this week" reading) — normalized to a weekly rate so the
+            // column means the same thing across the day/week/month period toggle.
+            'avg_engagement_per_week'   => (int)round($engagement * 7 / $platformPeriodDays),
         ];
     }, $allPlatforms);
 

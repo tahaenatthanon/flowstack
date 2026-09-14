@@ -44,6 +44,14 @@
 - **WHEN** แพลตฟอร์มหนึ่งในผลลัพธ์ `platform_performance` มี `posts = 0` ในช่วงที่เลือก
 - **THEN** ฟิลด์ `avg_engagement_per_post` ของแถวนั้นเป็น `null` (ไม่ใช่ `0` หรือหารด้วยศูนย์)
 
+#### Scenario: platform_performance มี views และ engagement_rate ที่ null-safe กับ views=0
+- **WHEN** แพลตฟอร์มหนึ่งในผลลัพธ์ `platform_performance` มี `views = 0` แต่ `engagement > 0`
+- **THEN** ฟิลด์ `views` ของแถวนั้นเป็น `null` (ไม่ใช่ `0` ซึ่งจะอ่านผิดว่าไม่มีคนดู) และฟิลด์ `engagement_rate` เป็น `null` ด้วย (หารด้วย views ที่ไม่ถูกวัดไม่ได้) — เมื่อ `views > 0` ฟิลด์ `engagement_rate` คำนวณเป็น `round(engagement / views * 100, 1)`
+
+#### Scenario: platform_performance มี avg_engagement_per_week ที่ไม่มี null
+- **WHEN** เรียก `?action=overview&platform_period=day|week|month`
+- **THEN** ทุกแถวใน `platform_performance` มีฟิลด์ `avg_engagement_per_week` เป็นตัวเลขเสมอ (ไม่มี `null`) คำนวณจาก `round(engagement * 7 / window_days)` โดย `window_days` คือ 1/7/30 ตาม `platform_period` ที่เลือก เพื่อให้ค่าเทียบกันได้ข้ามตัวเลือกช่วงเวลา
+
 ### Requirement: action=analytics คืนข้อมูล 5 กลุ่ม
 ระบบ SHALL มี `GET /content-analytics.php?action=analytics` ที่คืน JSON 5 กลุ่ม: `throughput`, `lead_time`, `seo`, `plan_conversion`, `publish_success`
 
@@ -56,11 +64,11 @@
 - **THEN** ค่า avg/p50/p90 ของขั้นนั้นเป็น `null` (ไม่ใช่ `0`) พร้อม `sample_size` เป็น `0`
 
 ### Requirement: Widget คิวเผยแพร่ (นับสถานะ)
-แท็บ "ภาพรวม" SHALL แสดง widget "คิวเผยแพร่" ในคอลัมน์ภาพรวม ที่นับจำนวนรายการใน `content_publish_queue` แยกตามสถานะ `pending`/`processing`/`sent` เท่านั้น รายการ `failed` ไม่แสดงในการ์ดนี้ (ย้ายไปเป็น widget แยก "เผยแพร่ล้มเหลว" ในคอลัมน์ต้องดำเนินการ) และการ์ดนี้ไม่แสดงข้อความ "เลยกำหนด" ซ้ำ (แจ้งเตือนแสดงที่ banner บนสุดของหน้าเพียงจุดเดียว โดยใช้นิยามเดียวกับ `content-publish.php?action=overdue_count`)
+แท็บ "ภาพรวม" SHALL แสดง widget "คิวเผยแพร่" ในคอลัมน์ภาพรวม ที่นับจำนวนรายการใน `content_publish_queue` แยกตามสถานะ `pending`/`sent` เท่านั้น — `processing` (สถานะล็อกชั่วคราวระหว่าง cron กำลังส่ง) และ `failed` ไม่แสดงในการ์ดนี้ (`failed` ย้ายไปเป็น widget แยก "เผยแพร่ล้มเหลว" ในคอลัมน์ต้องดำเนินการ; `processing` ไม่มีค่าที่ต้อง action จากผู้ใช้และเป็นสถานะที่ผ่านไปเร็ว จึงตัดออกจากการแสดงผลเพื่อลดความสับสน) และการ์ดนี้ไม่แสดงข้อความ "เลยกำหนด" ซ้ำ (แจ้งเตือนแสดงที่ banner บนสุดของหน้าเพียงจุดเดียว โดยใช้นิยามเดียวกับ `content-publish.php?action=overdue_count`)
 
-#### Scenario: นับตามสถานะ ไม่รวม failed
+#### Scenario: นับตามสถานะ ไม่รวม processing และ failed
 - **WHEN** แท็บ "ภาพรวม" โหลดและเรียก `?action=overview`
-- **THEN** widget "คิวเผยแพร่" แสดงจำนวน `pending`, `processing`, `sent` แยกกัน และไม่แสดงจำนวน `failed` ในการ์ดนี้
+- **THEN** widget "คิวเผยแพร่" แสดงจำนวน `pending` และ `sent` แยกกัน และไม่แสดงจำนวน `processing` หรือ `failed` ในการ์ดนี้ (endpoint ยังคำนวณและคืนค่าทั้ง `processing` และ `failed` เหมือนเดิม เพียงแต่ UI ไม่นำมาแสดง)
 
 #### Scenario: ไม่แสดงข้อความเลยกำหนดซ้ำ
 - **WHEN** `queue.overdue_pending` มากกว่า 0

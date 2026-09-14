@@ -16,6 +16,17 @@ const PERIOD_OPTIONS: Array<{ value: PlatformPeriod; label: string }> = [
   { value: 'month', label: 'เดือน' },
 ];
 
+const DASH = <span className="text-muted-foreground">—</span>;
+
+/**
+ * "—" เมื่อ noData (แพลตฟอร์มยังไม่มีโพสต์เลยในช่วงที่เลือก — ใส่ "-" ไปก่อนทุกคอลัมน์
+ * แทนการโชว์ 0 ปนกับ — ตามคอลัมน์ เพื่อความเรียบง่าย/ชัดเจนว่า "ยังไม่มีข้อมูล")
+ * หรือเมื่อ value เป็น null/undefined (คำนวณไม่ได้ เช่นหารด้วยศูนย์) — ตัวเลขจริงตามปกติเมื่อไม่ใช่ทั้งคู่
+ */
+function cell(value: number | null | undefined, noData = false): React.ReactNode {
+  return noData || value === null || value === undefined ? DASH : value.toLocaleString();
+}
+
 interface Props {
   rows: PlatformPerformanceRow[];
   isLoading?: boolean;
@@ -27,6 +38,12 @@ interface Props {
  * ตาราง "ประสิทธิภาพแต่ละแพลตฟอร์ม" — widget สุดท้ายของแท็บ "ภาพรวม"
  * แพลตฟอร์มที่ตั้งค่าไว้แต่ไม่มีโพสต์ในช่วงที่เลือกยังแสดงแถว (backend ส่งมาแล้ว
  * ไม่กรองทิ้งฝั่งนี้) เรียงลำดับตามที่ backend ส่งมา (มาก→น้อยตาม avg/โพสต์ อยู่แล้ว)
+ *
+ * แพลตฟอร์มที่ยังไม่มีโพสต์เลยในช่วงที่เลือก (posts=0) แสดง "—" ทุกคอลัมน์ที่เหลือไปก่อน
+ * (เก็บไว้ปรับทีหลังถ้าต้องแยกละเอียดกว่านี้) — ส่วนเข้าชม/อัตรา Engagement ของแพลตฟอร์ม
+ * ที่มีโพสต์จริงแต่วัด views ไม่ได้ (Facebook feed post คืน views=0 เสมอตามข้อจำกัดของ
+ * Graph API ไม่ใช่ว่าไม่มีคนดู — ดู backend comment ใน content-analytics.php) ก็แสดง "—"
+ * เช่นกัน แต่ Engagement/เฉลี่ยต่างๆ ของแพลตฟอร์มนั้นยังเป็นตัวเลขจริงตามปกติ
  */
 export function OverviewPlatformPerformanceTable({ rows, isLoading = false, period, onPeriodChange }: Props) {
   return (
@@ -62,26 +79,33 @@ export function OverviewPlatformPerformanceTable({ rows, isLoading = false, peri
               <thead>
                 <tr className="border-b text-left text-xs text-muted-foreground">
                   <th className="py-2 pr-3 font-medium">แพลตฟอร์ม</th>
-                  <th className="py-2 px-3 font-medium text-right">โพสต์</th>
-                  <th className="py-2 px-3 font-medium text-right">Engagement รวม</th>
-                  <th className="py-2 pl-3 font-medium text-right">Engagement เฉลี่ย/โพสต์</th>
+                  <th className="py-2 px-3 font-medium text-right">เนื้อหาที่เผยแพร่</th>
+                  <th className="py-2 px-3 font-medium text-right">เข้าชม</th>
+                  <th className="py-2 px-3 font-medium text-right">Engagement</th>
+                  <th className="py-2 px-3 font-medium text-right">อัตรา Engagement</th>
+                  <th className="py-2 px-3 font-medium text-right">Engagement เฉลี่ย/โพสต์</th>
+                  <th className="py-2 pl-3 font-medium text-right">Engagement เฉลี่ย/สัปดาห์</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map(row => (
-                  <tr key={row.platform} className="border-b last:border-0">
-                    <td className="py-2.5 pr-3 font-medium">{getPlatformLabel(row.platform)}</td>
-                    <td className="py-2.5 px-3 text-right tabular-nums">{row.posts.toLocaleString()}</td>
-                    <td className="py-2.5 px-3 text-right tabular-nums">{row.engagement.toLocaleString()}</td>
-                    <td className="py-2.5 pl-3 text-right tabular-nums font-medium">
-                      {row.avg_engagement_per_post === null ? (
-                        <span className="text-muted-foreground">—</span>
-                      ) : (
-                        row.avg_engagement_per_post.toLocaleString()
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {rows.map(row => {
+                  // ยังไม่มีโพสต์เลยในช่วงที่เลือก — ใส่ "-" ทุกคอลัมน์ที่เหลือไปก่อน
+                  // (ไม่ผสม 0/— ปนกันตามคอลัมน์ ให้อ่านง่ายว่า "ยังไม่มีข้อมูล" ชัดเจน)
+                  const noData = row.posts === 0;
+                  return (
+                    <tr key={row.platform} className="border-b last:border-0">
+                      <td className="py-2.5 pr-3 font-medium">{getPlatformLabel(row.platform)}</td>
+                      <td className="py-2.5 px-3 text-right tabular-nums">{row.posts.toLocaleString()}</td>
+                      <td className="py-2.5 px-3 text-right tabular-nums">{cell(row.views, noData)}</td>
+                      <td className="py-2.5 px-3 text-right tabular-nums">{cell(row.engagement, noData)}</td>
+                      <td className="py-2.5 px-3 text-right tabular-nums">
+                        {noData || row.engagement_rate === null ? DASH : `${row.engagement_rate.toLocaleString()}%`}
+                      </td>
+                      <td className="py-2.5 px-3 text-right tabular-nums font-medium">{cell(row.avg_engagement_per_post, noData)}</td>
+                      <td className="py-2.5 pl-3 text-right tabular-nums font-medium">{cell(row.avg_engagement_per_week, noData)}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

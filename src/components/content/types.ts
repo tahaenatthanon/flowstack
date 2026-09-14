@@ -267,9 +267,15 @@ export interface EngagementTrendPoint {
 export interface PlatformPerformanceRow {
   platform: string;
   posts: number;
+  /** null เมื่อ views=0 แต่ engagement>0 (Facebook feed post ไม่รายงาน views จริง — ไม่ใช่ "ไม่มีคนดู") → แสดง "—" */
+  views: number | null;
   engagement: number;
+  /** null เมื่อ views=0 (หารด้วย views ไม่ได้) → แสดง "—" */
+  engagement_rate: number | null;
   /** null เมื่อ posts = 0 → แสดง "—" */
   avg_engagement_per_post: number | null;
+  /** ไม่มี null — 0 คือค่าจริง (ไม่มีความเคลื่อนไหวในสัปดาห์นั้น) ต่างจาก avg_engagement_per_post ที่หารด้วยโพสต์ไม่ได้เมื่อ posts=0 */
+  avg_engagement_per_week: number;
 }
 
 export interface ContentOverview {
