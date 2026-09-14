@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -37,6 +36,7 @@ import {
   useDeleteEmailCampaign,
   useCopyEmailCampaign,
   useSendEmailCampaign,
+  useCampaignRecipientCount,
 
   useCreateEmailGroup,
   useUpdateEmailGroup,
@@ -292,6 +292,13 @@ export default function MarketingPage() {
   const [senderName, setSenderName] = useState('');
   const [senderEmail, setSenderEmail] = useState('');
   const [selectedCampaignGroups, setSelectedCampaignGroups] = useState<string[]>([]);
+  const toggleCampaignGroup = (groupId: string) => {
+    setSelectedCampaignGroups(prev =>
+      prev.includes(groupId) ? prev.filter(id => id !== groupId) : [...prev, groupId]
+    );
+  };
+  // Live dedup'd count (by email, across every ticked group) — debounced in the hook itself
+  const { data: recipientCountData, isFetching: recipientCountLoading } = useCampaignRecipientCount(selectedCampaignGroups);
   const [enableTrackOpens, setEnableTrackOpens]   = useState(true);
   const [enableTrackClicks, setEnableTrackClicks] = useState(true);
   const pullFromDialogRef = useRef<boolean>(false);
@@ -1365,21 +1372,35 @@ export default function MarketingPage() {
                   ผู้รับ
                 </p>
                 <div className="grid gap-1.5">
-                  <Label>กลุ่มผู้รับ</Label>
-                  <Select value={selectedCampaignGroups[0] || ''} onValueChange={(v) => setSelectedCampaignGroups([v])}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="เลือกกลุ่มผู้รับ" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {groups.map((g) => (
-                        <SelectItem key={g.id} value={g.id}>{g.name} ({g.member_count} คน)</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {selectedCampaignGroups[0] && (() => {
-                    const g = groups.find(x => x.id === selectedCampaignGroups[0]);
-                    return g ? <p className="text-[11px] text-muted-foreground">จะส่งถึง {g.member_count} คน</p> : null;
-                  })()}
+                  <Label>กลุ่มผู้รับ (เลือกได้หลายกลุ่ม)</Label>
+                  <div className="border rounded-lg divide-y max-h-48 overflow-y-auto">
+                    {groups.length === 0 ? (
+                      <div className="flex items-center justify-center text-sm text-muted-foreground py-6">ยังไม่มีกลุ่มผู้รับ</div>
+                    ) : (
+                      groups.map((g) => (
+                        <div
+                          key={g.id}
+                          className="flex items-center gap-3 px-3 py-2 hover:bg-muted/40 cursor-pointer"
+                          onClick={() => toggleCampaignGroup(g.id)}
+                        >
+                          <Checkbox
+                            checked={selectedCampaignGroups.includes(g.id)}
+                            onCheckedChange={() => toggleCampaignGroup(g.id)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="shrink-0"
+                          />
+                          <span className="text-sm flex-1 min-w-0 truncate">{g.name}</span>
+                          <span className="text-xs text-muted-foreground shrink-0">{g.member_count} คน</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  {/* นับจาก recipient_count endpoint (dedupe ตามอีเมลข้ามกลุ่ม/บริษัทแล้ว) ไม่ใช่บวก member_count ดิบๆ */}
+                  {selectedCampaignGroups.length > 0 && (
+                    <p className="text-[11px] text-muted-foreground">
+                      {recipientCountLoading ? 'กำลังคำนวณ...' : `จะส่งถึง ${recipientCountData?.count ?? 0} คน`}
+                    </p>
+                  )}
                 </div>
                 <div className="grid gap-1.5">
                   <Label>Template เริ่มต้น</Label>

@@ -7,6 +7,7 @@
 // POST /api/email-campaigns.php?action=send - Send campaign immediately
 // POST /api/email-campaigns.php?action=schedule - Schedule campaign
 // GET /api/email-campaigns.php?action=stats - Get campaign stats
+// GET /api/email-campaigns.php?action=recipient_count&group_ids=g1,g2 - Live dedup'd recipient count for a set of groups (preview, before the campaign is saved)
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/auth.php';
@@ -29,6 +30,8 @@ $tenantId = $tokenData['tenant_id'];
 // Handle different actions
 if ($method === 'GET' && $action === 'recipients') {
     getCampaignRecipients($db, $tenantId);
+} elseif ($method === 'GET' && $action === 'recipient_count') {
+    getRecipientCount($db, $tenantId);
 } elseif ($method === 'GET' && $action === 'stats') {
     getCampaignStats($db, $tenantId);
 } elseif ($method === 'POST' && $action === 'send') {
@@ -235,6 +238,34 @@ function getCampaignRecipients($db, string $tenantId) {
 }
 
 /**
+ * Live dedup'd recipient count for a set of groups — used by the campaign
+ * form's "จะส่งถึง N คน" preview while the user is still ticking groups,
+ * before the campaign exists as a row (so it can't key off a campaign id).
+ * GET /api/email-campaigns.php?action=recipient_count&group_ids=g1,g2
+ */
+function getRecipientCount($db, string $tenantId) {
+    $raw = trim($_GET['group_ids'] ?? '');
+    if ($raw === '') {
+        jsonSuccess(['count' => 0]);
+    }
+
+    $groupIds = array_values(array_filter(array_map('trim', explode(',', $raw)), fn($g) => $g !== ''));
+    if (empty($groupIds)) {
+        jsonSuccess(['count' => 0]);
+    }
+
+    // Only count groups that actually belong to this tenant — group_ids here
+    // come straight from the client (no campaign row to anchor tenant
+    // ownership to yet), so this must be checked explicitly.
+    $placeholders = implode(',', array_fill(0, count($groupIds), '?'));
+    $stmt = $db->prepare("SELECT id FROM email_groups WHERE id IN ($placeholders) AND tenant_id = ?");
+    $stmt->execute([...$groupIds, $tenantId]);
+    $ownedGroupIds = array_column($stmt->fetchAll(), 'id');
+
+    jsonSuccess(['count' => count(resolveCampaignRecipients($db, $ownedGroupIds))]);
+}
+
+/**
  * Create new email campaign
  */
 function createEmailCampaign($db, $userId, string $tenantId = '') {
@@ -284,16 +315,11 @@ function createEmailCampaign($db, $userId, string $tenantId = '') {
         foreach ($groupIds as $groupId) {
             $stmt->execute([generateUUID(), $id, $groupId]);
         }
-        
-        // Count total recipients
-        $stmt = $db->prepare("
-            SELECT COUNT(*) as count FROM email_group_members 
-            WHERE group_id IN (" . implode(',', array_fill(0, count($groupIds), '?')) . ")
-        ");
-        $stmt->execute($groupIds);
-        $result = $stmt->fetch();
-        $totalRecipients = $result['count'] ?? 0;
-        
+
+        // Count total recipients — deduplicated by email (not raw group
+        // membership count), same rule sendCampaign() uses at send time.
+        $totalRecipients = count(resolveCampaignRecipients($db, $groupIds));
+
         // Update total recipients
         $stmt = $db->prepare("UPDATE email_campaigns SET total_recipients = ? WHERE id = ?");
         $stmt->execute([$totalRecipients, $id]);
@@ -397,16 +423,10 @@ function updateEmailCampaign($db, string $tenantId) {
             foreach ($groupIds as $groupId) {
                 $stmt->execute([generateUUID(), $id, $groupId]);
             }
-            
-            // Count total recipients
-            $stmt = $db->prepare("
-                SELECT COUNT(*) as count FROM email_group_members 
-                WHERE group_id IN (" . implode(',', array_fill(0, count($groupIds), '?')) . ")
-            ");
-            $stmt->execute($groupIds);
-            $result = $stmt->fetch();
-            $totalRecipients = $result['count'] ?? 0;
-            
+
+            // Count total recipients — deduplicated by email, same rule as createEmailCampaign()/sendCampaign()
+            $totalRecipients = count(resolveCampaignRecipients($db, $groupIds));
+
             $stmt = $db->prepare("UPDATE email_campaigns SET total_recipients = ? WHERE id = ?");
             $stmt->execute([$totalRecipients, $id]);
         }
@@ -454,6 +474,72 @@ function deleteEmailCampaign($db, string $tenantId) {
 }
 
 /**
+ * Resolve the deduplicated recipient list for a set of email group IDs.
+ *
+ * Shared by createEmailCampaign(), updateEmailCampaign(), sendCampaign(), and
+ * the recipient_count preview action — a single source of truth so the
+ * "how many people will this reach" number can never disagree between the
+ * three call sites again (that mismatch was the original bug).
+ *
+ * Dedup key is the EMAIL, not customer_id: `customers` has a UNIQUE KEY of
+ * (company_id, email), not email alone, so the same person's email can
+ * legitimately appear as multiple customer rows when they're a contact for
+ * more than one company. DISTINCT on customer_id (the old approach) does not
+ * catch that — this function does, so the same inbox is never emailed twice.
+ *
+ * When one email maps to multiple customer rows, the "winning" row (used for
+ * personalisation) is chosen by: is_primary_contact=1 first, otherwise the
+ * most recently updated row. Done in PHP rather than a SQL window function to
+ * avoid depending on a MariaDB version (see the percentile() comment in
+ * content-analytics.php for the same reasoning elsewhere in this codebase).
+ *
+ * @return array Deduplicated customer rows (email normalised via
+ *               strtolower(trim())), one per unique email, with company_name joined in.
+ */
+function resolveCampaignRecipients(PDO $db, array $groupIds): array {
+    $groupIds = array_values(array_filter($groupIds, static fn($g) => $g !== null && $g !== ''));
+    if (empty($groupIds)) return [];
+
+    $placeholders = implode(',', array_fill(0, count($groupIds), '?'));
+    $stmt = $db->prepare("
+        SELECT DISTINCT c.*, co.name AS company_name
+        FROM customers c
+        JOIN email_group_members egm ON c.id = egm.customer_id
+        LEFT JOIN companies co ON c.company_id = co.id
+        WHERE egm.group_id IN ($placeholders)
+          AND c.is_active = 1
+          AND c.email != ''
+    ");
+    $stmt->execute($groupIds);
+    $rows = $stmt->fetchAll();
+
+    $byEmail = [];
+    foreach ($rows as $row) {
+        $key = strtolower(trim($row['email']));
+        if ($key === '') continue;
+
+        if (!isset($byEmail[$key])) {
+            $byEmail[$key] = $row;
+            continue;
+        }
+
+        $current        = $byEmail[$key];
+        $rowIsPrimary   = (int)($row['is_primary_contact'] ?? 0) === 1;
+        $curIsPrimary   = (int)($current['is_primary_contact'] ?? 0) === 1;
+
+        if ($rowIsPrimary && !$curIsPrimary) {
+            $byEmail[$key] = $row; // row wins: it's the primary contact, current isn't
+        } elseif ($rowIsPrimary === $curIsPrimary
+            && strtotime($row['updated_at']) > strtotime($current['updated_at'])) {
+            $byEmail[$key] = $row; // tie on primary-ness: most recently updated wins
+        }
+        // else: current stays (it's primary and row isn't, or current is newer)
+    }
+
+    return array_values($byEmail);
+}
+
+/**
  * Send campaign immediately via PHPMailer (SMTP)
  */
 function sendCampaign($db, $userId, string $tenantId) {
@@ -497,19 +583,13 @@ function sendCampaign($db, $userId, string $tenantId) {
         jsonError('Campaign cannot be sent', 400);
     }
 
-    // Load recipients (distinct active customers with email)
-    $stmt = $db->prepare("
-        SELECT DISTINCT c.*, co.name AS company_name
-        FROM customers c
-        JOIN email_group_members egm ON c.id = egm.customer_id
-        JOIN email_campaign_recipients ecr ON egm.group_id = ecr.group_id
-        LEFT JOIN companies co ON c.company_id = co.id
-        WHERE ecr.campaign_id = ?
-          AND c.is_active = 1
-          AND c.email != ''
-    ");
-    $stmt->execute([$id]);
-    $recipients = $stmt->fetchAll();
+    // Load recipients — deduplicated by email across every group this
+    // campaign is linked to (resolveCampaignRecipients() also collapses
+    // the same person appearing under multiple companies).
+    $groupsStmt = $db->prepare("SELECT group_id FROM email_campaign_recipients WHERE campaign_id = ?");
+    $groupsStmt->execute([$id]);
+    $campaignGroupIds = array_column($groupsStmt->fetchAll(), 'group_id');
+    $recipients = resolveCampaignRecipients($db, $campaignGroupIds);
 
     if (empty($recipients)) {
         jsonError('ไม่พบผู้รับอีเมลในกลุ่มที่เลือก', 400);

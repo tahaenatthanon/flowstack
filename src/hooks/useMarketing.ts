@@ -1,5 +1,16 @@
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api';
+
+/** Debounce a value — prevents API spam while user is still ticking checkboxes (mirrors useCapacity.ts's useDebounced) */
+function useDebounced<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(t);
+  }, [value, delayMs]);
+  return debounced;
+}
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -66,6 +77,8 @@ export const marketingKeys = {
   group: (id: string) => [...marketingKeys.groups(), id] as const,
   customerStats: () => [...marketingKeys.all, 'customerStats'] as const,
   settings: () => [...marketingKeys.all, 'settings'] as const,
+  /** groupIds sorted+joined so the key is stable regardless of tick order */
+  recipientCount: (groupIds: string[]) => [...marketingKeys.all, 'recipientCount', [...groupIds].sort().join(',')] as const,
 };
 
 // ── Queries ────────────────────────────────────────────────────
@@ -115,6 +128,22 @@ export function useRecipientLog(campaignId: string | null) {
     queryKey: marketingKeys.campaignRecipients(campaignId!),
     queryFn: () => apiFetch(`/email-campaigns.php?action=recipients&id=${campaignId}`),
     enabled: !!campaignId,
+  });
+}
+
+/**
+ * Live dedup'd recipient count for the group checkboxes currently ticked on the
+ * campaign form — debounced 300ms so rapid ticking doesn't spam the API.
+ * Dedup rule (by email, not customer_id) lives entirely server-side; see
+ * resolveCampaignRecipients() in api/email-campaigns.php.
+ */
+export function useCampaignRecipientCount(groupIds: string[]) {
+  const debouncedIds = useDebounced(groupIds, 300);
+  return useQuery<{ count: number }>({
+    queryKey: marketingKeys.recipientCount(debouncedIds),
+    queryFn: () => apiFetch(`/email-campaigns.php?action=recipient_count&group_ids=${debouncedIds.join(',')}`),
+    enabled: debouncedIds.length > 0,
+    staleTime: 10_000,
   });
 }
 
