@@ -244,6 +244,34 @@ export interface AssetGenBreakdown {
   none: number; generating: number; done: number; failed: number;
 }
 
+/** การ์ดสรุป Engagement all-time ของแท็บภาพรวม — ไม่ผูกช่วงเวลา */
+export interface SocialSnapshot {
+  /** false = ยังไม่เคยซิงก์โพสต์ FB/IG เลย → แสดง "—" ไม่ใช่ 0 */
+  has_data: boolean;
+  engagement: number;
+  /** จำนวนโพสต์ (content item) ที่มีข้อมูลซิงก์แล้ว */
+  posts: number;
+  likes: number;
+  /** null เมื่อ posts = 0 (หารด้วยศูนย์ไม่ได้) */
+  avg_engagement_per_post: number | null;
+}
+
+/** จุดข้อมูลกราฟแนวโน้ม Engagement — bucket ตาม trend_range (7=วัน, 30=สัปดาห์, 90=เดือน) */
+export interface EngagementTrendPoint {
+  /** วันที่สิ้นสุดของ bucket (YYYY-MM-DD) */
+  bucket_label: string;
+  engagement: number;
+}
+
+/** แถวตาราง "ประสิทธิภาพแต่ละแพลตฟอร์ม" — ครอบคลุมทุกแพลตฟอร์มที่ตั้งค่าไว้ แม้ไม่มีโพสต์ในช่วงที่เลือก */
+export interface PlatformPerformanceRow {
+  platform: string;
+  posts: number;
+  engagement: number;
+  /** null เมื่อ posts = 0 → แสดง "—" */
+  avg_engagement_per_post: number | null;
+}
+
 export interface ContentOverview {
   queue: {
     pending: number; processing: number; sent: number; failed: number;
@@ -264,6 +292,9 @@ export interface ContentOverview {
     items: StaleContentItem[];
   };
   assets: { image: AssetGenBreakdown; video: AssetGenBreakdown };
+  social_snapshot: SocialSnapshot;
+  engagement_trend: EngagementTrendPoint[];
+  platform_performance: PlatformPerformanceRow[];
 }
 
 export interface ThroughputPoint {

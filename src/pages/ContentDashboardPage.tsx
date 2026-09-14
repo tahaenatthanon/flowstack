@@ -13,6 +13,9 @@ import { PlatformBadgeList } from '@/components/content/PlatformBadgeList';
 import { AnalyticsContentTab } from '@/components/content/AnalyticsContentTab';
 import { AnalyticsSocialTab } from '@/components/content/AnalyticsSocialTab';
 import { AnalyticsWebsiteTab } from '@/components/content/AnalyticsWebsiteTab';
+import { OverviewEngagementSummary } from '@/components/content/OverviewEngagementSummary';
+import { OverviewEngagementTrendChart, type TrendRange } from '@/components/content/OverviewEngagementTrendChart';
+import { OverviewPlatformPerformanceTable, type PlatformPeriod } from '@/components/content/OverviewPlatformPerformanceTable';
 import ReportDateFilter from '@/components/reports/ReportDateFilter';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -75,8 +78,15 @@ export default function ContentDashboardPage() {
     recalcAnalytics.mutate(undefined, { onSuccess: () => { refetchAnalytics(); } });
   };
 
+  // ตัวเลือกช่วงเวลาของ 2 widget ใหม่ในแท็บภาพรวม — เป็นคนละตัวควบคุมกัน โดยตั้งใจ
+  // (ดู content-overview-social-performance spec): กราฟแนวโน้ม Engagement ใช้ trendRange,
+  // ตารางประสิทธิภาพแยกแพลตฟอร์มใช้ platformPeriod — การ์ดสรุป 4 ใบเป็น all-time
+  // snapshot ไม่มีตัวเลือกช่วงเวลาเลย จึงไม่ต้องมี state ของตัวเอง
+  const [trendRange, setTrendRange] = useState<TrendRange>('7');
+  const [platformPeriod, setPlatformPeriod] = useState<PlatformPeriod>('day');
+
   // BI aggregations — one request per tab, fetched lazily
-  const { data: bi, isLoading: biLoading, refetch: refetchBi } = useContentOverview(tab === 'overview');
+  const { data: bi, isLoading: biLoading, refetch: refetchBi } = useContentOverview(tab === 'overview', trendRange, platformPeriod);
   const { data: biAnalytics, isLoading: biAnalyticsLoading } = useContentAnalytics(from, to, tab === 'analytics');
 
   // Retry a failed publish through the existing send_now action. The original
@@ -204,6 +214,17 @@ export default function ContentDashboardPage() {
 
           {/* ── ภาพรวม ─────────────────────────────────────────── */}
           <TabsContent value="overview" className="space-y-6">
+            {/* การ์ดสรุป Engagement — all-time snapshot, สิ่งแรกที่เห็นในแท็บนี้โดยตั้งใจ */}
+            <OverviewEngagementSummary snapshot={bi?.social_snapshot} isLoading={biLoading} />
+
+            {/* กราฟแนวโน้ม Engagement — ควบคุมด้วย trendRange (7/30/90 วัน) แยกจาก platformPeriod ของตารางท้ายหน้า */}
+            <OverviewEngagementTrendChart
+              data={bi?.engagement_trend ?? []}
+              isLoading={biLoading}
+              range={trendRange}
+              onRangeChange={setTrendRange}
+            />
+
             {/* Overdue Alert */}
             {overdueCount > 0 && (
               <div className="flex items-center gap-3 px-4 py-3 rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-200 text-sm">
@@ -512,6 +533,14 @@ export default function ContentDashboardPage() {
                 </Card>
               </div>
             </div>
+
+            {/* ประสิทธิภาพแต่ละแพลตฟอร์ม — widget สุดท้ายของแท็บภาพรวม ควบคุมด้วย platformPeriod (วัน/สัปดาห์/เดือน) แยกจากกราฟแนวโน้มด้านบน */}
+            <OverviewPlatformPerformanceTable
+              rows={bi?.platform_performance ?? []}
+              isLoading={biLoading}
+              period={platformPeriod}
+              onPeriodChange={setPlatformPeriod}
+            />
           </TabsContent>
 
           {/* ── วิเคราะห์ ───────────────────────────────────────── */}

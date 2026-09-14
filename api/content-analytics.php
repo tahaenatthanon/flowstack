@@ -6,12 +6,17 @@
 // (approved_at, published_at, image_gen_status, seo_*).
 //
 // Two actions, one per dashboard tab:
-//   ?action=overview   → queue health, reach funnel, aging, asset generation
+//   ?action=overview   → queue health, reach funnel, aging, asset generation,
+//                        all-time social snapshot, Engagement trend, per-platform
+//                        performance table
 //   ?action=analytics  → throughput trend, lead time, SEO, plan conversion,
 //                        publish success by platform
 //
-// ?action=analytics also accepts &from=YYYY-MM-DD&to=YYYY-MM-DD. ?action=overview
-// deliberately does not: it is a "right now" snapshot of the production queue.
+// ?action=analytics accepts &from=YYYY-MM-DD&to=YYYY-MM-DD. ?action=overview has no
+// page-level date range (it is a "right now" snapshot of the production queue), but
+// two of its widgets carry their own independent time controls:
+//   &trend_range=7|30|90       → engagement_trend bucketing (default 7)
+//   &platform_period=day|week|month → platform_performance rolling window (default day)
 //
 // No migration: every column read here already exists.
 
@@ -57,6 +62,52 @@ function dateParam(string $name): ?string {
         jsonError("พารามิเตอร์ $name ต้องเป็นวันที่รูปแบบ YYYY-MM-DD", 400);
     }
     return $raw;
+}
+
+/**
+ * Latest-per-(content item, ช่องทาง) social engagement rows for a tenant.
+ * Mirrors the dedup ?action=analytics uses for its `social` block below:
+ * content_post_metrics keeps every sync round, so only the most recent row per
+ * (content_item_id, ช่องทาง) is kept — falling back to platform_post_id as the
+ * ช่องทาง key when channel_id is NULL (channel row deleted, FK SET NULL).
+ * Pass $fromDt/$toDt as null for an all-time cohort (no date filter).
+ *
+ * @return array rows: content_item_id, platform, published_at, views, likes
+ */
+function fetchSocialSeriesRows(PDO $db, string $tenantId, ?string $fromDt, ?string $toDt): array {
+    $cohortSql = '';
+    $params = [$tenantId, $tenantId];
+    if ($fromDt !== null && $toDt !== null) {
+        $cohortSql = 'AND ci.published_at BETWEEN ? AND ?';
+        $params[] = $fromDt;
+        $params[] = $toDt;
+    }
+    $stmt = $db->prepare(
+        "SELECT m.content_item_id,
+                m.platform,
+                ci.published_at,
+                MAX(m.views) AS views,
+                MAX(m.likes) AS likes
+         FROM content_post_metrics m
+         JOIN content_items ci ON ci.id = m.content_item_id
+         JOIN (SELECT content_item_id,
+                      COALESCE(channel_id, CONCAT('#', platform_post_id)) AS series_key,
+                      MAX(fetched_at) AS mx
+                 FROM content_post_metrics
+                WHERE tenant_id = ?
+                GROUP BY content_item_id, series_key) t
+           ON t.content_item_id = m.content_item_id
+          AND t.series_key = COALESCE(m.channel_id, CONCAT('#', m.platform_post_id))
+          AND t.mx = m.fetched_at
+        WHERE m.tenant_id = ?
+          AND m.platform IN ('facebook', 'instagram')
+          $cohortSql
+        GROUP BY m.content_item_id,
+                 COALESCE(m.channel_id, CONCAT('#', m.platform_post_id)),
+                 m.platform, ci.published_at"
+    );
+    $stmt->execute($params);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
 // ─── OVERVIEW ──────────────────────────────────────────────────────
@@ -152,6 +203,115 @@ if ($action === 'overview') {
     $gStmt->execute([$tenantId]);
     $g = $gStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
+    // 5) Social snapshot — all-time Engagement summary card strip. No date filter
+    // (see fetchSocialSeriesRows) — deliberately independent of the trend/table
+    // widgets below, which each have their own time window.
+    $snapshotRows  = fetchSocialSeriesRows($db, $tenantId, null, null);
+    $snapEngagement = 0;
+    $snapLikes      = 0;
+    $snapItems      = [];
+    foreach ($snapshotRows as $r) {
+        $snapEngagement += (int)$r['views'] + (int)$r['likes'];
+        $snapLikes      += (int)$r['likes'];
+        $snapItems[$r['content_item_id']] = true;
+    }
+    $snapPosts = count($snapItems);
+
+    // 6) Engagement trend — bucketed by the `trend_range` param. Mapping is fixed
+    // (not a free granularity choice) so a short range can never produce a
+    // degenerate single-point chart: 7 → 7 daily buckets, 30 → ~4-5 weekly
+    // (rolling 7-day) buckets, 90 → ~3 monthly (rolling 30-day) buckets.
+    $trendRange = $_GET['trend_range'] ?? '7';
+    if (!in_array($trendRange, ['7', '30', '90'], true)) {
+        jsonError('trend_range ต้องเป็น 7, 30 หรือ 90', 400);
+    }
+    $trendDays      = (int)$trendRange;
+    $trendBucketDays = $trendDays === 7 ? 1 : ($trendDays === 30 ? 7 : 30);
+    $trendBucketCount = (int)ceil($trendDays / $trendBucketDays);
+    $trendFromDt = date('Y-m-d 00:00:00', strtotime('-' . ($trendDays - 1) . ' days'));
+    $trendToDt   = date('Y-m-d 23:59:59');
+
+    $today = new DateTime(date('Y-m-d'));
+    $trendBuckets = [];
+    for ($i = $trendBucketCount - 1; $i >= 0; $i--) {
+        $bucketEnd   = (clone $today)->modify('-' . ($i * $trendBucketDays) . ' days');
+        $bucketStart = (clone $bucketEnd)->modify('-' . ($trendBucketDays - 1) . ' days');
+        $trendBuckets[] = [
+            'start'      => $bucketStart->format('Y-m-d'),
+            'end'        => $bucketEnd->format('Y-m-d'),
+            'engagement' => 0,
+        ];
+    }
+    $trendRows = fetchSocialSeriesRows($db, $tenantId, $trendFromDt, $trendToDt);
+    foreach ($trendRows as $r) {
+        $pubDate = substr((string)$r['published_at'], 0, 10);
+        if ($pubDate === '') continue;
+        foreach ($trendBuckets as &$b) {
+            if ($pubDate >= $b['start'] && $pubDate <= $b['end']) {
+                $b['engagement'] += (int)$r['views'] + (int)$r['likes'];
+                break;
+            }
+        }
+        unset($b);
+    }
+    $engagementTrend = array_map(static fn($b) => [
+        'bucket_label' => $b['end'],
+        'engagement'   => $b['engagement'],
+    ], $trendBuckets);
+
+    // 7) Platform performance — bucketed by the `platform_period` param, rolling
+    // windows (not calendar week/month). Base list = every active platform in
+    // publish_channels, LEFT JOIN'd against synced engagement, so a platform with
+    // zero posts in the selected window still gets a row (never silently hidden).
+    // Union'd with any platform that has synced data but isn't (or is no longer)
+    // an active channel, so historical data never disappears from the table.
+    $platformPeriod = $_GET['platform_period'] ?? 'day';
+    if (!in_array($platformPeriod, ['day', 'week', 'month'], true)) {
+        jsonError('platform_period ต้องเป็น day, week หรือ month', 400);
+    }
+    $periodFromDt = $platformPeriod === 'day'
+        ? date('Y-m-d 00:00:00')
+        : date('Y-m-d 00:00:00', strtotime($platformPeriod === 'week' ? '-6 days' : '-29 days'));
+    $periodToDt = date('Y-m-d 23:59:59');
+
+    $platStmt = $db->prepare(
+        "SELECT DISTINCT platform FROM publish_channels
+          WHERE tenant_id = ? AND is_active = 1 AND platform <> ''"
+    );
+    $platStmt->execute([$tenantId]);
+    $basePlatforms = array_column($platStmt->fetchAll(PDO::FETCH_ASSOC), 'platform');
+
+    $periodRows = fetchSocialSeriesRows($db, $tenantId, $periodFromDt, $periodToDt);
+    $perfAgg = []; // platform => ['items' => set, 'engagement' => int]
+    foreach ($periodRows as $r) {
+        $plat = $r['platform'];
+        if (!isset($perfAgg[$plat])) $perfAgg[$plat] = ['items' => [], 'engagement' => 0];
+        $perfAgg[$plat]['items'][$r['content_item_id']] = true;
+        $perfAgg[$plat]['engagement'] += (int)$r['views'] + (int)$r['likes'];
+    }
+    $allPlatforms = array_values(array_unique(array_merge($basePlatforms, array_keys($perfAgg))));
+
+    $platformPerformance = array_map(static function ($plat) use ($perfAgg) {
+        $agg        = $perfAgg[$plat] ?? null;
+        $posts      = $agg ? count($agg['items']) : 0;
+        $engagement = $agg ? $agg['engagement'] : 0;
+        return [
+            'platform'                 => $plat,
+            'posts'                    => $posts,
+            'engagement'               => $engagement,
+            'avg_engagement_per_post'  => $posts > 0 ? (int)round($engagement / $posts) : null,
+        ];
+    }, $allPlatforms);
+
+    // Sort desc by avg_engagement_per_post — quality-per-post, not total volume.
+    // Rows with no posts in the window (null average) sort last.
+    usort($platformPerformance, static function ($a, $b) {
+        if ($a['avg_engagement_per_post'] === $b['avg_engagement_per_post']) return 0;
+        if ($a['avg_engagement_per_post'] === null) return 1;
+        if ($b['avg_engagement_per_post'] === null) return -1;
+        return $b['avg_engagement_per_post'] <=> $a['avg_engagement_per_post'];
+    });
+
     jsonResponse([
         'queue' => [
             'pending'         => (int)($q['pending'] ?? 0),
@@ -210,6 +370,15 @@ if ($action === 'overview') {
                 'failed'     => (int)($g['vid_failed'] ?? 0),
             ],
         ],
+        'social_snapshot' => [
+            'has_data'                => $snapPosts > 0,
+            'engagement'               => $snapEngagement,
+            'posts'                    => $snapPosts,
+            'likes'                    => $snapLikes,
+            'avg_engagement_per_post'  => $snapPosts > 0 ? (int)round($snapEngagement / $snapPosts) : null,
+        ],
+        'engagement_trend'   => $engagementTrend,
+        'platform_performance' => $platformPerformance,
     ]);
 }
 
