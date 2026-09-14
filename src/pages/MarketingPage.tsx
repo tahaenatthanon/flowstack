@@ -1,7 +1,6 @@
 ﻿import { useState, useMemo, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import type { ContentItem } from '@/components/content/types';
-import ScrollableKanban from '@/components/ScrollableKanban';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,6 +16,7 @@ import { emailTemplates } from '@/data/emailTemplates';
 import { Loader2, Plus, Send, Eye, MousePointer, X, Search, Mail, Users, Pencil, Trash2, UserMinus, Copy, TrendingUp, TrendingDown, BarChart3, Building2, FileText, LayoutTemplate, Palette, Route } from 'lucide-react';
 import AttributionTab from '@/components/marketing/AttributionTab';
 import PullFromContentDialog from '@/components/content/dialogs/PullFromContentDialog';
+import { MultiSelectCombobox } from '@/components/MultiSelectCombobox';
 import PageShell from '@/components/PageShell';
 import { useToast } from '@/hooks/use-toast';
 import { useConfirm } from '@/hooks/useConfirm';
@@ -292,11 +292,6 @@ export default function MarketingPage() {
   const [senderName, setSenderName] = useState('');
   const [senderEmail, setSenderEmail] = useState('');
   const [selectedCampaignGroups, setSelectedCampaignGroups] = useState<string[]>([]);
-  const toggleCampaignGroup = (groupId: string) => {
-    setSelectedCampaignGroups(prev =>
-      prev.includes(groupId) ? prev.filter(id => id !== groupId) : [...prev, groupId]
-    );
-  };
   // Live dedup'd count (by email, across every ticked group) — debounced in the hook itself
   const { data: recipientCountData, isFetching: recipientCountLoading } = useCampaignRecipientCount(selectedCampaignGroups);
   const [enableTrackOpens, setEnableTrackOpens]   = useState(true);
@@ -470,6 +465,20 @@ export default function MarketingPage() {
     } finally {
       setSendingId(null);
     }
+  };
+
+  const handleTemplateClick = async (templateId: string) => {
+    if (selectedTemplate === templateId) {
+      const ok = await confirm({ title: 'ยกเลิกการเลือก Template?', description: 'เนื้อหาอีเมลที่ใช้จาก Template นี้จะถูกล้างกลับเป็นค่าว่าง', variant: 'default' });
+      if (!ok) return;
+      setSelectedTemplate('');
+      setCampaignBody('');
+      return;
+    }
+    const template = emailTemplates.find(t => t.id === templateId);
+    if (!template) return;
+    setSelectedTemplate(template.id);
+    setCampaignBody(template.html);
   };
 
   const handleDeleteCampaign = async (id: string) => {
@@ -1373,28 +1382,14 @@ export default function MarketingPage() {
                 </p>
                 <div className="grid gap-1.5">
                   <Label>กลุ่มผู้รับ (เลือกได้หลายกลุ่ม)</Label>
-                  <div className="border rounded-lg divide-y max-h-48 overflow-y-auto">
-                    {groups.length === 0 ? (
-                      <div className="flex items-center justify-center text-sm text-muted-foreground py-6">ยังไม่มีกลุ่มผู้รับ</div>
-                    ) : (
-                      groups.map((g) => (
-                        <div
-                          key={g.id}
-                          className="flex items-center gap-3 px-3 py-2 hover:bg-muted/40 cursor-pointer"
-                          onClick={() => toggleCampaignGroup(g.id)}
-                        >
-                          <Checkbox
-                            checked={selectedCampaignGroups.includes(g.id)}
-                            onCheckedChange={() => toggleCampaignGroup(g.id)}
-                            onClick={(e) => e.stopPropagation()}
-                            className="shrink-0"
-                          />
-                          <span className="text-sm flex-1 min-w-0 truncate">{g.name}</span>
-                          <span className="text-xs text-muted-foreground shrink-0">{g.member_count} คน</span>
-                        </div>
-                      ))
-                    )}
-                  </div>
+                  <MultiSelectCombobox
+                    options={groups.map(g => ({ value: g.id, label: g.name, meta: `${g.member_count} คน` }))}
+                    value={selectedCampaignGroups}
+                    onChange={setSelectedCampaignGroups}
+                    placeholder="เลือกกลุ่มผู้รับ"
+                    searchPlaceholder="ค้นหากลุ่ม..."
+                    emptyText="ไม่พบกลุ่มผู้รับ"
+                  />
                   {/* นับจาก recipient_count endpoint (dedupe ตามอีเมลข้ามกลุ่ม/บริษัทแล้ว) ไม่ใช่บวก member_count ดิบๆ */}
                   {selectedCampaignGroups.length > 0 && (
                     <p className="text-[11px] text-muted-foreground">
@@ -1402,29 +1397,36 @@ export default function MarketingPage() {
                     </p>
                   )}
                 </div>
-                <div className="grid gap-1.5">
-                  <Label>Template เริ่มต้น</Label>
-                  <ScrollableKanban className="gap-2">
-                    {emailTemplates.map((template) => (
-                      <button key={template.id} type="button"
-                        onClick={() => { setSelectedTemplate(template.id); setCampaignBody(template.html); }}
-                        className={`flex-shrink-0 w-12 h-12 rounded-lg border-2 flex items-center justify-center text-xl transition-all ${selectedTemplate === template.id ? 'border-blue-500 bg-blue-50 dark:bg-blue-900' : 'border-gray-200 hover:border-gray-300'}`}
-                        title={template.nameTH}
-                      >{template.thumbnail}</button>
-                    ))}
-                  </ScrollableKanban>
-                  {selectedTemplate && (
-                    <p className="text-[11px] text-blue-600 dark:text-blue-400">✓ {emailTemplates.find(t => t.id === selectedTemplate)?.nameTH}</p>
-                  )}
-                </div>
               </div>
             </div>
 
-            {/* ── Section 4: Content editor ── */}
+            {/* ── Section 4: Default template picker ── */}
+            <div className="rounded-lg border bg-muted/20 p-4 space-y-3">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
+                <span className="w-5 h-5 rounded-full bg-primary text-primary-foreground text-[10px] flex items-center justify-center shrink-0">4</span>
+                Template เริ่มต้น
+              </p>
+              <div className="grid gap-1.5">
+                <div className="flex flex-wrap gap-2">
+                  {emailTemplates.map((template) => (
+                    <button key={template.id} type="button"
+                      onClick={() => handleTemplateClick(template.id)}
+                      className={`flex-shrink-0 w-12 h-12 rounded-lg border-2 flex items-center justify-center text-xl transition-all ${selectedTemplate === template.id ? 'border-blue-500 bg-blue-50 dark:bg-blue-900' : 'border-gray-200 hover:border-gray-300'}`}
+                      title={template.nameTH}
+                    >{template.thumbnail}</button>
+                  ))}
+                </div>
+                {selectedTemplate && (
+                  <p className="text-[11px] text-blue-600 dark:text-blue-400">✓ {emailTemplates.find(t => t.id === selectedTemplate)?.nameTH}</p>
+                )}
+              </div>
+            </div>
+
+            {/* ── Section 5: Content editor ── */}
             <div className="rounded-lg border bg-muted/20 p-4 space-y-3">
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
-                  <span className="w-5 h-5 rounded-full bg-primary text-primary-foreground text-[10px] flex items-center justify-center shrink-0">4</span>
+                  <span className="w-5 h-5 rounded-full bg-primary text-primary-foreground text-[10px] flex items-center justify-center shrink-0">5</span>
                   เนื้อหาอีเมล
                 </p>
                 <div className="flex items-center gap-2">
