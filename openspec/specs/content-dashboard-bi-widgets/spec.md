@@ -2,7 +2,7 @@
 
 ## Purpose
 
-กำหนด endpoint BI (`api/content-analytics.php`) และ widget วิเคราะห์/สถิติ (BI) สำหรับแดชบอร์ดคอนเทนต์ แบ่งเป็น widget ฝั่งแท็บ "ภาพรวม" (สุขภาพคิวเผยแพร่, Funnel การผลิต, คอนเทนต์ค้างท่อ, สถานะสร้างสื่อ AI) และแท็บ "วิเคราะห์" (แนวโน้ม Throughput, Lead time, ความสมบูรณ์ SEO, Plan → Content conversion, อัตราสำเร็จการเผยแพร่)
+กำหนด endpoint BI (`api/content-analytics.php`) และ widget วิเคราะห์/สถิติ (BI) สำหรับแดชบอร์ดคอนเทนต์ แบ่งเป็น widget ฝั่งแท็บ "ภาพรวม" (คิวเผยแพร่, เผยแพร่ล้มเหลว, คอนเทนต์ค้างท่อ) และแท็บ "วิเคราะห์" (แนวโน้ม Throughput, Lead time, ความสมบูรณ์ SEO, Plan → Content conversion, อัตราสำเร็จการเผยแพร่) — endpoint `?action=overview` ยังคำนวณและคืนค่า `funnel` และ `assets` เหมือนเดิมแม้ปัจจุบันไม่มี UI แสดง เผื่อนำกลับมาใช้ในอนาคต
 
 ## Requirements
 
@@ -39,35 +39,31 @@
 - **WHEN** คำนวณ lead time ของขั้นที่ยังไม่มีรายการที่มี timestamp ครบ
 - **THEN** ค่า avg/p50/p90 ของขั้นนั้นเป็น `null` (ไม่ใช่ `0`) พร้อม `sample_size` เป็น `0`
 
-### Requirement: Widget สุขภาพคิวเผยแพร่
-แท็บ "ภาพรวม" SHALL แสดง widget "สุขภาพคิวเผยแพร่" ที่นับจำนวนรายการใน `content_publish_queue` แยกตามสถานะ `pending`/`processing`/`sent`/`failed` และจำนวน `pending` ที่เลยกำหนด (`scheduled_at < NOW()`)
+### Requirement: Widget คิวเผยแพร่ (นับสถานะ)
+แท็บ "ภาพรวม" SHALL แสดง widget "คิวเผยแพร่" ในคอลัมน์ภาพรวม ที่นับจำนวนรายการใน `content_publish_queue` แยกตามสถานะ `pending`/`processing`/`sent` เท่านั้น รายการ `failed` ไม่แสดงในการ์ดนี้ (ย้ายไปเป็น widget แยก "เผยแพร่ล้มเหลว" ในคอลัมน์ต้องดำเนินการ) และการ์ดนี้ไม่แสดงข้อความ "เลยกำหนด" ซ้ำ (แจ้งเตือนแสดงที่ banner บนสุดของหน้าเพียงจุดเดียว โดยใช้นิยามเดียวกับ `content-publish.php?action=overdue_count`)
 
-#### Scenario: นับตามสถานะ
+#### Scenario: นับตามสถานะ ไม่รวม failed
 - **WHEN** แท็บ "ภาพรวม" โหลดและเรียก `?action=overview`
-- **THEN** widget แสดงจำนวน `pending`, `processing`, `sent`, `failed` แยกกัน
+- **THEN** widget "คิวเผยแพร่" แสดงจำนวน `pending`, `processing`, `sent` แยกกัน และไม่แสดงจำนวน `failed` ในการ์ดนี้
 
-#### Scenario: นับ pending ที่เลยกำหนดด้วยนิยามเดียวกับ overdue_count
-- **WHEN** แท็บ "ภาพรวม" โหลด
-- **THEN** จำนวน "เลยกำหนด" ตรงกับนิยาม `status='pending' AND scheduled_at < NOW()` (ค่าเดียวกับ `content-publish.php?action=overdue_count`)
+#### Scenario: ไม่แสดงข้อความเลยกำหนดซ้ำ
+- **WHEN** `queue.overdue_pending` มากกว่า 0
+- **THEN** widget "คิวเผยแพร่" ไม่แสดงข้อความแจ้งเตือนเลยกำหนดภายในการ์ด (แจ้งเตือนแสดงเฉพาะที่ banner บนสุดของหน้า ซึ่งใช้ `useOverdueCount()` เดิม)
+
+### Requirement: Widget เผยแพร่ล้มเหลว
+แท็บ "ภาพรวม" SHALL แสดง widget "เผยแพร่ล้มเหลว" ในคอลัมน์ต้องดำเนินการ แสดงรายการสถานะ `failed` จาก `content_publish_queue` พร้อมปุ่ม "ลองส่งใหม่" และ Badge จำนวนรายการที่หัวการ์ด
 
 #### Scenario: แสดงรายการ failed พร้อมปุ่มลองส่งใหม่
 - **WHEN** มีรายการ `failed` อย่างน้อย 1 รายการ
 - **THEN** widget แสดงรายการ failed (error_msg, retry_count, ชื่อคอนเทนต์, ชื่อ channel) และปุ่ม "ลองส่งใหม่" ที่เรียก action `send_now` เดิมของ `api/content-publish.php` (ไม่สร้าง endpoint ใหม่)
 
-### Requirement: Widget Funnel การผลิต
-แท็บ "ภาพรวม" SHALL แสดง widget "Funnel การผลิต" ที่นับจำนวนที่ "เคยผ่าน" แต่ละขั้นโดย derive จาก timestamp (`created_at` → `requested_at` → `approved_at` → `published_at`) ไม่ใช่ snapshot ของ `status`
+#### Scenario: แสดง Badge จำนวนรายการล้มเหลวที่หัวการ์ด
+- **WHEN** widget "เผยแพร่ล้มเหลว" render และมีรายการ `failed` อย่างน้อย 1 รายการ
+- **THEN** หัวการ์ด (`CardTitle`) แสดง `Badge` ตัวเลขจำนวนรายการ `failed`
 
-#### Scenario: นับจำนวนที่เคยผ่านแต่ละขั้น
-- **WHEN** แท็บ "ภาพรวม" โหลด
-- **THEN** widget แสดงจำนวนรายการที่เคยผ่านขั้น สร้าง (`created_at` ไม่ NULL), ขออนุมัติ (`requested_at` ไม่ NULL), อนุมัติ (`approved_at` ไม่ NULL), เผยแพร่ (`published_at` ไม่ NULL)
-
-#### Scenario: คำนวณ % ตกหล่นระหว่างขั้น
-- **WHEN** แสดง funnel
-- **THEN** widget แสดงเปอร์เซ็นต์การตกหล่น (drop-off) ระหว่างขั้นที่อยู่ติดกัน (เช่น สร้าง→ขออนุมัติ)
-
-#### Scenario: รายการที่เคยอนุมัติแล้วถูกเด้งกลับยังนับว่าผ่านขั้นนั้น
-- **WHEN** มีรายการที่ `approved_at` ไม่ NULL แต่ `status` ปัจจุบันไม่ใช่ `approved`
-- **THEN** รายการนั้นยังถูกนับในขั้น "อนุมัติ" ของ funnel
+#### Scenario: ไม่มีรายการล้มเหลว
+- **WHEN** ไม่มีรายการสถานะ `failed`
+- **THEN** การ์ดนี้ไม่แสดงเนื้อหาแยก — ถ้าคอนเทนต์ค้างท่อก็ว่างพร้อมกัน คอลัมน์ต้องดำเนินการแสดงข้อความว่างรวมแทน (ดู `content-dashboard-layout`)
 
 ### Requirement: Widget คอนเทนต์ค้างท่อ (Aging)
 แท็บ "ภาพรวม" SHALL แสดง widget "คอนเทนต์ค้างท่อ" ที่แบ่งรายการที่ `status <> 'published'` ตามช่วงอายุจาก `created_at` (0-7 / 8-30 / 31-90 / 90+ วัน)
@@ -88,16 +84,9 @@
 - **WHEN** รายการที่เก่าสุดมี content item ที่ไม่มีแพลตฟอร์มเลย
 - **THEN** แถวของ item นั้นแสดง badge สถานะ (`STATUS_MAP`) ตามปกติ แต่ไม่แสดง platform badge ใดๆ
 
-### Requirement: Widget สถานะสร้างสื่อ AI
-แท็บ "ภาพรวม" SHALL แสดง widget "สถานะสร้างสื่อ AI" ที่สรุปจำนวนตาม `image_gen_status` และ `video_gen_status` (`none`/`generating`/`done`/`failed`)
-
-#### Scenario: สรุปสถานะภาพ
-- **WHEN** แท็บ "ภาพรวม" โหลด
-- **THEN** widget แสดงจำนวน `content_items` ตามค่า `image_gen_status` (`none`, `generating`, `done`, `failed`)
-
-#### Scenario: สรุปสถานะวิดีโอ
-- **WHEN** แท็บ "ภาพรวม" โหลด
-- **THEN** widget แสดงจำนวน `content_items` ตามค่า `video_gen_status` (`none`, `generating`, `done`, `failed`)
+#### Scenario: แสดง Badge จำนวนรวมที่หัวการ์ด
+- **WHEN** widget "คอนเทนต์ค้างท่อ" render และมีรายการค้างท่ออย่างน้อย 1 รายการ
+- **THEN** หัวการ์ด (`CardTitle`) แสดง `Badge` ตัวเลขจำนวนรวมทั้งหมดที่ยังไม่เผยแพร่ (`aging.total`)
 
 ### Requirement: Widget แนวโน้ม Throughput รายเดือน
 sub-tab "เนื้อหา" ของแท็บ "วิเคราะห์" SHALL แสดง widget "แนวโน้ม Throughput รายเดือน" เป็นกราฟ (recharts) ย้อนหลัง 12 เดือน มี 4 เส้น: สร้าง / ขออนุมัติ / อนุมัติ / เผยแพร่ โดยแต่ละเมตริกนับในเดือนของ timestamp ตัวเอง และ respect ช่วงวันที่จากตัวกรอง (default 12 เดือน)

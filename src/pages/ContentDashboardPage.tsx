@@ -1,21 +1,19 @@
 import { useState } from 'react';
-import { FileText, Clock, CheckCircle2, Edit3, AlertTriangle, ArrowRight, BarChart3, CalendarClock, Share2, Globe, Radio, LayoutDashboard, Filter, Hourglass, Sparkles, Send, RefreshCw, XCircle, Loader2 } from 'lucide-react';
+import { FileText, Clock, CheckCircle2, AlertTriangle, ArrowRight, BarChart3, CalendarClock, Share2, Globe, LayoutDashboard, Hourglass, Send, RefreshCw, XCircle, Loader2 } from 'lucide-react';
 import { format, startOfMonth, subMonths } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { useContentItems, useOverdueCount, useAllSchedules, usePublishChannels, useChannelConnectionStatus, usePostingAnalytics, useRecalculateAnalytics, useResultMetrics, useContentOverview, useContentAnalytics, useSendNow } from '@/hooks/useContent';
+import { useContentItems, useOverdueCount, useAllSchedules, usePostingAnalytics, useRecalculateAnalytics, useResultMetrics, useContentOverview, useContentAnalytics, useSendNow } from '@/hooks/useContent';
 import PageShell from '@/components/PageShell';
 import { STATUS_MAP, PLATFORM_MAP, TYPE_MAP } from '@/components/content/types';
-import { PlatformIcon } from '@/components/content/PlatformIcon';
 import { PlatformBadgeList } from '@/components/content/PlatformBadgeList';
 import { AnalyticsContentTab } from '@/components/content/AnalyticsContentTab';
 import { AnalyticsSocialTab } from '@/components/content/AnalyticsSocialTab';
 import { AnalyticsWebsiteTab } from '@/components/content/AnalyticsWebsiteTab';
 import ReportDateFilter from '@/components/reports/ReportDateFilter';
-import { getPlatformColors } from '@/lib/platformConfig';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
@@ -42,8 +40,6 @@ export default function ContentDashboardPage() {
   const { data: items = [], isLoading } = useContentItems();
   const { data: overdue } = useOverdueCount();
   const { data: schedules = [] } = useAllSchedules();
-  const { data: channels = [] } = usePublishChannels();
-  const { data: channelStatus = [] } = useChannelConnectionStatus();
   const overdueCount = overdue?.count ?? 0;
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -121,29 +117,23 @@ export default function ContentDashboardPage() {
   const draftCount = items.filter(i => i.status === 'draft').length;
   const pendingApprovalCount = items.filter(i => i.status === 'pending_approval').length;
 
-  // Status distribution for Work Progress
+  // Status distribution for Work Progress — single source of truth for
+  // per-status counts and the overview total (replaces the old top-of-page
+  // stat cards). Includes `rejected` so no reachable status is invisible here.
   const statusCounts = {
     published: publishedCount,
     pending_approval: pendingApprovalCount,
     approved: items.filter(i => i.status === 'approved').length,
     revision: items.filter(i => i.status === 'revision').length,
     draft: draftCount,
+    rejected: items.filter(i => i.status === 'rejected').length,
   };
-  const workProgressStatuses = ['published', 'approved', 'pending_approval', 'revision', 'draft'] as const;
+  const workProgressStatuses = ['published', 'approved', 'pending_approval', 'revision', 'draft', 'rejected'] as const;
 
   // Recent items (last 5)
   const recentItems = [...items]
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
     .slice(0, 5);
-
-  // Pending approval queue (oldest request first, null last)
-  const pendingItems = items
-    .filter(i => i.status === 'pending_approval')
-    .sort((a, b) => {
-      const ta = a.requested_at ? new Date(a.requested_at).getTime() : Number.MAX_SAFE_INTEGER;
-      const tb = b.requested_at ? new Date(b.requested_at).getTime() : Number.MAX_SAFE_INTEGER;
-      return ta - tb;
-    });
 
   // Upcoming schedules (future only, soonest first)
   const now = Date.now();
@@ -162,19 +152,16 @@ export default function ContentDashboardPage() {
     return new Date(d).toLocaleString('th-TH', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
-  // Production stat cards (overview tab)
-  const productionStatCards = [
-    { label: 'เนื้อหาทั้งหมด', value: totalItems, icon: FileText, color: 'text-blue-600', bgColor: 'bg-blue-500/10', border: 'border-blue-600', countColor: 'text-blue-700' },
-    { label: 'เผยแพร่แล้ว', value: publishedCount, icon: CheckCircle2, color: 'text-green-600', bgColor: 'bg-green-500/10', border: 'border-green-600', countColor: 'text-green-700' },
-    { label: 'รออนุมัติ', value: pendingApprovalCount, icon: Clock, color: 'text-amber-600', bgColor: 'bg-amber-500/10', border: 'border-amber-600', countColor: 'text-amber-700' },
-    { label: 'ฉบับร่าง', value: draftCount, icon: Edit3, color: 'text-gray-600', bgColor: 'bg-gray-500/10', border: 'border-gray-600', countColor: 'text-gray-700' },
-  ];
-
   // ── BI derived values ────────────────────────────────────────────
   const queue = bi?.queue;
-  const funnel = bi?.funnel;
   const aging = bi?.aging;
-  const assets = bi?.assets;
+
+  // "ต้องดำเนินการ" column collapses to one combined empty message only when
+  // BOTH cards would otherwise be empty — a single empty card still renders
+  // its own empty state normally.
+  const hasFailures = (queue?.failures.length ?? 0) > 0;
+  const hasAgingItems = (aging?.total ?? 0) > 0;
+  const actionColumnEmpty = !biLoading && !hasFailures && !hasAgingItems;
 
   const queueStatuses = [
     { key: 'pending' as const,    label: 'รอส่ง',     icon: Clock,        color: 'text-amber-600' },
@@ -183,32 +170,12 @@ export default function ContentDashboardPage() {
     { key: 'failed' as const,     label: 'ล้มเหลว',   icon: XCircle,      color: 'text-red-600' },
   ];
 
-  // Funnel stages, widest first. Drop-off is measured against the previous stage.
-  const funnelStages = funnel ? [
-    { key: 'created',   label: 'สร้าง',     count: funnel.created,   color: 'bg-blue-500' },
-    { key: 'requested', label: 'ขออนุมัติ', count: funnel.requested, color: 'bg-amber-500' },
-    { key: 'approved',  label: 'อนุมัติ',   count: funnel.approved,  color: 'bg-violet-500' },
-    { key: 'published', label: 'เผยแพร่',   count: funnel.published, color: 'bg-green-500' },
-  ] : [];
-
   const agingBuckets = aging ? [
     { key: 'd0_7',     label: '0-7 วัน',    count: aging.d0_7,     color: 'text-green-600',  bg: 'bg-green-500' },
     { key: 'd8_30',    label: '8-30 วัน',   count: aging.d8_30,    color: 'text-amber-600',  bg: 'bg-amber-500' },
     { key: 'd31_90',   label: '31-90 วัน',  count: aging.d31_90,   color: 'text-orange-600', bg: 'bg-orange-500' },
     { key: 'd90_plus', label: 'เกิน 90 วัน', count: aging.d90_plus, color: 'text-red-600',    bg: 'bg-red-500' },
   ] : [];
-
-  const assetKinds = assets ? [
-    { key: 'image', label: 'รูปภาพ', data: assets.image },
-    { key: 'video', label: 'วิดีโอ', data: assets.video },
-  ] : [];
-  const assetStatuses = [
-    { key: 'done' as const,       label: 'สำเร็จ',      color: 'text-green-600' },
-    { key: 'generating' as const, label: 'กำลังสร้าง',  color: 'text-blue-600' },
-    { key: 'failed' as const,     label: 'ล้มเหลว',     color: 'text-red-600' },
-    { key: 'none' as const,       label: 'ยังไม่สร้าง', color: 'text-muted-foreground' },
-  ];
-  const hasAssetActivity = assetKinds.some(k => k.data.done + k.data.generating + k.data.failed > 0);
 
   return (
     <PageShell
@@ -237,22 +204,6 @@ export default function ContentDashboardPage() {
 
           {/* ── ภาพรวม ─────────────────────────────────────────── */}
           <TabsContent value="overview" className="space-y-6">
-            {/* Production Stat Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {productionStatCards.map((card) => {
-                const Icon = card.icon;
-                return (
-                  <div key={card.label} className={`stat-card p-3 sm:p-5 ${card.border} ${card.bgColor}`}>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium">{card.label}</span>
-                      <Icon className={`w-4 h-4 ${card.color}`} />
-                    </div>
-                    <p className={`text-xl sm:text-2xl font-bold font-heading tabular-nums ${card.countColor}`}>{card.value.toLocaleString()}</p>
-                  </div>
-                );
-              })}
-            </div>
-
             {/* Overdue Alert */}
             {overdueCount > 0 && (
               <div className="flex items-center gap-3 px-4 py-3 rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-200 text-sm">
@@ -264,200 +215,138 @@ export default function ContentDashboardPage() {
               </div>
             )}
 
-            {/* Master 2-column */}
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-              {/* LEFT: สถานะการผลิต + ตาราง */}
-              <div className="flex flex-col space-y-6 xl:col-span-2">
-                {/* Work Progress */}
+            {/* 3 แถวอิสระ อัตราส่วนต่อแถว (mirror HomePage.tsx) — แต่ละแถวไม่ผูกความสูงกับแถวอื่น */}
+            <div className="space-y-6">
+              {/* แถว 1: เผยแพร่ล้มเหลว + คอนเทนต์รอดำเนินการ (1:1) */}
+              {actionColumnEmpty ? (
                 <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
-                      <BarChart3 className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <span className="truncate">ภาพรวมสถานะคอนเทนต์</span>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {workProgressStatuses.map(statusKey => {
-                      const count = statusCounts[statusKey];
-                      const percent = totalItems > 0 ? Math.round((count / totalItems) * 100) : 0;
-                      const info = STATUS_MAP[statusKey];
-                      return (
-                        <div key={statusKey}>
-                          <div className="flex items-center justify-between mb-1.5">
-                            <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                              {(() => { const StatusIcon = info.icon; return <StatusIcon className={`h-3.5 w-3.5 ${info.iconColor}`} />; })()}
-                              {info.label}
-                            </span>
-                            <span className={`text-sm font-medium ${info.iconColor}`}>{count} ชิ้น ({percent}%)</span>
-                          </div>
-                          <Progress value={percent} className={`h-1.5 ${info.progressColor}`} />
-                        </div>
-                      );
-                    })}
-                    <div className="pt-3 border-t flex items-center justify-between">
-                      <span className="text-sm text-muted-foreground">เนื้อหาทั้งหมด</span>
-                      <span className="text-lg font-bold">{totalItems.toLocaleString()} ชิ้น</span>
-                    </div>
+                  <CardContent>
+                    <p className="py-8 text-center text-sm text-muted-foreground">ไม่มีงานที่ต้องดำเนินการตอนนี้</p>
                   </CardContent>
                 </Card>
-
-                {/* Funnel การผลิต */}
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
-                      <Filter className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <span className="truncate">Funnel การผลิต</span>
-                    </CardTitle>
-                    <span className="shrink-0 text-xs text-muted-foreground">นับจากที่เคยผ่านแต่ละขั้น</span>
-                  </CardHeader>
-                  <CardContent>
-                    {biLoading ? (
-                      <p className="py-8 text-center text-sm text-muted-foreground">กำลังโหลด...</p>
-                    ) : !funnel || funnel.created === 0 ? (
-                      <p className="py-8 text-center text-sm text-muted-foreground">ยังไม่มีคอนเทนต์ในระบบ</p>
-                    ) : (
-                      <div className="space-y-1">
-                        {funnelStages.map((stage, idx) => {
-                          const prev = idx > 0 ? funnelStages[idx - 1] : null;
-                          const widthPct = funnel.created > 0 ? (stage.count / funnel.created) * 100 : 0;
-                          const dropPct = prev && prev.count > 0
-                            ? Math.round((1 - stage.count / prev.count) * 100)
-                            : null;
-                          return (
-                            <div key={stage.key}>
-                              {dropPct !== null && (
-                                <p className="py-1 pl-1 text-xs text-muted-foreground">
-                                  ↓ ตกหล่น <span className={dropPct >= 50 ? 'font-medium text-red-600' : 'font-medium text-amber-600'}>{dropPct}%</span>
-                                  {' '}({(prev!.count - stage.count).toLocaleString()} ชิ้น)
-                                </p>
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* เผยแพร่ล้มเหลว */}
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
+                        <XCircle className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="truncate">เผยแพร่ล้มเหลว</span>
+                        {hasFailures && (
+                          <Badge variant="destructive" className="shrink-0">{queue!.failures.length}</Badge>
+                        )}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {biLoading ? (
+                        <p className="py-8 text-center text-sm text-muted-foreground">กำลังโหลด...</p>
+                      ) : !hasFailures ? (
+                        <p className="py-8 text-center text-sm text-muted-foreground">ไม่มีรายการเผยแพร่ล้มเหลว</p>
+                      ) : (
+                        <div className="space-y-3">
+                          {queue!.failures.map(f => (
+                            <div key={f.id} className="space-y-1.5 rounded-lg border border-red-200 bg-red-50/50 p-2 dark:border-red-900 dark:bg-red-950/20">
+                              <div className="flex items-start justify-between gap-2">
+                                <p className="min-w-0 flex-1 truncate text-sm font-medium">{f.title}</p>
+                                <Badge variant="outline" className="shrink-0 text-xs">ลอง {f.retry_count.toLocaleString()} ครั้ง</Badge>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                {f.platform && PLATFORM_MAP[f.platform] ? (
+                                  <Badge variant="outline" className={PLATFORM_MAP[f.platform].color}>{PLATFORM_MAP[f.platform].label}</Badge>
+                                ) : null}
+                                {f.channel_name && <span className="truncate">{f.channel_name}</span>}
+                                <span>{formatDateTime(f.scheduled_at)}</span>
+                              </div>
+                              {f.error_msg && (
+                                <p className="break-words text-xs text-red-700 dark:text-red-300">{f.error_msg}</p>
                               )}
-                              <div className="flex items-center gap-3">
-                                <span className="w-20 shrink-0 text-sm text-muted-foreground">{stage.label}</span>
-                                <div className="h-6 flex-1 rounded bg-muted">
-                                  <div
-                                    className={`flex h-6 items-center justify-end rounded px-2 ${stage.color}`}
-                                    style={{ width: `${Math.max(widthPct, stage.count > 0 ? 8 : 0)}%` }}
-                                  >
-                                    {stage.count > 0 && (
-                                      <span className="text-xs font-medium tabular-nums text-white">{stage.count.toLocaleString()}</span>
-                                    )}
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 w-full gap-1.5 text-xs"
+                                disabled={sendNow.isPending}
+                                onClick={() => handleRetry(f.content_id, f.channel_id)}
+                              >
+                                <RefreshCw className="h-3 w-3" />
+                                ลองส่งใหม่
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* คอนเทนต์รอดำเนินการ */}
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
+                        <Hourglass className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="truncate">คอนเทนต์รอดำเนินการ</span>
+                        {hasAgingItems && (
+                          <Badge variant="outline" className="shrink-0">{aging!.total}</Badge>
+                        )}
+                      </CardTitle>
+                      {aging && aging.oldest_days !== null && (
+                        <span className="shrink-0 text-xs text-muted-foreground">เก่าสุด {aging.oldest_days.toLocaleString()} วัน</span>
+                      )}
+                    </CardHeader>
+                    <CardContent>
+                      {biLoading ? (
+                        <p className="py-8 text-center text-sm text-muted-foreground">กำลังโหลด...</p>
+                      ) : !hasAgingItems ? (
+                        <p className="py-8 text-center text-sm text-muted-foreground">ไม่มีคอนเทนต์รอดำเนินการ — เผยแพร่ครบทุกชิ้น</p>
+                      ) : (
+                        <div className="space-y-4">
+                          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                            {agingBuckets.map(b => (
+                              <div key={b.key} className="rounded-lg border p-3">
+                                <p className="text-xs text-muted-foreground">{b.label}</p>
+                                <p className={`text-xl font-bold font-heading tabular-nums ${b.color}`}>{b.count.toLocaleString()}</p>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="flex h-2 overflow-hidden rounded bg-muted">
+                            {agingBuckets.map(b => (
+                              b.count > 0 ? (
+                                <div
+                                  key={b.key}
+                                  className={b.bg}
+                                  style={{ width: `${(b.count / aging!.total) * 100}%` }}
+                                  title={`${b.label}: ${b.count} ชิ้น`}
+                                />
+                              ) : null
+                            ))}
+                          </div>
+                          <div className="space-y-2 border-t pt-3">
+                            <p className="text-xs font-medium text-muted-foreground">ค้างนานที่สุด</p>
+                            {aging!.items.map(item => {
+                              const status = STATUS_MAP[item.status] ?? { label: item.status, color: 'bg-gray-100 text-gray-600' };
+                              return (
+                                <div key={item.id} className="flex items-center justify-between gap-3">
+                                  <div className="flex min-w-0 items-center gap-2">
+                                    <p className="truncate text-sm">{item.title}</p>
+                                    <Badge variant="outline" className={`shrink-0 ${status.color}`}>{status.label}</Badge>
+                                    <PlatformBadgeList platforms={item.platform} variant="pill" />
                                   </div>
-                                </div>
-                                <span className="w-10 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
-                                  {Math.round(widthPct)}%
-                                </span>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-
-                {/* คอนเทนต์ค้างท่อ */}
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
-                      <Hourglass className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <span className="truncate">คอนเทนต์ค้างท่อ</span>
-                    </CardTitle>
-                    {aging && aging.oldest_days !== null && (
-                      <span className="shrink-0 text-xs text-muted-foreground">เก่าสุด {aging.oldest_days.toLocaleString()} วัน</span>
-                    )}
-                  </CardHeader>
-                  <CardContent>
-                    {biLoading ? (
-                      <p className="py-8 text-center text-sm text-muted-foreground">กำลังโหลด...</p>
-                    ) : !aging || aging.total === 0 ? (
-                      <p className="py-8 text-center text-sm text-muted-foreground">ไม่มีคอนเทนต์ค้างท่อ — เผยแพร่ครบทุกชิ้น</p>
-                    ) : (
-                      <div className="space-y-4">
-                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                          {agingBuckets.map(b => (
-                            <div key={b.key} className="rounded-lg border p-3">
-                              <p className="text-xs text-muted-foreground">{b.label}</p>
-                              <p className={`text-xl font-bold font-heading tabular-nums ${b.color}`}>{b.count.toLocaleString()}</p>
-                            </div>
-                          ))}
-                        </div>
-                        <div className="flex h-2 overflow-hidden rounded bg-muted">
-                          {agingBuckets.map(b => (
-                            b.count > 0 ? (
-                              <div
-                                key={b.key}
-                                className={b.bg}
-                                style={{ width: `${(b.count / aging.total) * 100}%` }}
-                                title={`${b.label}: ${b.count} ชิ้น`}
-                              />
-                            ) : null
-                          ))}
-                        </div>
-                        <div className="space-y-2 border-t pt-3">
-                          <p className="text-xs font-medium text-muted-foreground">ค้างนานที่สุด</p>
-                          {aging.items.map(item => {
-                            const status = STATUS_MAP[item.status] ?? { label: item.status, color: 'bg-gray-100 text-gray-600' };
-                            return (
-                              <div key={item.id} className="flex items-center justify-between gap-3">
-                                <div className="flex min-w-0 items-center gap-2">
-                                  <p className="truncate text-sm">{item.title}</p>
-                                  <Badge variant="outline" className={`shrink-0 ${status.color}`}>{status.label}</Badge>
-                                  <PlatformBadgeList platforms={item.platform} variant="pill" />
-                                </div>
-                                <span className={`shrink-0 text-xs font-medium tabular-nums ${item.age_days > 90 ? 'text-red-600' : 'text-muted-foreground'}`}>
-                                  {item.age_days.toLocaleString()} วัน
-                                </span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-
-                {/* สถานะสร้างสื่อ AI */}
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
-                      <Sparkles className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <span className="truncate">สถานะสร้างสื่อ AI</span>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {biLoading ? (
-                      <p className="py-8 text-center text-sm text-muted-foreground">กำลังโหลด...</p>
-                    ) : !assets || !hasAssetActivity ? (
-                      <p className="py-8 text-center text-sm text-muted-foreground">ยังไม่มีการสร้างสื่อด้วย AI</p>
-                    ) : (
-                      <div className="space-y-4">
-                        {assetKinds.map(kind => {
-                          const total = kind.data.none + kind.data.generating + kind.data.done + kind.data.failed;
-                          const donePct = total > 0 ? Math.round((kind.data.done / total) * 100) : 0;
-                          return (
-                            <div key={kind.key}>
-                              <div className="mb-1.5 flex items-center justify-between">
-                                <span className="text-sm text-muted-foreground">{kind.label}</span>
-                                <span className="text-sm font-medium">สำเร็จ {donePct}% ({kind.data.done.toLocaleString()}/{total.toLocaleString()})</span>
-                              </div>
-                              <Progress value={donePct} className="h-1.5" />
-                              <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
-                                {assetStatuses.map(s => (
-                                  <span key={s.key} className={`text-xs ${s.color}`}>
-                                    {s.label} <span className="font-medium tabular-nums">{kind.data[s.key].toLocaleString()}</span>
+                                  <span className={`shrink-0 text-xs font-medium tabular-nums ${item.age_days > 90 ? 'text-red-600' : 'text-muted-foreground'}`}>
+                                    {item.age_days.toLocaleString()} วัน
                                   </span>
-                                ))}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
 
+              {/* แถว 2: เนื้อหาล่าสุด (กว้าง) + ภาพรวมสถานะคอนเทนต์ (แคบ) (2:1) */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* เนื้อหาล่าสุด */}
-                <Card className="flex flex-1 flex-col">
+                <Card className="lg:col-span-2">
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
                       <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -519,16 +408,49 @@ export default function ContentDashboardPage() {
                     )}
                   </CardContent>
                 </Card>
+
+                {/* Work Progress */}
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
+                      <BarChart3 className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="truncate">ภาพรวมสถานะคอนเทนต์</span>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {workProgressStatuses.map(statusKey => {
+                      const count = statusCounts[statusKey];
+                      const percent = totalItems > 0 ? Math.round((count / totalItems) * 100) : 0;
+                      const info = STATUS_MAP[statusKey];
+                      return (
+                        <div key={statusKey}>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                              {(() => { const StatusIcon = info.icon; return <StatusIcon className={`h-3.5 w-3.5 ${info.iconColor}`} />; })()}
+                              {info.label}
+                            </span>
+                            <span className={`text-sm font-medium ${info.iconColor}`}>{count} ชิ้น ({percent}%)</span>
+                          </div>
+                          <Progress value={percent} className={`h-1.5 ${info.progressColor}`} />
+                        </div>
+                      );
+                    })}
+                    <div className="pt-3 border-t flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">เนื้อหาทั้งหมด</span>
+                      <span className="text-lg font-bold">{totalItems.toLocaleString()} ชิ้น</span>
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
 
-              {/* RIGHT: สถานะ + งานที่ต้องทำ */}
-              <div className="flex flex-col space-y-6">
-                {/* สุขภาพคิวเผยแพร่ */}
+              {/* แถว 3: คิวเผยแพร่ + กำหนดการโพสต์ถัดไป (1:1) */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* คิวเผยแพร่ */}
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
                       <Send className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <span className="truncate">สุขภาพคิวเผยแพร่</span>
+                      <span className="truncate">คิวเผยแพร่</span>
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
@@ -537,90 +459,19 @@ export default function ContentDashboardPage() {
                     ) : !queue || queue.total === 0 ? (
                       <p className="py-8 text-center text-sm text-muted-foreground">ยังไม่มีรายการในคิวเผยแพร่</p>
                     ) : (
-                      <div className="space-y-4">
-                        <div className="grid grid-cols-2 gap-2">
-                          {queueStatuses.map(s => {
-                            const StatusIcon = s.icon;
-                            return (
-                              <div key={s.key} className="flex items-center gap-2 rounded-lg border p-2">
-                                <StatusIcon className={`h-4 w-4 shrink-0 ${s.color}`} />
-                                <div className="min-w-0">
-                                  <p className="truncate text-xs text-muted-foreground">{s.label}</p>
-                                  <p className={`text-base font-bold tabular-nums ${s.color}`}>{queue[s.key].toLocaleString()}</p>
-                                </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        {queueStatuses.filter(s => s.key !== 'failed').map(s => {
+                          const StatusIcon = s.icon;
+                          return (
+                            <div key={s.key} className="flex items-center gap-2 rounded-lg border p-2">
+                              <StatusIcon className={`h-4 w-4 shrink-0 ${s.color}`} />
+                              <div className="min-w-0">
+                                <p className="truncate text-xs text-muted-foreground">{s.label}</p>
+                                <p className={`text-base font-bold tabular-nums ${s.color}`}>{queue[s.key].toLocaleString()}</p>
                               </div>
-                            );
-                          })}
-                        </div>
-
-                        {queue.overdue_pending > 0 && (
-                          <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
-                            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
-                            <span>มี <strong>{queue.overdue_pending.toLocaleString()}</strong> รายการรอส่งที่เลยเวลาที่ตั้งไว้แล้ว</span>
-                          </div>
-                        )}
-
-                        {queue.failures.length > 0 && (
-                          <div className="space-y-3 border-t pt-3">
-                            <p className="text-xs font-medium text-muted-foreground">รายการที่ล้มเหลว</p>
-                            {queue.failures.map(f => (
-                              <div key={f.id} className="space-y-1.5 rounded-lg border border-red-200 bg-red-50/50 p-2 dark:border-red-900 dark:bg-red-950/20">
-                                <div className="flex items-start justify-between gap-2">
-                                  <p className="min-w-0 flex-1 truncate text-sm font-medium">{f.title}</p>
-                                  <Badge variant="outline" className="shrink-0 text-xs">ลอง {f.retry_count.toLocaleString()} ครั้ง</Badge>
-                                </div>
-                                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                                  {f.platform && PLATFORM_MAP[f.platform] ? (
-                                    <Badge variant="outline" className={PLATFORM_MAP[f.platform].color}>{PLATFORM_MAP[f.platform].label}</Badge>
-                                  ) : null}
-                                  {f.channel_name && <span className="truncate">{f.channel_name}</span>}
-                                  <span>{formatDateTime(f.scheduled_at)}</span>
-                                </div>
-                                {f.error_msg && (
-                                  <p className="break-words text-xs text-red-700 dark:text-red-300">{f.error_msg}</p>
-                                )}
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-7 w-full gap-1.5 text-xs"
-                                  disabled={sendNow.isPending}
-                                  onClick={() => handleRetry(f.content_id, f.channel_id)}
-                                >
-                                  <RefreshCw className="h-3 w-3" />
-                                  ลองส่งใหม่
-                                </Button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-
-                {/* Pending Queue */}
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
-                      <Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <span className="truncate">รออนุมัติ</span>
-                    </CardTitle>
-                    <Button variant="ghost" size="sm" className="shrink-0" onClick={() => navigate('/content?tab=approval')}>
-                      ดูทั้งหมด
-                      <ArrowRight className="h-3.5 w-3.5 ml-1" />
-                    </Button>
-                  </CardHeader>
-                  <CardContent>
-                    {pendingItems.length === 0 ? (
-                      <p className="text-sm text-muted-foreground text-center py-8">ไม่มีรายการรออนุมัติ</p>
-                    ) : (
-                      <div className="space-y-3">
-                        {pendingItems.map(item => (
-                          <div key={item.id} className="flex items-center justify-between gap-3">
-                            <p className="text-sm font-medium truncate min-w-0">{item.title}</p>
-                            <span className="text-xs text-muted-foreground shrink-0">{formatDate(item.created_at)}</span>
-                          </div>
-                        ))}
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </CardContent>
@@ -652,51 +503,6 @@ export default function ContentDashboardPage() {
                               ) : s.channel_name ? (
                                 <span className="text-xs text-muted-foreground shrink-0">{s.channel_name}</span>
                               ) : null}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-
-                {/* Channels */}
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
-                      <Radio className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <span className="truncate">สถานะแพลตฟอร์ม</span>
-                    </CardTitle>
-                    <Button variant="ghost" size="sm" className="shrink-0" onClick={() => navigate('/content?tab=settings')}>
-                      จัดการ
-                      <ArrowRight className="h-3.5 w-3.5 ml-1" />
-                    </Button>
-                  </CardHeader>
-                  <CardContent>
-                    {channels.length === 0 ? (
-                      <p className="text-sm text-muted-foreground text-center py-8">ไม่มีช่องทางที่เชื่อมต่อ</p>
-                    ) : (
-                      <div className="space-y-2">
-                        {channels.map(ch => {
-                          const status = channelStatus.find(s => s.id === ch.id);
-                          const connected = status?.ok === true;
-                          const pc = getPlatformColors(ch.platform);
-                          return (
-                            <div key={ch.id} className="flex items-center justify-between gap-2">
-                              <div className="flex items-center gap-2 min-w-0">
-                                <span
-                                  className="inline-flex items-center justify-center w-8 h-8 rounded-lg shrink-0"
-                                  style={{ backgroundColor: pc.bg, color: pc.text }}
-                                  title={PLATFORM_MAP[ch.platform]?.label ?? ch.platform}
-                                >
-                                  <PlatformIcon platform={ch.platform} size={18} />
-                                </span>
-                                <span className="text-sm truncate">{ch.name}</span>
-                              </div>
-                              <span className={`shrink-0 inline-flex items-center gap-1.5 text-xs font-medium ${connected ? 'text-green-600' : 'text-red-600'}`}>
-                                <span className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`} />
-                                {connected ? 'เชื่อมต่อแล้ว' : 'ไม่เชื่อมต่อ'}
-                              </span>
                             </div>
                           );
                         })}

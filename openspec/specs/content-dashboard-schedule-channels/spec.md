@@ -22,7 +22,7 @@ The dashboard SHALL display a "กำหนดการโพสต์ถัด�
 - **THEN** the widget shows an empty-state message
 
 ### Requirement: แสดงสถานะช่องทางเชื่อมต่อ
-The dashboard SHALL display a "สถานะช่องทาง" widget listing publish channels and their connection status, verified against the actual connection to each channel (not merely the `is_active` value), showing each channel's name exactly once (with a platform logo icon before it) and a status (colored dot + text label) placed after its data.
+The "โซเชียล" sub-tab of the analytics tab of the content dashboard SHALL display a "สถานะช่องทาง" widget listing publish channels and their connection status, verified against the actual connection to each channel (not merely the `is_active` value), showing each channel's name exactly once (with a platform logo icon before it) and a status (colored dot + text label) placed after its data. This widget no longer renders on the overview tab.
 
 #### Scenario: แสดงชื่อช่องทางเพียงครั้งเดียว
 - **WHEN** the dashboard loads with channels
@@ -55,6 +55,10 @@ The dashboard SHALL display a "สถานะช่องทาง" widget list
 #### Scenario: แสดงข้อความว่างเมื่อไม่มีช่องทาง
 - **WHEN** there are no configured channels
 - **THEN** the widget shows an empty-state message
+
+#### Scenario: ไม่แสดงบนแท็บภาพรวมอีกต่อไป
+- **WHEN** the content dashboard renders the "ภาพรวม" (overview) tab
+- **THEN** the "สถานะช่องทาง" widget does not appear there (it renders only on the "โซเชียล" sub-tab of the analytics tab)
 
 ### Requirement: แสดงแพลตฟอร์มพร้อม Logo Icon และจำนวนคอนเทนต์
 The analytics tab of the content dashboard SHALL display a "แพลตฟอร์ม" widget listing each platform's logo icon and name (in the same style as "สถานะช่องทาง"), showing each platform name exactly once, along with its content count derived from the real system data.

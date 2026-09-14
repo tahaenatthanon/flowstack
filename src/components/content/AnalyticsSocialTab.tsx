@@ -1,7 +1,12 @@
-import { Heart, Eye, ThumbsUp, FileText, TrendingUp, Info, ExternalLink, BarChart3, Trophy } from 'lucide-react';
+import { Heart, Eye, ThumbsUp, FileText, TrendingUp, Info, ExternalLink, BarChart3, Trophy, Radio, ArrowRight } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { getPlatformLabel } from '@/lib/platformConfig';
+import { Button } from '@/components/ui/button';
+import { getPlatformLabel, getPlatformColors } from '@/lib/platformConfig';
+import { usePublishChannels, useChannelConnectionStatus } from '@/hooks/useContent';
+import { PlatformIcon } from './PlatformIcon';
+import { PLATFORM_MAP } from './types';
 import type { SocialEngagementSummary } from './types';
 
 /**
@@ -48,8 +53,15 @@ interface Props {
 }
 
 export function AnalyticsSocialTab({ social, socialLoading = false }: Props) {
+  const navigate = useNavigate();
   const hasData = !!social?.has_data;
   const platformsLabel = formatPlatforms(social?.platforms ?? []);
+
+  // "สถานะช่องทาง" — ย้ายมาจากแท็บภาพรวม (เป็นข้อมูล operational ของการเชื่อมต่อ
+  // ช่องทางเผยแพร่ ไม่ใช่สถานะคอนเทนต์) เป็น snapshot ปัจจุบัน ไม่ผูกกับ
+  // ReportDateFilter ด้านบน จึงเรียก hook เองในนี้แทนที่จะรับผ่าน props
+  const { data: channels = [] } = usePublishChannels();
+  const { data: channelStatus = [] } = useChannelConnectionStatus();
 
   // ยังไม่ซิงก์เลย → "—" ไม่ใช่ 0 เพราะ 0 อ่านได้ว่า "ไม่มีคนมีปฏิสัมพันธ์"
   // ซึ่งต่างจาก "ยังไม่ได้วัด"
@@ -307,6 +319,54 @@ export function AnalyticsSocialTab({ social, socialLoading = false }: Props) {
             เมตริกระดับเพจ — ผู้ติดตาม (followers), Reach, Impressions, Engagement Rate — ยังไม่แสดงในเฟสนี้
             เพราะต้องเชื่อมต่อ OAuth page insights (Facebook Graph / Instagram) ซึ่งเป็นงาน integration เฟสถัดไป
           </p>
+        </CardContent>
+      </Card>
+
+      {/* สถานะช่องทาง — snapshot ปัจจุบัน ไม่ผูกช่วงวันที่ที่เลือกด้านบน */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
+            <Radio className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <span className="truncate">สถานะแพลตฟอร์ม</span>
+          </CardTitle>
+          <div className="flex shrink-0 items-center gap-2">
+            <span className="text-xs text-muted-foreground">ไม่ผูกช่วงวันที่ที่เลือก</span>
+            <Button variant="ghost" size="sm" onClick={() => navigate('/content?tab=settings')}>
+              จัดการ
+              <ArrowRight className="h-3.5 w-3.5 ml-1" />
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {channels.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-8">ไม่มีช่องทางที่เชื่อมต่อ</p>
+          ) : (
+            <div className="space-y-2">
+              {channels.map(ch => {
+                const status = channelStatus.find(s => s.id === ch.id);
+                const connected = status?.ok === true;
+                const pc = getPlatformColors(ch.platform);
+                return (
+                  <div key={ch.id} className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span
+                        className="inline-flex items-center justify-center w-8 h-8 rounded-lg shrink-0"
+                        style={{ backgroundColor: pc.bg, color: pc.text }}
+                        title={PLATFORM_MAP[ch.platform]?.label ?? ch.platform}
+                      >
+                        <PlatformIcon platform={ch.platform} size={18} />
+                      </span>
+                      <span className="text-sm truncate">{ch.name}</span>
+                    </div>
+                    <span className={`shrink-0 inline-flex items-center gap-1.5 text-xs font-medium ${connected ? 'text-green-600' : 'text-red-600'}`}>
+                      <span className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`} />
+                      {connected ? 'เชื่อมต่อแล้ว' : 'ไม่เชื่อมต่อ'}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

@@ -1,10 +1,4 @@
-# content-dashboard-section-headers Specification
-
-## Purpose
-
-กำหนดไอคอนหัวข้อและปุ่ม action (ดูทั้งหมด/จัดการ) ที่มุมขวาบนของ section Card ในแดชบอร์ดคอนเทนต์ (`ContentDashboardPage`)
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: ไอคอนหัวข้อทุก section
 The content dashboard SHALL render an icon next to the title of every section Card: "ความคืบหน้าการผลิต", "เผยแพร่ล้มเหลว", "คอนเทนต์ค้างท่อ", "คิวเผยแพร่", "เนื้อหาล่าสุด", and "กำหนดการโพสต์ถัดไป" on the overview tab, and "สถานะช่องทาง" on the analytics tab.

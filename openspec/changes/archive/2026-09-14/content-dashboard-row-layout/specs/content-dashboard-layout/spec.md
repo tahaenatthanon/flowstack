@@ -1,10 +1,4 @@
-# content-dashboard-layout Specification
-
-## Purpose
-
-กำหนด master layout แบบหลายแถว responsive (อัตราส่วนคอลัมน์ต่อแถว) และลำดับ section ของหน้าแดชบอร์ดคอนเทนต์ (`ContentDashboardPage`)
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Master layout 2 คอลัมน์บนจอใหญ่
 ระบบ SHALL จัดวางเนื้อหาหลักของแท็บ "ภาพรวม" (Overview) เป็น 3 แถวอิสระต่อกันบนจอ `lg` ขึ้นไป โดยแต่ละแถวไม่ผูกความสูงกับแถวอื่น และเลือกอัตราส่วนคอลัมน์ของตัวเอง (1:1 หรือ 2:1) ตามคู่การ์ดที่จับคู่กันในแถวนั้น — แทนที่โครง 2 คอลัมน์ก้อนเดียวครอบทั้ง 6 การ์ดแบบเดิม (ชื่อ requirement คงเดิมไว้เพื่อความต่อเนื่องของ spec history แม้เนื้อหาจะไม่ใช่ "2 คอลัมน์ก้อนเดียว" อีกต่อไป)
@@ -31,17 +25,6 @@
 #### Scenario: จอแคบไม่ overflow (แท็บวิเคราะห์)
 - **WHEN** ผู้ใช้เข้าถึงแท็บ "วิเคราะห์" บนจอต่ำกว่า `xl`
 - **THEN** ทุก section ในแท็บวิเคราะห์กลับเป็น stacked column เดียว (1 คอลัมน์) ไม่มี overflow
-
-### Requirement: ส่วนหัวแดชบอร์ดไม่มีปุ่ม action
-The content dashboard header SHALL NOT render the "ดูเนื้อหาทั้งหมด" and "สร้างคอนเทนต์" action buttons.
-
-#### Scenario: ไม่มีปุ่ม ดูเนื้อหาทั้งหมด
-- **WHEN** the content dashboard page renders its header (`PageShell`)
-- **THEN** there is no "ดูเนื้อหาทั้งหมด" button
-
-#### Scenario: ไม่มีปุ่ม สร้างคอนเทนต์
-- **WHEN** the content dashboard page renders its header (`PageShell`)
-- **THEN** there is no "สร้างคอนเทนต์" button
 
 ### Requirement: เนื้อหาล่าสุดเป็นตารางหลัก
 The dashboard SHALL render a single Card titled "เนื้อหาล่าสุด" (Recent Content) in row 2 (paired with "ความคืบหน้าการผลิต", on the wide side of a 2:1 split), listing the most recent content items as a multi-line list, without any Tabs.
