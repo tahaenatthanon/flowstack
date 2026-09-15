@@ -92,7 +92,13 @@ $totals = $totStmt->fetch(PDO::FETCH_ASSOC);
 
 jsonResponse([
     'period'      => $period,
-    'summary'     => $totals,
+    'summary'     => [
+        'total_leads'     => (int)($totals['total_leads'] ?? 0),
+        'total_won'       => (int)($totals['total_won'] ?? 0),
+        'total_lost'      => (int)($totals['total_lost'] ?? 0),
+        'total_won_value' => (float)($totals['total_won_value'] ?? 0),
+        'source_count'    => (int)($totals['source_count'] ?? 0),
+    ],
     'by_source'   => $bySource,
     'by_campaign' => $byCampaign,
     'trend'       => $trend,

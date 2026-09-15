@@ -262,7 +262,7 @@ export default function AttributionTab() {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
               { label: 'ลีดทั้งหมด', value: s.total_leads.toLocaleString(), icon: Target, color: 'text-blue-600' },
-              { label: 'ดีลที่ชนะ',      value: s.total_won.toLocaleString(),   icon: Trophy, color: 'text-emerald-600' },
+              { label: 'ดีลที่ชนะ',      value: (s.total_won ?? 0).toLocaleString(),   icon: Trophy, color: 'text-emerald-600' },
               { label: 'อัตราชนะ',
                 value: s.total_leads > 0 ? `${Math.round(s.total_won / s.total_leads * 100)}%` : '—',
                 icon: TrendingUp, color: 'text-violet-600' },
