@@ -690,9 +690,9 @@ export default function MarketingPage() {
 
   return (
     <PageShell
-      breadcrumbs={[{ label: 'Marketing', isCurrent: true }]}
-      title="Marketing"
-      description={`จัดการแคมเปญอีเมลและกลุ่มลูกค้า · ${campaigns.length} แคมเปญ · ${groups.length} กลุ่ม`}
+      breadcrumbs={[{ label: 'แคมเปญอีเมล', isCurrent: true }]}
+      title="แคมเปญอีเมล"
+      description="จัดการแคมเปญอีเมลและกลุ่มลูกค้า"
       actions={<>{(activeTab === 'campaigns' || activeTab === 'templates') ? (
 <div className="flex gap-2">
   <Button variant="outline" className="gap-2" onClick={() => setPullContentOpen(true)}>
