@@ -700,7 +700,8 @@ function sendCampaign($db, $userId, string $tenantId) {
             $sent++;
         } catch (MailException $e) {
             $err = $mail->ErrorInfo;
-            $db->prepare("UPDATE email_tracking SET status = 'failed' WHERE id = ?")->execute([$trackingId]);
+            $db->prepare("UPDATE email_tracking SET status = 'failed', bounce_reason = ? WHERE id = ?")
+               ->execute([$err, $trackingId]);
             $errors[] = $recipient['email'] . ': ' . $err;
             $failed++;
         }

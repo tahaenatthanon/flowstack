@@ -781,7 +781,7 @@ export default function CampaignsPage() {
 
                       {/* Action buttons */}
                       <div className="flex gap-2 flex-wrap">
-                        {campaign.status === 'sent' && (
+                        {campaign.sent_at && (
                           <Button variant="outline" size="sm" onClick={() => openRecipientLog(campaign.id)} disabled={sendCampaign.isPending} className="gap-1.5">
                             <Eye className="w-3.5 h-3.5" />ดู Log
                           </Button>
