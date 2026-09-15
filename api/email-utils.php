@@ -96,7 +96,7 @@ function processMergeTags($content, $customer, $company = null, $companySettings
         '{{email}}' => $customer['email'] ?? '',
         '{{phone}}' => $customer['phone'] ?? '',
         '{{position}}' => $customer['position'] ?? '',
-        '{{company_name}}' => $company['name'] ?? ($companySettings['company_name'] ?? ''),
+        '{{customer_company_name}}' => $company['name'] ?? '',
         '{{subject}}' => $subject,
     ];
     

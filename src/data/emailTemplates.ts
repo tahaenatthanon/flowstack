@@ -1,5 +1,5 @@
 // Email Templates for Marketing Campaigns
-// Merge tags: {{first_name}}, {{last_name}}, {{full_name}}, {{email}}, {{phone}}, {{position}}, {{company_name}}, {{subject}}
+// Merge tags: {{first_name}}, {{last_name}}, {{full_name}}, {{email}}, {{phone}}, {{position}}, {{company_name}}, {{customer_company_name}}, {{subject}}
 // Company tags: {{company_name}}, {{company_name_en}}, {{company_address}}, {{company_phone}}, {{company_email}}, {{company_website}}, {{company_tax_id}}
 
 export interface EmailTemplate {
@@ -38,7 +38,7 @@ export const emailTemplates: EmailTemplate[] = [
           <!-- Content -->
           <tr>
             <td style="padding:40px 30px;">
-              <h2 style="color:#1f2937;margin:0 0 20px 0;font-size:24px;">สวัสดีคุณ {{first_name}} {{last_name}}</h2>
+              <h2 style="color:#1f2937;margin:0 0 20px 0;font-size:24px;">สวัสดีคุณ {{first_name}} {{last_name}} จาก {{customer_company_name}}</h2>
               <p style="color:#4b5563;margin:0 0 20px 0;line-height:1.6;font-size:16px;">
                 ขอบคุณที่ให้ความสนใจในบริการของเรา หากมีข้อสงสัยหรือต้องการข้อมูลเพิ่มเติม กรุณาติดต่อกลับมาได้เลย
               </p>
@@ -89,7 +89,7 @@ export const emailTemplates: EmailTemplate[] = [
           <!-- Main Content -->
           <tr>
             <td style="padding:40px 20px;">
-              <p style="color:#374151;font-size:18px;margin:0;">สวัสดีคุณ <strong>{{full_name}}</strong></p>
+              <p style="color:#374151;font-size:18px;margin:0;">สวัสดีคุณ <strong>{{full_name}}</strong> จาก {{customer_company_name}}</p>
               <div style="margin:30px 0;padding:20px;background-color:#f0f9ff;border-left:4px solid #3b82f6;">
                 <p style="color:#1e3a8a;font-size:16px;margin:0;line-height:1.6;">
                   ขอบคุณสำหรับความไว้วางใจ ทีมงานของเราพร้อมให้บริการและตอบทุกคำถามของคุณ
@@ -143,7 +143,7 @@ export const emailTemplates: EmailTemplate[] = [
           <!-- Content -->
           <tr>
             <td style="padding:40px 30px;">
-              <h2 style="color:#92400e;margin:0 0 20px 0;font-size:22px;">👋 สวัสดีคุณ {{first_name}}!</h2>
+              <h2 style="color:#92400e;margin:0 0 20px 0;font-size:22px;">👋 สวัสดีคุณ {{first_name}} จาก {{customer_company_name}}!</h2>
               <p style="color:#451a03;margin:0 0 20px 0;line-height:1.8;font-size:16px;">
                 ขอบคุณมากที่ติดต่อมาหาเรา ยินดีต้อนรับสู่ครอบครัว {{company_name}} เราหวังว่าจะได้รับใช้คุณด้วยความเต็มที่
               </p>
@@ -198,7 +198,7 @@ export const emailTemplates: EmailTemplate[] = [
           <tr>
             <td style="padding:0 30px 40px 30px;">
               <div style="background-color:#ffffff;border-radius:8px;padding:40px;">
-                <h2 style="color:#1e293b;margin:0 0 20px 0;font-size:24px;">Dear {{full_name}}</h2>
+                <h2 style="color:#1e293b;margin:0 0 20px 0;font-size:24px;">Dear {{full_name}} from {{customer_company_name}}</h2>
                 <p style="color:#475569;margin:0 0 20px 0;line-height:1.7;font-size:15px;">
                   Thank you for your interest in our services. We are pleased to provide you with comprehensive solutions tailored to your business needs.
                 </p>
@@ -259,7 +259,7 @@ export const emailTemplates: EmailTemplate[] = [
           <tr>
             <td style="padding:50px 40px;">
               <p style="color:#1f2937;font-size:18px;margin:0 0 25px 0;text-align:center;">
-                Hello <span style="color:#7c3aed;font-weight:600;">{{first_name}}</span>
+                Hello <span style="color:#7c3aed;font-weight:600;">{{first_name}}</span> from {{customer_company_name}}
               </p>
               <p style="color:#4b5563;margin:0 0 20px 0;line-height:1.8;font-size:15px;text-align:center;">
                 We are excited to have you here. Our team is ready to provide you with the best experience and solutions.
@@ -312,7 +312,7 @@ export const emailTemplates: EmailTemplate[] = [
           <!-- Content -->
           <tr>
             <td style="padding:40px 30px;">
-              <h2 style="color:#065f46;margin:0 0 20px 0;font-size:22px;">Hi {{first_name}}!</h2>
+              <h2 style="color:#065f46;margin:0 0 20px 0;font-size:22px;">Hi {{first_name}} from {{customer_company_name}}!</h2>
               <p style="color:#047857;margin:0 0 15px 0;line-height:1.7;font-size:15px;">
                 Thank you for connecting with us! We're here to help you grow your business with our innovative solutions.
               </p>
@@ -364,7 +364,7 @@ export const emailTemplates: EmailTemplate[] = [
           <tr>
             <td style="background-color:#ffffff;border-radius:20px;padding:40px;box-shadow:0 10px 40px rgba(249,115,22,0.2);">
               <h1 style="color:#ea580c;margin:0 0 25px 0;font-size:28px;text-align:center;">{{company_name}}</h1>
-              <h2 style="color:#1f2937;margin:0 0 20px 0;font-size:22px;">Hello {{full_name}}!</h2>
+              <h2 style="color:#1f2937;margin:0 0 20px 0;font-size:22px;">Hello {{full_name}} from {{customer_company_name}}!</h2>
               <p style="color:#4b5563;margin:0 0 20px 0;line-height:1.7;font-size:15px;">
                 We're thrilled to have you here! Let's explore how we can help you achieve your goals together.
               </p>
@@ -429,7 +429,7 @@ export const emailTemplates: EmailTemplate[] = [
                   <td style="padding-left:20px;">
                     <p style="color:#1f2937;font-size:17px;margin:0 0 15px 0;font-family:Arial,sans-serif;line-height:1.6;">
                       <strong>To:</strong> {{full_name}}<br>
-                      <strong>Company:</strong> {{company_name}}
+                      <strong>Company:</strong> {{customer_company_name}}
                     </p>
                     <p style="color:#4b5563;margin:20px 0;line-height:1.8;font-size:15px;font-family:Arial,sans-serif;">
                       We would like to extend our warmest greetings and express our appreciation for your interest in our products and services.
@@ -489,7 +489,7 @@ export const emailTemplates: EmailTemplate[] = [
           <!-- Content -->
           <tr>
             <td style="padding:40px 30px;">
-              <h2 style="color:#be185d;margin:0 0 20px 0;font-size:22px;text-align:center;">Hi {{first_name}}! 👋</h2>
+              <h2 style="color:#be185d;margin:0 0 20px 0;font-size:22px;text-align:center;">Hi {{first_name}} from {{customer_company_name}}! 👋</h2>
               <p style="color:#831843;margin:0 0 20px 0;line-height:1.7;font-size:15px;text-align:center;">
                 ขอบคุณมากๆ ที่ติดต่อมาหาเรานะคะ/ครับ 💕
               </p>
@@ -500,7 +500,7 @@ export const emailTemplates: EmailTemplate[] = [
               <div style="background-color:#fdf2f8;padding:25px;border-radius:16px;margin-top:25px;text-align:center;">
                 <p style="color:#db2777;margin:0;font-size:14px;">
                   ☕ Let's have a coffee chat!<br>
-                  📞 {{company_phone }}<br>
+                  📞 {{company_phone}}<br>
                   💬 {{company_email}}
                 </p>
               </div>
@@ -554,7 +554,7 @@ export const emailTemplates: EmailTemplate[] = [
           <!-- Main Content -->
           <tr>
             <td style="padding:40px 30px;">
-              <h2 style="color:#1e293b;margin:0 0 20px 0;font-size:24px;font-family:Arial,sans-serif;">Hello, {{first_name}}!</h2>
+              <h2 style="color:#1e293b;margin:0 0 20px 0;font-size:24px;font-family:Arial,sans-serif;">Hello, {{first_name}} from {{customer_company_name}}!</h2>
               <p style="color:#475569;margin:0 0 20px 0;line-height:1.8;font-size:15px;">
                 Welcome to our newsletter! Here's what's new with us and how we can help you.
               </p>
@@ -626,7 +626,7 @@ export const emailTemplates: EmailTemplate[] = [
           <!-- Main Card -->
           <tr>
             <td style="background-color:#111827;border-radius:16px;padding:50px 40px;border:1px solid #1f2937;">
-              <h2 style="color:#ffffff;margin:0 0 25px 0;font-size:28px;font-weight:600;">Hello {{first_name}}! 👋</h2>
+              <h2 style="color:#ffffff;margin:0 0 25px 0;font-size:28px;font-weight:600;">Hello {{first_name}} from {{customer_company_name}}! 👋</h2>
               <p style="color:#d1d5db;margin:0 0 20px 0;line-height:1.7;font-size:16px;">
                 Welcome to the future of technology! We're excited to have you join our community of innovators.
               </p>
@@ -696,7 +696,7 @@ export const emailTemplates: EmailTemplate[] = [
               <p style="color:#d1d5db;margin:0 0 30px 0;font-size:18px;text-align:center;font-style:italic;">
                 "Excellence is not a destination but a continuous journey."
               </p>
-              <h2 style="color:#ffffff;margin:0 0 25px 0;font-size:24px;text-align:center;font-family:Arial,sans-serif;">Dear {{full_name}}</h2>
+              <h2 style="color:#ffffff;margin:0 0 25px 0;font-size:24px;text-align:center;font-family:Arial,sans-serif;">Dear {{full_name}} from {{customer_company_name}}</h2>
               <p style="color:#9ca3af;margin:0;line-height:1.8;font-size:14px;text-align:center;font-family:Arial,sans-serif;">
                 Thank you for being part of our exclusive community. We are honored to serve you with the finest quality and unparalleled service.
               </p>
@@ -757,7 +757,7 @@ export const emailTemplates: EmailTemplate[] = [
           <!-- Snow Effect -->
           <tr>
             <td style="background-color:#f0fdf4;padding:40px 30px;text-align:center;">
-              <p style="color:#166534;margin:0;font-size:24px;font-weight:600;">Dear {{full_name}} 🌟</p>
+              <p style="color:#166534;margin:0;font-size:24px;font-weight:600;">Dear {{full_name}} from {{customer_company_name}} 🌟</p>
             </td>
           </tr>
           <!-- Content -->
@@ -831,7 +831,7 @@ export const emailTemplates: EmailTemplate[] = [
           <!-- Content -->
           <tr>
             <td style="padding:30px;">
-              <h2 style="color:#1f2937;margin:0 0 20px 0;font-size:22px;text-align:center;">Hello {{first_name}}!</h2>
+              <h2 style="color:#1f2937;margin:0 0 20px 0;font-size:22px;text-align:center;">Hello {{first_name}} from {{customer_company_name}}!</h2>
               <p style="color:#4b5563;margin:0 0 20px 0;line-height:1.7;font-size:15px;text-align:center;">
                 We have an exciting update to share with you! Our team has been working hard to bring you new improvements and features.
               </p>
@@ -898,7 +898,7 @@ export const emailTemplates: EmailTemplate[] = [
           <!-- Content -->
           <tr>
             <td style="padding:50px 35px;">
-              <h2 style="color:#92400e;margin:0 0 25px 0;font-size:24px;text-align:center;">Dear {{full_name}}</h2>
+              <h2 style="color:#92400e;margin:0 0 25px 0;font-size:24px;text-align:center;">Dear {{full_name}} from {{customer_company_name}}</h2>
               <p style="color:#451a03;margin:0 0 20px 0;line-height:1.8;font-size:16px;text-align:center;">
                 ขอบคุณมากที่ให้โอกาสเราได้รับใช้คุณ
               </p>
@@ -1035,7 +1035,7 @@ export const emailTemplates: EmailTemplate[] = [
           <!-- Content -->
           <tr>
             <td style="padding:40px 30px;">
-              <h2 style="color:#1f2937;margin:0 0 20px 0;font-size:22px;text-align:center;">Dear {{full_name}}</h2>
+              <h2 style="color:#1f2937;margin:0 0 20px 0;font-size:22px;text-align:center;">Dear {{full_name}} from {{customer_company_name}}</h2>
               <p style="color:#4b5563;margin:0 0 20px 0;line-height:1.7;font-size:15px;text-align:center;">
                 We would be honored to have you join us at our upcoming event!
               </p>
@@ -1100,7 +1100,7 @@ export const emailTemplates: EmailTemplate[] = [
           <!-- Content -->
           <tr>
             <td style="padding:40px 30px;">
-              <h2 style="color:#166534;margin:0 0 20px 0;font-size:22px;text-align:center;">Hi {{first_name}}!</h2>
+              <h2 style="color:#166534;margin:0 0 20px 0;font-size:22px;text-align:center;">Hi {{first_name}} from {{customer_company_name}}!</h2>
               <p style="color:#14532d;margin:0 0 20px 0;line-height:1.7;font-size:15px;text-align:center;">
                 Help us improve! Please take a moment to share your thoughts about your experience with us.
               </p>
@@ -1163,7 +1163,7 @@ export const emailTemplates: EmailTemplate[] = [
           <!-- Content -->
           <tr>
             <td style="padding:45px 35px;">
-              <h2 style="color:#713f12;margin:0 0 20px 0;font-size:24px;text-align:center;">สวัสดีคุณ {{first_name}} {{last_name}} 🎉</h2>
+              <h2 style="color:#713f12;margin:0 0 20px 0;font-size:24px;text-align:center;">สวัสดีคุณ {{first_name}} {{last_name}} จาก {{customer_company_name}} 🎉</h2>
               <p style="color:#451a03;margin:0 0 20px 0;line-height:1.8;font-size:16px;text-align:center;">
                 ยินดีต้อนรับสู่ครอบครัว {{company_name}}!
               </p>
@@ -1239,7 +1239,7 @@ export const emailTemplates: EmailTemplate[] = [
               </div>
               <h2 style="color:#ff0000;margin:0 0 15px 0;font-size:36px;text-align:center;font-weight:bold;">50% OFF!</h2>
               <p style="color:#ffffff;margin:0 0 10px 0;font-size:20px;text-align:center;">
-                Hi {{first_name}}!
+                Hi {{first_name}} from {{customer_company_name}}!
               </p>
               <p style="color:#d1d5db;margin:0 0 25px 0;line-height:1.6;font-size:15px;text-align:center;">
                 Don't miss out on our biggest sale of the year! Limited time only.
