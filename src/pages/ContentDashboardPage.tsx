@@ -190,7 +190,7 @@ export default function ContentDashboardPage() {
   return (
     <PageShell
       breadcrumbs={[
-        { label: 'การตลาด', href: '/marketing' },
+        { label: 'การตลาด', href: '/campaigns' },
         { label: 'คอนเทนต์โซเชียล' },
         { label: 'แดชบอร์ด', isCurrent: true },
       ]}

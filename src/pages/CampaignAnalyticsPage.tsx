@@ -72,7 +72,7 @@ export default function CampaignAnalyticsPage() {
   return (
     <PageShell
       breadcrumbs={[
-        { label: 'แคมเปญอีเมล', href: '/marketing' },
+        { label: 'แคมเปญอีเมล', href: '/campaigns' },
         { label: 'วิเคราะห์แคมเปญ', isCurrent: true },
       ]}
       title="วิเคราะห์แคมเปญ"

@@ -378,7 +378,7 @@ export default function ContentPlannerPage() {
   return (
     <div className="flex flex-col h-full">
       <PageShell
-        breadcrumbs={[{ label: 'การตลาด', href: '/marketing' }, { label: 'ปฏิทินคอนเทนต์', isCurrent: true }]}
+        breadcrumbs={[{ label: 'การตลาด', href: '/campaigns' }, { label: 'ปฏิทินคอนเทนต์', isCurrent: true }]}
         title="วางแผนคอนเทนต์"
         description="วางแผนคอนเทนต์รายเดือน / ไตรมาส / ปี พร้อม AI ช่วยสร้างและวิเคราะห์เวลาโพสต์"
         className="pb-0 shrink-0 space-y-4"

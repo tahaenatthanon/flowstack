@@ -84,18 +84,18 @@ test.describe('FlowStack Login and Mail Template Test', () => {
     expect(currentUrl).not.toContain('auth');
   });
 
-  test('3. Navigate to Marketing page', async () => {
-    console.log('Navigating to Marketing page...');
-    
-    // Try to navigate to marketing page
-    await page.goto(`${BASE_URL}/#/marketing`);
-    
+  test('3. Navigate to Campaigns page', async () => {
+    console.log('Navigating to Campaigns page...');
+
+    // Try to navigate to campaigns page
+    await page.goto(`${BASE_URL}/#/campaigns`);
+
     // Wait for page to load
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(2000);
-    
+
     const currentUrl = page.url();
-    console.log('Marketing page URL:', currentUrl);
+    console.log('Campaigns page URL:', currentUrl);
     
     // Check if we can see marketing content
     const pageContent = await page.content();
@@ -106,8 +106,8 @@ test.describe('FlowStack Login and Mail Template Test', () => {
   test('4. Test Mail Template functionality', async () => {
     console.log('Testing Mail Template functionality...');
     
-    // Navigate to marketing page
-    await page.goto(`${BASE_URL}/#/marketing`);
+    // Navigate to campaigns page
+    await page.goto(`${BASE_URL}/#/campaigns`);
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(2000);
     

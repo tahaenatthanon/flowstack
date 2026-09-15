@@ -30,7 +30,7 @@ export default function ContentPage() {
 
   return (
     <PageShell
-      breadcrumbs={[{ label: 'การตลาด', href: '/marketing' }, { label: 'คอนเทนต์', isCurrent: true }]}
+      breadcrumbs={[{ label: 'การตลาด', href: '/campaigns' }, { label: 'คอนเทนต์', isCurrent: true }]}
       title="ผลงานคอนเทนต์"
       description="ดูผลงาน ตั้งเวลาโพสต์ และจัดการ Skills"
       actions={

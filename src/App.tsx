@@ -28,7 +28,7 @@ const ApiDocsPage = lazy(() => import('./pages/ApiDocsPage'));
 const TaskIntelligencePage = lazy(() => import('./pages/TaskIntelligencePage'));
 const TaskHoursPage = lazy(() => import('./pages/TaskHoursPage'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
-const MarketingPage = lazy(() => import('./pages/MarketingPage'));
+const CampaignsPage = lazy(() => import('./pages/CampaignsPage'));
 const InboxPage = lazy(() => import('./pages/InboxPage'));
 const Auth = lazy(() => import('./pages/Auth'));
 const NotFound = lazy(() => import('./pages/NotFound'));
@@ -147,7 +147,7 @@ export default function App() {
                 <Route path="/revenue"   element={<PermissionRoute menuKey="revenue">   <RevenuePage />      </PermissionRoute>} />
                 <Route path="/reports"   element={<Navigate to="/analytics" replace />} />
                 <Route path="/task-intelligence" element={<PermissionRoute menuKey="task_intelligence"><TaskIntelligencePage /></PermissionRoute>} />
-                <Route path="/marketing" element={<PermissionRoute menuKey="marketing"><MarketingPage />   </PermissionRoute>} />
+                <Route path="/marketing" element={<Navigate to="/campaigns" replace />} />
                 <Route path="/admin"     element={<PermissionRoute menuKey="admin">     <AdminPage />        </PermissionRoute>} />
                 <Route path="/help"      element={<ProtectedRoute><HelpPage /></ProtectedRoute>} />
                 <Route path="/api-docs" element={<ProtectedRoute><ApiDocsPage /></ProtectedRoute>} />
@@ -157,7 +157,7 @@ export default function App() {
                 <Route path="/knowledge-base" element={<PermissionRoute menuKey="support">   <KnowledgeBasePage /></PermissionRoute>} />
                 <Route path="/brand-setting" element={<PermissionRoute menuKey="brand_setting"><BrandSettingPage /></PermissionRoute>} />
                 <Route path="/data-management" element={<PermissionRoute menuKey="data_management"><DataManagementPage /></PermissionRoute>} />
-                <Route path="/campaigns" element={<Navigate to="/marketing" replace />} />
+                <Route path="/campaigns" element={<PermissionRoute menuKey="marketing"><CampaignsPage />   </PermissionRoute>} />
                 <Route path="/campaign-analytics" element={<PermissionRoute menuKey="marketing"> <CampaignAnalyticsPage /> </PermissionRoute>} />
                 <Route path="/content"         element={<PermissionRoute menuKey="marketing"> <ContentPage />         </PermissionRoute>} />
                 <Route path="/content-dashboard" element={<PermissionRoute menuKey="marketing"> <ContentDashboardPage />         </PermissionRoute>} />
