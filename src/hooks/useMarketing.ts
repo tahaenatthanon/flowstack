@@ -57,11 +57,16 @@ export interface CustomerStats {
     last_name: string;
     email: string;
     company_name: string;
-    total_delivered: number;
-    total_opens: number;
-    total_clicks: number;
-    last_open_at: string | null;
-    last_click_at: string | null;
+    total_emails: number;
+    delivered: number;
+    opened: number;
+    clicked: number;
+    bounced: number;
+    open_rate: number;
+    click_rate: number;
+    last_sent: string | null;
+    last_opened: string | null;
+    last_clicked: string | null;
   }>;
   total: number;
 }

@@ -666,14 +666,14 @@ function sendCampaign($db, $userId, string $tenantId) {
         if (empty(trim($rawHtml))) {
             $rawHtml = '<p>' . htmlspecialchars($subject) . '</p>';
         }
-        $htmlBody   = processMergeTags($rawHtml, $recipient, $company, $companySettings);
+        $htmlBody   = processMergeTags($rawHtml, $recipient, $company, $companySettings, $subject);
         $htmlBody   = wrapEmailHtml($htmlBody, $subject, $companySettings);
         $htmlBody   = processEmailHtml(
             $htmlBody, $trackingId, $baseUrl,
             (bool)($campaign['enable_track_opens']  ?? 1),
             (bool)($campaign['enable_track_clicks'] ?? 1)
         );
-        $textBody   = processMergeTags($campaign['body_text'] ?? '', $recipient, $company, $companySettings);
+        $textBody   = processMergeTags($campaign['body_text'] ?? '', $recipient, $company, $companySettings, $subject);
 
         try {
             $mail->clearAddresses();

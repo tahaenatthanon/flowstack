@@ -77,7 +77,7 @@ function processEmailHtml($html, $trackingId, $baseUrl, bool $trackOpens = true,
 /**
  * Replace merge tags in email content
  */
-function processMergeTags($content, $customer, $company = null, $companySettings = null) {
+function processMergeTags($content, $customer, $company = null, $companySettings = null, $subject = '') {
     // Get company settings from DB if not provided
     if ($companySettings === null && function_exists('getDB')) {
         try {
@@ -97,6 +97,7 @@ function processMergeTags($content, $customer, $company = null, $companySettings
         '{{phone}}' => $customer['phone'] ?? '',
         '{{position}}' => $customer['position'] ?? '',
         '{{company_name}}' => $company['name'] ?? ($companySettings['company_name'] ?? ''),
+        '{{subject}}' => $subject,
     ];
     
     // Company settings merge tags

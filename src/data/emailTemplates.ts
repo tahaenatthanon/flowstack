@@ -1,5 +1,5 @@
 // Email Templates for Marketing Campaigns
-// Merge tags: {{first_name}}, {{last_name}}, {{full_name}}, {{email}}, {{phone}}, {{position}}, {{company_name}}
+// Merge tags: {{first_name}}, {{last_name}}, {{full_name}}, {{email}}, {{phone}}, {{position}}, {{company_name}}, {{subject}}
 // Company tags: {{company_name}}, {{company_name_en}}, {{company_address}}, {{company_phone}}, {{company_email}}, {{company_website}}, {{company_tax_id}}
 
 export interface EmailTemplate {

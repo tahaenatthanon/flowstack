@@ -1069,7 +1069,7 @@ export default function MarketingPage() {
                   srcDoc={`<meta charset="UTF-8">${tpl.html}`}
                   className="w-full h-full min-h-[50vh]"
                   sandbox="allow-same-origin"
-                  title="Template preview"
+                  title="ตัวอย่างเทมเพลต"
                 />
               </div>
               <div className="flex gap-2 pt-2 justify-end">
@@ -1721,7 +1721,7 @@ export default function MarketingPage() {
                       srcDoc={`<meta charset="UTF-8">${recipientLogData.campaign.body_html}`}
                       className="w-full h-full min-h-[480px]"
                       sandbox="allow-same-origin"
-                      title="Email preview"
+                      title="ตัวอย่างอีเมล"
                     />
                   ) : (
                     <div className="flex items-center justify-center h-48 text-muted-foreground">ไม่มีเนื้อหาอีเมล</div>
