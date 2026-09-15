@@ -44,14 +44,14 @@ function SourceTable({ rows }: { rows: SourceRow[] }) {
         <thead>
           <tr className="border-b bg-muted/40">
             <th className="px-3 py-2 text-left font-medium text-muted-foreground">แหล่งที่มา</th>
-            <th className="px-3 py-2 text-right font-medium text-muted-foreground">Leads</th>
-            <th className="px-3 py-2 text-right font-medium text-muted-foreground">Won</th>
-            <th className="px-3 py-2 text-right font-medium text-muted-foreground">Win Rate</th>
-            <th className="px-3 py-2 text-right font-medium text-muted-foreground">Revenue</th>
+            <th className="px-3 py-2 text-right font-medium text-muted-foreground">ลีด</th>
+            <th className="px-3 py-2 text-right font-medium text-muted-foreground">ชนะ</th>
+            <th className="px-3 py-2 text-right font-medium text-muted-foreground">อัตราชนะ</th>
+            <th className="px-3 py-2 text-right font-medium text-muted-foreground">รายได้</th>
             <th className="px-3 py-2 text-right font-medium text-muted-foreground">โปรเจกต์</th>
-            <th className="px-3 py-2 text-right font-medium text-muted-foreground">Tickets</th>
-            <th className="px-3 py-2 text-right font-medium text-muted-foreground">Avg Close</th>
-            <th className="px-3 py-2 text-left font-medium text-muted-foreground w-28">Revenue Bar</th>
+            <th className="px-3 py-2 text-right font-medium text-muted-foreground">Ticket</th>
+            <th className="px-3 py-2 text-right font-medium text-muted-foreground">ระยะเวลาปิดดีลเฉลี่ย</th>
+            <th className="px-3 py-2 text-left font-medium text-muted-foreground w-28">สัดส่วน</th>
           </tr>
         </thead>
         <tbody className="divide-y">
@@ -85,8 +85,11 @@ function SourceTable({ rows }: { rows: SourceRow[] }) {
                   {r.avg_days_to_close != null ? `${r.avg_days_to_close}d` : '—'}
                 </td>
                 <td className="px-3 py-2">
-                  <div className="h-2 rounded-full bg-muted overflow-hidden w-24">
-                    <div className="h-full rounded-full" style={{ width: `${barPct}%`, backgroundColor: PALETTE[i % PALETTE.length] }} />
+                  <div className="flex items-center gap-1.5">
+                    <div className="h-2 rounded-full bg-muted overflow-hidden w-24 shrink-0">
+                      <div className="h-full rounded-full" style={{ width: `${barPct}%`, backgroundColor: PALETTE[i % PALETTE.length] }} />
+                    </div>
+                    <span className="text-muted-foreground shrink-0">{Math.round(barPct)}%</span>
                   </div>
                 </td>
               </tr>
@@ -103,7 +106,7 @@ function SourceTable({ rows }: { rows: SourceRow[] }) {
 function CampaignTable({ rows }: { rows: CampaignRow[] }) {
   if (!rows.length) return (
     <p className="text-sm text-muted-foreground text-center py-6">
-      ยังไม่มี Campaign ที่ลิงก์กับ Deal — เมื่อสร้าง Deal ให้เลือก Campaign ที่นำมา
+      ยังไม่มีแคมเปญที่ลิงก์กับดีล — เมื่อสร้างดีลให้เลือกแคมเปญที่นำมา
     </p>
   );
 
@@ -112,14 +115,14 @@ function CampaignTable({ rows }: { rows: CampaignRow[] }) {
       <table className="w-full text-xs">
         <thead>
           <tr className="border-b bg-muted/40">
-            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Campaign</th>
+            <th className="px-3 py-2 text-left font-medium text-muted-foreground">แคมเปญ</th>
             <th className="px-3 py-2 text-right font-medium text-muted-foreground">ส่งแล้ว</th>
-            <th className="px-3 py-2 text-right font-medium text-muted-foreground">Opens</th>
-            <th className="px-3 py-2 text-right font-medium text-muted-foreground">Clicks</th>
-            <th className="px-3 py-2 text-right font-medium text-muted-foreground">Leads</th>
-            <th className="px-3 py-2 text-right font-medium text-muted-foreground">Won</th>
-            <th className="px-3 py-2 text-right font-medium text-muted-foreground">Win Rate</th>
-            <th className="px-3 py-2 text-right font-medium text-muted-foreground">Revenue</th>
+            <th className="px-3 py-2 text-right font-medium text-muted-foreground">เปิด</th>
+            <th className="px-3 py-2 text-right font-medium text-muted-foreground">คลิก</th>
+            <th className="px-3 py-2 text-right font-medium text-muted-foreground">ลีด</th>
+            <th className="px-3 py-2 text-right font-medium text-muted-foreground">ชนะ</th>
+            <th className="px-3 py-2 text-right font-medium text-muted-foreground">อัตราชนะ</th>
+            <th className="px-3 py-2 text-right font-medium text-muted-foreground">รายได้</th>
           </tr>
         </thead>
         <tbody className="divide-y">
@@ -180,7 +183,7 @@ function TrendChart({ trend }: { trend: TrendRow[] }) {
         <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
         <Tooltip
           contentStyle={{ fontSize: 11, borderRadius: 6 }}
-          formatter={(v: number, name: string) => [v, name === 'leads' ? 'Leads ทั้งหมด' : 'Won']}
+          formatter={(v: number, name: string) => [v, name === 'leads' ? 'ลีด' : 'ชนะ']}
         />
         <Bar dataKey="leads" fill="#6366f1" opacity={0.5} radius={[2,2,0,0]} name="leads" />
         <Bar dataKey="won"   fill="#10b981" radius={[2,2,0,0]} name="won" />
@@ -236,7 +239,7 @@ export default function AttributionTab() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm font-medium">
           <BarChart3 className="h-4 w-4 text-violet-500" />
-          Marketing Attribution
+          มาร์เก็ตติ้งแอตทริบิวชัน
         </div>
         <Select value={period} onValueChange={setPeriod}>
           <SelectTrigger className="h-8 text-xs w-28"><SelectValue /></SelectTrigger>
@@ -258,12 +261,12 @@ export default function AttributionTab() {
           {/* Summary KPIs */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
-              { label: 'Leads ทั้งหมด', value: s.total_leads.toLocaleString(), icon: Target, color: 'text-blue-600' },
-              { label: 'Won Deals',      value: s.total_won.toLocaleString(),   icon: Trophy, color: 'text-emerald-600' },
-              { label: 'Win Rate',
+              { label: 'ลีดทั้งหมด', value: s.total_leads.toLocaleString(), icon: Target, color: 'text-blue-600' },
+              { label: 'ดีลที่ชนะ',      value: s.total_won.toLocaleString(),   icon: Trophy, color: 'text-emerald-600' },
+              { label: 'อัตราชนะ',
                 value: s.total_leads > 0 ? `${Math.round(s.total_won / s.total_leads * 100)}%` : '—',
                 icon: TrendingUp, color: 'text-violet-600' },
-              { label: 'Revenue (Won)', value: thb(s.total_won_value), icon: BarChart3, color: 'text-amber-600' },
+              { label: 'รายได้ (ชนะ)', value: thb(s.total_won_value), icon: BarChart3, color: 'text-amber-600' },
             ].map(kpi => (
               <div key={kpi.label} className="rounded-lg border bg-card p-3">
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
@@ -280,14 +283,14 @@ export default function AttributionTab() {
             <div className="md:col-span-2 rounded-lg border bg-card p-4">
               <div className="text-xs font-medium mb-3 flex items-center gap-1.5">
                 <BarChart3 className="h-3.5 w-3.5 text-muted-foreground" />
-                Leads รายเดือน (12 เดือนล่าสุด)
+                ลีดรายเดือน (12 เดือนล่าสุด)
               </div>
               <TrendChart trend={data.trend} />
             </div>
             <div className="rounded-lg border bg-card p-4">
               <div className="text-xs font-medium mb-3 flex items-center gap-1.5">
                 <Target className="h-3.5 w-3.5 text-muted-foreground" />
-                Top Sources
+                แหล่งที่มายอดนิยม
               </div>
               <SourcePie rows={data.by_source} />
             </div>
@@ -297,8 +300,8 @@ export default function AttributionTab() {
           <div className="rounded-lg border bg-card">
             <div className="px-4 py-3 border-b flex items-center gap-1.5">
               <Target className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-xs font-medium">Lead Source — Full Journey Funnel</span>
-              <Badge variant="outline" className="ml-auto text-[10px]">{data.by_source.length} sources</Badge>
+              <span className="text-xs font-medium">แหล่งที่มาลีด — เส้นทางตั้งแต่ลีดถึงปิดดีล</span>
+              <Badge variant="outline" className="ml-auto text-[10px]">{data.by_source.length} แหล่งที่มา</Badge>
             </div>
             <SourceTable rows={data.by_source} />
           </div>
@@ -307,8 +310,8 @@ export default function AttributionTab() {
           <div className="rounded-lg border bg-card">
             <div className="px-4 py-3 border-b flex items-center gap-1.5">
               <Mail className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-xs font-medium">Email Campaign → Deal Attribution</span>
-              <Badge variant="outline" className="ml-auto text-[10px]">{data.by_campaign.length} campaigns</Badge>
+              <span className="text-xs font-medium">แคมเปญอีเมล → ที่มาของดีล</span>
+              <Badge variant="outline" className="ml-auto text-[10px]">{data.by_campaign.length} แคมเปญ</Badge>
             </div>
             <CampaignTable rows={data.by_campaign} />
           </div>

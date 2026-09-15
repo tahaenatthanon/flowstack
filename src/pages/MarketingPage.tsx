@@ -700,7 +700,7 @@ export default function MarketingPage() {
           </TabsTrigger>
           <TabsTrigger value="templates" className="gap-1.5 shrink-0">
             <LayoutTemplate className="w-4 h-4 shrink-0" />
-            <span className="hidden sm:inline">Templates</span>
+            <span className="hidden sm:inline">เทมเพลต</span>
           </TabsTrigger>
           <TabsTrigger value="groups" className="gap-1.5 shrink-0">
             <Building2 className="w-4 h-4 shrink-0" />
@@ -713,7 +713,7 @@ export default function MarketingPage() {
           </TabsTrigger>
           <TabsTrigger value="attribution" className="gap-1.5 shrink-0">
             <Route className="w-4 h-4 shrink-0" />
-            <span className="hidden sm:inline">Attribution</span>
+            <span className="hidden sm:inline">แอตทริบิวชัน</span>
           </TabsTrigger>
         </TabsList>
 
@@ -819,9 +819,9 @@ export default function MarketingPage() {
           <div className="rounded-lg border bg-card p-3 sm:p-4">
             <div className="flex items-center gap-2 mb-1">
               <Palette className="w-4 h-4 text-primary" />
-              <h3 className="font-semibold text-sm">Email Templates</h3>
+              <h3 className="font-semibold text-sm">เทมเพลตอีเมล</h3>
             </div>
-            <p className="text-xs text-muted-foreground">เลือก template เพื่อสร้างแคมเปญ รองรับ merge tags เช่น {'{{'+'first_name'+'}}'}  {'{{'+'company_name'+'}}'}  และอื่นๆ</p>
+            <p className="text-xs text-muted-foreground">เลือกเทมเพลตเพื่อสร้างแคมเปญ รองรับ merge tags เช่น {'{{'+'first_name'+'}}'}  {'{{'+'company_name'+'}}'}  และอื่นๆ</p>
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
             {emailTemplates.map((tpl) => (
@@ -965,7 +965,7 @@ export default function MarketingPage() {
                       <thead>
                         <tr className="border-b">
                           <th className="text-left py-3 px-2 font-medium text-sm text-muted-foreground">ลูกค้า</th>
-                          <th className="text-right py-3 px-2 font-medium text-sm text-muted-foreground">อีเมล</th>
+                          <th className="text-right py-3 px-2 font-medium text-sm text-muted-foreground">ส่งอีเมลแล้ว</th>
                           <th className="text-right py-3 px-2 font-medium text-sm text-muted-foreground">เปิด</th>
                           <th className="text-right py-3 px-2 font-medium text-sm text-muted-foreground">คลิก</th>
                           <th className="text-right py-3 px-2 font-medium text-sm text-muted-foreground">%เปิด</th>
@@ -1086,7 +1086,7 @@ export default function MarketingPage() {
                   setIsCampaignDialogOpen(true);
                   setTemplatePreviewId(null);
                 }}>
-                  <Plus className="w-4 h-4 mr-1" />ใช้ template นี้
+                  <Plus className="w-4 h-4 mr-1" />ใช้เทมเพลตนี้
                 </Button>
               </div>
             </DialogContent>
