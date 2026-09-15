@@ -13,7 +13,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import ArticleEditor from '@/components/content/ArticleEditor';
 import type { SeoFields } from '@/components/content/types';
 import { emailTemplates } from '@/data/emailTemplates';
-import { Loader2, Plus, Send, Eye, MousePointer, X, Search, Mail, Users, Pencil, Trash2, UserMinus, Copy, TrendingUp, TrendingDown, BarChart3, Building2, FileText, LayoutTemplate, Palette, Route } from 'lucide-react';
+import { Loader2, Plus, Send, Eye, MousePointer, X, Search, Mail, Users, Pencil, Trash2, UserMinus, Copy, Building2, FileText, LayoutTemplate, Palette, Route } from 'lucide-react';
 import AttributionTab from '@/components/marketing/AttributionTab';
 import PullFromContentDialog from '@/components/content/dialogs/PullFromContentDialog';
 import { MultiSelectCombobox } from '@/components/MultiSelectCombobox';
@@ -654,25 +654,6 @@ export default function MarketingPage() {
   const totalClicks = useMemo(() =>
     sentCampaigns.reduce((sum, c) => sum + c.total_clicks, 0), [sentCampaigns]);
 
-  const avgOpenRate = useMemo(() =>
-    totalSent > 0 ? Math.round(totalOpens / totalSent * 100) : 0,
-    [totalOpens, totalSent]);
-
-  const avgClickRate = useMemo(() =>
-    totalSent > 0 ? Math.round(totalClicks / totalSent * 100) : 0,
-    [totalClicks, totalSent]);
-
-  const bestCampaigns = useMemo(() =>
-    [...sentCampaigns]
-      .sort((a, b) => {
-        const rateA = a.total_sent > 0 ? a.total_opens / a.total_sent : 0;
-        const rateB = b.total_sent > 0 ? b.total_opens / b.total_sent : 0;
-        return rateB - rateA;
-      })
-      .slice(0, 3),
-    [sentCampaigns]
-  );
-
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -711,7 +692,7 @@ export default function MarketingPage() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); setSearch(''); }} className="space-y-4">
-        <TabsList className="flex flex-nowrap overflow-x-auto sm:grid w-full sm:grid-cols-6">
+        <TabsList className="flex flex-nowrap overflow-x-auto sm:grid w-full sm:grid-cols-5">
           <TabsTrigger value="campaigns" className="gap-1.5 shrink-0">
             <Mail className="w-4 h-4 shrink-0" />
             <span className="hidden sm:inline">แคมเปญ</span>
@@ -729,10 +710,6 @@ export default function MarketingPage() {
           <TabsTrigger value="customers" className="gap-1.5 shrink-0">
             <Users className="w-4 h-4 shrink-0" />
             <span className="hidden sm:inline">ลูกค้า</span>
-          </TabsTrigger>
-          <TabsTrigger value="analytics" className="gap-1.5 shrink-0">
-            <BarChart3 className="w-4 h-4 shrink-0" />
-            <span className="hidden sm:inline">รายงาน</span>
           </TabsTrigger>
           <TabsTrigger value="attribution" className="gap-1.5 shrink-0">
             <Route className="w-4 h-4 shrink-0" />
@@ -1040,202 +1017,6 @@ export default function MarketingPage() {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
-
-        {/* ── Analytics Tab ── */}
-        <TabsContent value="analytics" className="space-y-6">
-          {/* Summary Cards */}
-          <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-            <Card>
-              <CardContent className="p-4 sm:p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">แคมเปญที่ส่งแล้ว</p>
-                    <p className="text-2xl font-bold">{sentCampaigns.length}</p>
-                  </div>
-                  <div className="h-12 w-12 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center">
-                    <Mail className="h-6 w-6 text-blue-600 dark:text-blue-400" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4 sm:p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">อีเมลที่ส่งทั้งหมด</p>
-                    <p className="text-2xl font-bold">{totalSent.toLocaleString()}</p>
-                  </div>
-                  <div className="h-12 w-12 rounded-full bg-green-100 dark:bg-green-900 flex items-center justify-center">
-                    <Send className="h-6 w-6 text-green-600 dark:text-green-400" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4 sm:p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">อัตราการเปิด (เฉลี่ย)</p>
-                    <p className="text-2xl font-bold">{avgOpenRate}%</p>
-                  </div>
-                  <div className="h-12 w-12 rounded-full bg-purple-100 dark:bg-purple-900 flex items-center justify-center">
-                    <Eye className="h-6 w-6 text-purple-600 dark:text-purple-400" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4 sm:p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">อัตราการคลิก (เฉลี่ย)</p>
-                    <p className="text-2xl font-bold">{avgClickRate}%</p>
-                  </div>
-                  <div className="h-12 w-12 rounded-full bg-orange-100 dark:bg-orange-900 flex items-center justify-center">
-                    <MousePointer className="h-6 w-6 text-orange-600 dark:text-orange-400" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Campaign Performance Table */}
-          <Card>
-            <CardContent className="p-4 sm:p-6">
-              <h3 className="text-lg font-semibold mb-4">ประสิทธิภาพแคมเปญ</h3>
-              {sentCampaigns.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <BarChart3 className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                  <p>ยังไม่มีข้อมูลการส่งอีเมล</p>
-                </div>
-              ) : (
-                <>
-                  {/* Mobile card list */}
-                  <div className="sm:hidden space-y-2">
-                    {sentCampaigns
-                      .sort((a, b) => new Date(b.sent_at || 0).getTime() - new Date(a.sent_at || 0).getTime())
-                      .map((campaign) => {
-                        const openRate = campaign.total_sent > 0 ? Math.round(campaign.total_opens / campaign.total_sent * 100) : 0;
-                        const clickRate = campaign.total_sent > 0 ? Math.round(campaign.total_clicks / campaign.total_sent * 100) : 0;
-                        return (
-                          <div key={campaign.id} className="border rounded-lg p-3">
-                            <div className="font-medium text-sm truncate">{campaign.name}</div>
-                            <div className="text-xs text-muted-foreground truncate mb-2">{campaign.subject}</div>
-                            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                              <div><span className="text-muted-foreground">ส่ง: </span><strong>{campaign.total_sent.toLocaleString()}</strong></div>
-                              <div className="flex items-center gap-1">
-                                <Eye className="w-3 h-3 text-muted-foreground" />
-                                <span className="text-muted-foreground">เปิด: </span><strong>{campaign.total_opens.toLocaleString()}</strong>
-                              </div>
-                              <div className={`flex items-center gap-1 ${openRate >= 30 ? 'text-green-600' : openRate >= 15 ? 'text-yellow-600' : 'text-red-600'}`}>
-                                {openRate >= 30 ? <TrendingUp className="w-3 h-3" /> : openRate < 15 ? <TrendingDown className="w-3 h-3" /> : null}
-                                อัตราเปิด {openRate}%
-                              </div>
-                              <div className={`flex items-center gap-1 ${clickRate >= 10 ? 'text-green-600' : clickRate >= 5 ? 'text-yellow-600' : 'text-red-600'}`}>
-                                {clickRate >= 10 ? <TrendingUp className="w-3 h-3" /> : clickRate < 5 ? <TrendingDown className="w-3 h-3" /> : null}
-                                อัตราคลิก {clickRate}%
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                  </div>
-                  {/* Desktop table */}
-                  <div className="hidden sm:block overflow-x-auto">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="border-b">
-                          <th className="text-left py-3 px-2 font-medium text-sm text-muted-foreground">แคมเปญ</th>
-                          <th className="text-right py-3 px-2 font-medium text-sm text-muted-foreground">ส่ง</th>
-                          <th className="text-right py-3 px-2 font-medium text-sm text-muted-foreground">เปิด</th>
-                          <th className="text-right py-3 px-2 font-medium text-sm text-muted-foreground">คลิก</th>
-                          <th className="text-right py-3 px-2 font-medium text-sm text-muted-foreground">อัตราเปิด</th>
-                          <th className="text-right py-3 px-2 font-medium text-sm text-muted-foreground">อัตราคลิก</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {sentCampaigns
-                          .sort((a, b) => new Date(b.sent_at || 0).getTime() - new Date(a.sent_at || 0).getTime())
-                          .map((campaign) => {
-                            const openRate = campaign.total_sent > 0 ? Math.round(campaign.total_opens / campaign.total_sent * 100) : 0;
-                            const clickRate = campaign.total_sent > 0 ? Math.round(campaign.total_clicks / campaign.total_sent * 100) : 0;
-                            return (
-                              <tr key={campaign.id} className="border-b last:border-b-0 hover:bg-muted/50">
-                                <td className="py-3 px-2">
-                                  <div className="font-medium truncate max-w-[200px]">{campaign.name}</div>
-                                  <div className="text-xs text-muted-foreground truncate max-w-[200px]">{campaign.subject}</div>
-                                </td>
-                                <td className="py-3 px-2 text-right">{campaign.total_sent.toLocaleString()}</td>
-                                <td className="py-3 px-2 text-right">
-                                  <div className="flex items-center justify-end gap-1">
-                                    <Eye className="w-3 h-3 text-muted-foreground" />
-                                    {campaign.total_opens.toLocaleString()}
-                                  </div>
-                                </td>
-                                <td className="py-3 px-2 text-right">
-                                  <div className="flex items-center justify-end gap-1">
-                                    <MousePointer className="w-3 h-3 text-muted-foreground" />
-                                    {campaign.total_clicks.toLocaleString()}
-                                  </div>
-                                </td>
-                                <td className="py-3 px-2 text-right">
-                                  <span className={`inline-flex items-center gap-1 ${openRate >= 30 ? 'text-green-600' : openRate >= 15 ? 'text-yellow-600' : 'text-red-600'}`}>
-                                    {openRate >= 30 ? <TrendingUp className="w-3 h-3" /> : openRate >= 15 ? null : <TrendingDown className="w-3 h-3" />}
-                                    {openRate}%
-                                  </span>
-                                </td>
-                                <td className="py-3 px-2 text-right">
-                                  <span className={`inline-flex items-center gap-1 ${clickRate >= 10 ? 'text-green-600' : clickRate >= 5 ? 'text-yellow-600' : 'text-red-600'}`}>
-                                    {clickRate >= 10 ? <TrendingUp className="w-3 h-3" /> : clickRate >= 5 ? null : <TrendingDown className="w-3 h-3" />}
-                                    {clickRate}%
-                                  </span>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                      </tbody>
-                    </table>
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Best Performing Campaigns */}
-          {bestCampaigns.length > 0 && (
-            <Card>
-              <CardContent className="p-4 sm:p-6">
-                <h3 className="text-lg font-semibold mb-4">แคมเปญที่มีประสิทธิภาพดีที่สุด</h3>
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {bestCampaigns.map((campaign, index) => (
-                    <div key={campaign.id} className="border rounded-lg p-4">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${
-                          index === 0 ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
-                          index === 1 ? 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200' :
-                          'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200'
-                        }`}>
-                          {index + 1}
-                        </span>
-                        <span className="font-medium truncate">{campaign.name}</span>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 text-sm">
-                        <div>
-                          <span className="text-muted-foreground">เปิด:</span>{' '}
-                          <span className="font-medium">{campaign.total_sent > 0 ? Math.round(campaign.total_opens / campaign.total_sent * 100) : 0}%</span>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">คลิก:</span>{' '}
-                          <span className="font-medium">{campaign.total_sent > 0 ? Math.round(campaign.total_clicks / campaign.total_sent * 100) : 0}%</span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
         </TabsContent>
 
         {/* ── Attribution Tab ── */}

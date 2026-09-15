@@ -42,7 +42,7 @@ $stmt = $db->prepare("
             ELSE 0 END as avg_click_rate
     FROM email_campaigns
     WHERE tenant_id = ? AND status IN ('sent', 'sending')
-      AND created_at >= {$cutoff}
+      AND sent_at >= {$cutoff}
 ");
 $stmt->execute([$tenantId]);
 $summary = $stmt->fetch();
@@ -94,7 +94,7 @@ $stmt = $db->prepare("
            sent_at
     FROM email_campaigns
     WHERE tenant_id = ? AND status IN ('sent', 'sending') AND total_sent > 0
-      AND created_at >= {$cutoff}
+      AND sent_at >= {$cutoff}
     ORDER BY total_opens DESC
     LIMIT 5
 ");
