@@ -36,7 +36,7 @@ const PALETTE = ['#6366f1','#8b5cf6','#ec4899','#f59e0b','#10b981','#3b82f6','#e
 function SourceTable({ rows }: { rows: SourceRow[] }) {
   if (!rows.length) return <p className="text-sm text-muted-foreground text-center py-6">ไม่มีข้อมูล</p>;
 
-  const maxValue = Math.max(...rows.map(r => r.won_value), 1);
+  const total = rows.reduce((sum, r) => sum + Number(r.won_value), 0) || 1;
 
   return (
     <div className="overflow-x-auto">
@@ -57,7 +57,7 @@ function SourceTable({ rows }: { rows: SourceRow[] }) {
         <tbody className="divide-y">
           {rows.map((r, i) => {
             const winRate = r.total_leads > 0 ? Math.round(r.won / r.total_leads * 100) : 0;
-            const barPct  = maxValue > 0 ? Math.min(100, r.won_value / maxValue * 100) : 0;
+            const barPct  = Math.min(100, Number(r.won_value) / total * 100);
             return (
               <tr key={r.source} className="hover:bg-muted/30">
                 <td className="px-3 py-2">
@@ -89,7 +89,7 @@ function SourceTable({ rows }: { rows: SourceRow[] }) {
                     <div className="h-2 rounded-full bg-muted overflow-hidden w-24 shrink-0">
                       <div className="h-full rounded-full" style={{ width: `${barPct}%`, backgroundColor: PALETTE[i % PALETTE.length] }} />
                     </div>
-                    <span className="text-muted-foreground shrink-0">{Math.round(barPct)}%</span>
+                    <span className="text-muted-foreground shrink-0">{barPct.toFixed(1)}%</span>
                   </div>
                 </td>
               </tr>
