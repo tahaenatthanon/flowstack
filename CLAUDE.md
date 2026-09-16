@@ -31,8 +31,8 @@ Thai-language project management SaaS: PHP + MariaDB backend on XAMPP, React 18 
 - Wrap with `<PermissionRoute menuKey="...">` or `<ProtectedRoute>`
 - Add menu item to `NAV_GROUPS` in `src/components/AppSidebar.tsx`
 - Add `menuKey` to `ALL_MENU_KEYS` in `api/auth.php`
-- Menu keys: `home`, `projects`, `sales`, `quotations`, `companies`, `revenue`, `resources`, `timesheet`, `reports`, `analytics`, `marketing`, `goals`, `automation`, `budget`, `support`, `admin`
-- ⚠️ menuKey `timesheet` ยังคงใช้ชื่อเดิมในโค้ด แต่ UI แสดงเป็น "บันทึกชั่วโมง" — ไม่มีแนวคิด "timesheet" ในระบบอีกต่อไป ทุกอย่างเป็น task และ subtask
+- Menu keys: `home`, `projects`, `sales`, `quotations`, `companies`, `revenue`, `resources`, `task_hours`, `reports`, `analytics`, `marketing`, `goals`, `automation`, `budget`, `support`, `admin`, `inbox`, `calendar`, `task_intelligence`, `workflow`, `brand_setting`, `media_studio`, `data_management`, `lead_generation`, `content_approval`
+- ⚠️ menuKey คือ `task_hours` (route `/task-hours`), UI แสดงเป็น "บันทึกชั่วโมง" — ไม่มีแนวคิด "timesheet" ในระบบอีกต่อไป ทุกอย่างเป็น task และ subtask
 </important>
 
 <important if="you are working with authentication, permissions, or user roles">

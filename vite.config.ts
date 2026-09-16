@@ -56,8 +56,12 @@ export default defineConfig(({ mode }) => {
           if (id.includes('/react-dom/') || id.includes('/react-router') || id.includes('/scheduler/')) return 'vendor-react';
           if (id.includes('/react/')) return 'vendor-react';
 
-          // ── Charts ──
-          if (id.includes('recharts') || id.includes('d3-')) return 'vendor-charts';
+          // ── Charts — bundled with vendor-react (not a separate chunk): recharts calls
+          // React APIs at module top level, and splitting it into its own chunk creates a
+          // cross-chunk circular import that crashes with "Cannot access 'X' before
+          // initialization" the first time this build is loaded as static files (not caught
+          // under `pnpm dev`, only surfaced when the actual dist/ build runs standalone) ──
+          if (id.includes('recharts') || id.includes('d3-')) return 'vendor-react';
 
           // ── Data fetching ──
           if (id.includes('@tanstack')) return 'vendor-query';
@@ -83,8 +87,13 @@ export default defineConfig(({ mode }) => {
           // ── Small UI libs ──
           if (id.includes('sonner') || id.includes('cmdk') || id.includes('react-day-picker') || id.includes('react-resizable-panels') || id.includes('vaul')) return 'vendor-misc';
 
-          // ── Everything else from node_modules ──
-          return 'vendor-other';
+          // ── Everything else from node_modules — bundled with vendor-react (not its own
+          // chunk): this is a catch-all bucket, so it can silently pick up any small library
+          // that calls React APIs (createContext, etc.) at module top level. Splitting it into
+          // its own chunk risks the exact same cross-chunk "cannot access before
+          // initialization" crash hit with recharts above, and it can reappear with any future
+          // dependency change since chunk membership here isn't hand-picked ──
+          return 'vendor-react';
         },
       },
     },

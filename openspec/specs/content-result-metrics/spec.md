@@ -2,7 +2,7 @@
 
 ## Purpose
 
-แสดงเมตริกผลลัพธ์การผลิตคอนเทนต์บนแดชบอร์ด — เวลาผลิตเฉลี่ย (lead time จาก `created_at` → `approved_at`) และความถี่การเผยแพร่ (โพสต์/สัปดาห์จาก `published_at`) เทียบกับเป้าหมายที่ตั้งได้ใน `content_global_settings` พร้อม endpoint คำนวณผลลัพธ์
+แสดงเมตริกผลลัพธ์การผลิตคอนเทนต์บนแดชบอร์ด — เวลาผลิตเฉลี่ย (lead time จาก `requested_at` → `approved_at`) และความถี่การเผยแพร่ (โพสต์/สัปดาห์จาก `published_at`) เทียบกับเป้าหมายที่ตั้งได้ใน `content_global_settings` พร้อม endpoint คำนวณผลลัพธ์
 
 ## Requirements
 
@@ -13,15 +13,17 @@
 - **WHEN** migration รันสำเร็จบนฐานข้อมูล
 - **THEN** ตาราง `content_global_settings` มีคอลัมน์ `weekly_posts_target` เป็นชนิด `TINYINT UNSIGNED` (หรือชนิดจำนวนเต็มที่เทียบเท่า) ที่มีค่า default `0`
 
-### Requirement: คำนวณเวลาผลิตเฉลี่ยจาก approved_at
-ระบบ SHALL มี endpoint ที่คืนค่าเวลาผลิตเฉลี่ย (lead time) คำนวณจากระยะเวลาระหว่าง `created_at` และ `approved_at` ของรายการ `content_items` ที่มี `approved_at` ไม่เป็น NULL และ respect ช่วงวันที่ `from`/`to` เมื่อถูกส่งมา (กรองด้วย `created_at` หรือ `approved_at` ตามความหมายของเมตริก)
+### Requirement: คำนวณเวลาผลิตเฉลี่ยจาก requested_at → approved_at
+ระบบ SHALL มี endpoint ที่คืนค่าเวลาผลิตเฉลี่ย (lead time) คำนวณจากระยะเวลาระหว่าง `requested_at` และ `approved_at` ของรายการ `content_items` ที่มี `requested_at` และ `approved_at` ไม่เป็น NULL และ respect ช่วงวันที่ `from`/`to` เมื่อถูกส่งมา (กรองด้วย `approved_at` ตามความหมายของเมตริก)
+
+ใช้ `requested_at` (เวลาที่ขออนุมัติจริง) แทน `created_at` (เวลาที่สร้างดราฟต์) เพราะดราฟต์มักถูกสร้างล่วงหน้าเป็นชุดจากการ generate content plan แล้วค้างเป็น backlog นานหลายเดือนก่อนมีคนขออนุมัติ ทำให้ `created_at` → `approved_at` ไม่สะท้อนเวลาทำงานจริงและดันค่าเฉลี่ยพุ่งสูงผิดปกติเมื่อมีการเคลียร์ backlog เป็นชุดใหญ่
 
 #### Scenario: มีรายการที่อนุมัติแล้ว
-- **WHEN** มี `content_items` อย่างน้อย 1 รายการที่มี `approved_at` ไม่เป็น NULL และเรียก endpoint เมตริกผลลัพธ์
-- **THEN** response มี `avg_production_hours` เป็นค่าจำนวนชั่วโมงเฉลี่ยของ `TIMESTAMPDIFF(HOUR, created_at, approved_at)` จากทุกรายการที่อนุมัติแล้ว
+- **WHEN** มี `content_items` อย่างน้อย 1 รายการที่มี `requested_at` และ `approved_at` ไม่เป็น NULL และเรียก endpoint เมตริกผลลัพธ์
+- **THEN** response มี `avg_production_hours` เป็นค่าจำนวนชั่วโมงเฉลี่ยของ `TIMESTAMPDIFF(HOUR, requested_at, approved_at)` จากทุกรายการที่อนุมัติแล้ว
 
 #### Scenario: ยังไม่มีรายการที่อนุมัติ
-- **WHEN** ไม่มี `content_items` ใดที่มี `approved_at` ไม่เป็น NULL
+- **WHEN** ไม่มี `content_items` ใดที่มี `requested_at` และ `approved_at` ไม่เป็น NULL พร้อมกัน
 - **THEN** response มี `avg_production_hours` เป็น `null` และ `approved_count` เป็น `0`
 
 #### Scenario: respect ช่วงวันที่

@@ -3341,11 +3341,15 @@ if ($action === 'result-metrics') {
 
     // เวลาผลิตเฉลี่ย (lead time) — เฉพาะรายการที่อนุมัติแล้ว
     // ผูกช่วงวันที่ด้วย approved_at คือ "อนุมัติในช่วงนี้" ตามความหมายของเมตริก
+    // วัดจาก requested_at (ขออนุมัติ) ไม่ใช่ created_at (สร้างดราฟต์) เพราะ created_at
+    // มักถูกสร้างล่วงหน้าเป็นชุดจากการ generate content plan แล้วดราฟต์ค้างเป็น backlog
+    // นานหลายเดือนก่อนมีคนขออนุมัติจริง ทำให้ created_at→approved_at ไม่ใช่เวลาทำงานจริง
+    // และดันค่าเฉลี่ยพุ่งสูงผิดปกติเวลามีการเคลียร์ backlog เป็นชุดใหญ่
     $leadStmt = $db->prepare(
-        'SELECT AVG(TIMESTAMPDIFF(HOUR, created_at, approved_at)) AS avg_hours,
+        'SELECT AVG(TIMESTAMPDIFF(HOUR, requested_at, approved_at)) AS avg_hours,
                 COUNT(*) AS approved_count
          FROM content_items
-         WHERE tenant_id=? AND approved_at IS NOT NULL
+         WHERE tenant_id=? AND approved_at IS NOT NULL AND requested_at IS NOT NULL
            AND approved_at BETWEEN ? AND ?'
     );
     $leadStmt->execute([$tenantId, $rmFromDt, $rmToDt]);
