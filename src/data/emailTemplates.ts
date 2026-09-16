@@ -32,7 +32,7 @@ export const emailTemplates: EmailTemplate[] = [
           <tr>
             <td style="background-color:#1e40af;padding:30px;text-align:center;">
               <h1 style="color:#ffffff;margin:0;font-size:28px;">{{company_name}}</h1>
-              <p style="color:#bfdbfe;margin:10px 0 0 0;font-size:14px;">{{company_website}}</p>
+              <p style="color:#bfdbfe;margin:10px 0 0 0;font-size:14px;"><a href="{{company_website}}" style="color:#bfdbfe;text-decoration:none;">{{company_website}}</a></p>
             </td>
           </tr>
           <!-- Content -->
@@ -105,7 +105,7 @@ export const emailTemplates: EmailTemplate[] = [
           <tr>
             <td style="background-color:#1e3a8a;padding:20px;text-align:center;">
               <p style="color:#ffffff;margin:0;font-size:12px;">
-                {{company_phone}} | {{company_email}} | {{company_website}}
+                {{company_phone}} | {{company_email}} | <a href="{{company_website}}" style="color:#ffffff;text-decoration:none;">{{company_website}}</a>
               </p>
             </td>
           </tr>
@@ -191,7 +191,7 @@ export const emailTemplates: EmailTemplate[] = [
           <tr>
             <td style="padding:50px 30px;text-align:center;">
               <h1 style="color:#ffffff;margin:0;font-size:32px;font-weight:bold;">{{company_name}}</h1>
-              <p style="color:#94a3b8;margin:15px 0 0 0;font-size:14px;">{{company_website}}</p>
+              <p style="color:#94a3b8;margin:15px 0 0 0;font-size:14px;"><a href="{{company_website}}" style="color:#94a3b8;text-decoration:none;">{{company_website}}</a></p>
             </td>
           </tr>
           <!-- Content -->
@@ -324,7 +324,7 @@ export const emailTemplates: EmailTemplate[] = [
                 <tr>
                   <td style="padding:20px;text-align:center;">
                     <p style="color:#065f46;margin:0;font-size:14px;font-weight:600;">📞 {{company_phone}}</p>
-                    <p style="color:#065f46;margin:8px 0 0 0;font-size:14px;">🌐 {{company_website}}</p>
+                    <p style="color:#065f46;margin:8px 0 0 0;font-size:14px;">🌐 <a href="{{company_website}}" style="color:#065f46;text-decoration:none;">{{company_website}}</a></p>
                   </td>
                 </tr>
               </table>
@@ -417,7 +417,7 @@ export const emailTemplates: EmailTemplate[] = [
           <tr>
             <td style="padding:40px 30px 30px 30px;text-align:center;border-bottom:1px solid #e5e7eb;">
               <h1 style="color:#1e1b4b;margin:0;font-size:30px;font-family:Arial,sans-serif;font-weight:bold;">{{company_name}}</h1>
-              <p style="color:#4f46e5;margin:10px 0 0 0;font-size:14px;font-family:Arial,sans-serif;">{{company_website}}</p>
+              <p style="color:#4f46e5;margin:10px 0 0 0;font-size:14px;font-family:Arial,sans-serif;"><a href="{{company_website}}" style="color:#4f46e5;text-decoration:none;">{{company_website}}</a></p>
             </td>
           </tr>
           <!-- Body -->
