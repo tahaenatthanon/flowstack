@@ -48,6 +48,8 @@ if ($method === 'GET') {
                       COALESCE(NULLIF(ci.generated_image_url,\'\'), cpi.generated_image_url) AS generated_image_url,
                       COALESCE(NULLIF(ci.article_content,\'\'), cpi.article_content) AS article_content,
                       ci.seo_title,
+                      ci.seo_score,
+                      ci.aeo_score,
                       ci.slug,
                       ci.meta_description,
                       ci.meta_keywords,
@@ -73,7 +75,32 @@ if ($method === 'GET') {
     $sql .= ' ORDER BY ci.created_at DESC';
     $stmt = $db->prepare($sql);
     $stmt->execute($params);
-    jsonResponse($stmt->fetchAll());
+    $items = $stmt->fetchAll();
+
+    // Attach round-by-round approval history to each item. Done as a separate
+    // query (not a JOIN/JSON_ARRAYAGG in the main query) because this MariaDB
+    // version (10.4) predates JSON_ARRAYAGG (added in 10.5) — grouping in PHP
+    // is simple and version-safe for the small number of rounds per item.
+    if ($items) {
+        $itemIds = array_column($items, 'id');
+        $placeholders = implode(',', array_fill(0, count($itemIds), '?'));
+        $roundsStmt = $db->prepare("SELECT content_item_id, decision, reason, decided_at FROM content_approval_rounds WHERE content_item_id IN ($placeholders) AND tenant_id = ? ORDER BY decided_at ASC");
+        $roundsStmt->execute([...$itemIds, $tenantId]);
+        $roundsByItem = [];
+        foreach ($roundsStmt->fetchAll() as $round) {
+            $roundsByItem[$round['content_item_id']][] = [
+                'decision'    => $round['decision'],
+                'reason'      => $round['reason'],
+                'decided_at'  => $round['decided_at'],
+            ];
+        }
+        foreach ($items as &$item) {
+            $item['approval_rounds'] = $roundsByItem[$item['id']] ?? [];
+        }
+        unset($item);
+    }
+
+    jsonResponse($items);
 }
 
 if ($method === 'POST') {
@@ -227,6 +254,13 @@ if ($method === 'PUT') {
     if (empty($fields)) jsonError('ไม่มีข้อมูลที่จะอัปเดต');
     $values[] = $id; $values[] = $tenantId;
     $db->prepare('UPDATE content_items SET ' . implode(', ', $fields) . ', updated_at=NOW() WHERE id = ? AND tenant_id = ?')->execute($values);
+    // Record this approval decision as its own round — content_items.reject_reason
+    // still holds just the latest reason (kept for backward compat with existing
+    // reads), but the full round-by-round history lives only here.
+    if (in_array(($body['status'] ?? null), ['approved', 'revision', 'rejected'], true)) {
+        $db->prepare('INSERT INTO content_approval_rounds (id, content_item_id, decision, reason, tenant_id) VALUES (?, ?, ?, ?, ?)')
+           ->execute([generateUUID(), $id, $body['status'], $body['reject_reason'] ?? null, $tenantId]);
+    }
     $stmt = $db->prepare('SELECT ci.*, cpi.day_label, cp.title AS plan_title, cp.id AS plan_id, cp.week_start FROM content_items ci LEFT JOIN content_plan_items cpi ON cpi.id=ci.plan_item_id LEFT JOIN content_plans cp ON cp.id=COALESCE(ci.plan_id, cpi.plan_id) WHERE ci.id=? AND ci.tenant_id=?');
     $stmt->execute([$id, $tenantId]);
     jsonResponse($stmt->fetch());

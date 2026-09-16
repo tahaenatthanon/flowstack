@@ -7,8 +7,18 @@ import { useState, useRef, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
 import { apiFetch } from '@/lib/api';
+import { cn } from '@/lib/utils';
 
 import type { ContentItem, PlanItem } from '@/components/content/types';
+
+// Same thresholds as seo_gate_status()/aeo_gate_status() on the backend
+// (>=90 passed, 80-89 needs_improvement, <80 failed) so the color here means
+// the same thing as the pass/fail gate that already governs generation.
+function scoreColor(score: number): string {
+  if (score >= 90) return 'text-green-600';
+  if (score >= 80) return 'text-amber-600';
+  return 'text-red-600';
+}
 import { PlatformBadgeList } from '@/components/content/PlatformBadgeList';
 import { useResearchRun, RESEARCH_STEP_LABELS, researchSeedTopic } from '@/hooks/useResearchRun';
 import ContentArticleView from './ContentArticleView';
@@ -281,6 +291,12 @@ export default function ContentDetailView({
             <span className="text-xs text-muted-foreground flex items-center gap-1">
               {isVideo ? <><Play className="h-3 w-3" />วิดีโอ</> : <><FileText className="h-3 w-3" />บทความ</>}
             </span>
+            {item.seo_score != null && (
+              <span className={cn('text-xs font-semibold', scoreColor(item.seo_score))}>SEO {item.seo_score}</span>
+            )}
+            {item.aeo_score != null && (
+              <span className={cn('text-xs font-semibold', scoreColor(item.aeo_score))}>AEO {item.aeo_score}</span>
+            )}
             <PlatformBadgeList platforms={item.platforms ?? item.platform} variant="pill" size={12} />
             {(item.scheduled_date || item.day_label) && (
               <span className="text-xs text-muted-foreground flex items-center gap-1">
@@ -349,12 +365,31 @@ export default function ContentDetailView({
         </div>
       </div>
 
-      {(item.status === 'revision' || item.status === 'rejected') && item.reject_reason && (
-        <div className="rounded-lg border px-4 py-3 text-sm bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800">
-          <p className="font-semibold text-amber-800 dark:text-amber-200">
-            {item.status === 'revision' ? 'เหตุผลที่ขอแก้ไข' : 'เหตุผลที่ปฏิเสธ'}
-          </p>
-          <p className="mt-1 text-amber-900 dark:text-amber-100 whitespace-pre-wrap break-words">{item.reject_reason}</p>
+      {/* Round-by-round approval history — each round is its own entry, never
+          merged with another round's reason (content items created before this
+          feature shipped simply have an empty history, no backfill). */}
+      {item.approval_rounds && item.approval_rounds.length > 0 && (
+        <div className="space-y-2">
+          {item.approval_rounds.map((round, i) => {
+            const meta = round.decision === 'approved'
+              ? { label: 'อนุมัติ', box: 'bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800', text: 'text-green-800 dark:text-green-200' }
+              : round.decision === 'revision'
+              ? { label: 'ขอแก้ไข', box: 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800', text: 'text-amber-800 dark:text-amber-200' }
+              : { label: 'ปฏิเสธ', box: 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800', text: 'text-red-800 dark:text-red-200' };
+            return (
+              <div key={i} className={cn('rounded-lg border px-4 py-3 text-sm', meta.box)}>
+                <p className={cn('font-semibold flex items-center gap-2', meta.text)}>
+                  รอบ {i + 1} — {meta.label}
+                  <span className="font-normal text-xs text-muted-foreground">
+                    {new Date(round.decided_at).toLocaleString('th-TH', { day: 'numeric', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </p>
+                {round.reason && (
+                  <p className={cn('mt-1 whitespace-pre-wrap break-words', meta.text)}>{round.reason}</p>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 

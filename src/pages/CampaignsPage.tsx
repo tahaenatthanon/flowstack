@@ -772,8 +772,8 @@ export default function CampaignsPage() {
                         const clickColor = clickRate >= 10 ? 'text-green-600' : clickRate >= 5 ? 'text-yellow-600' : 'text-red-600';
                         const clickBar = clickRate >= 10 ? 'bg-green-500' : clickRate >= 5 ? 'bg-yellow-500' : 'bg-red-500';
                         return (
-                          <div className="grid grid-cols-2 gap-3 rounded-lg bg-muted/40 px-3 py-2.5 text-sm overflow-hidden">
-                            <div className="min-w-0">
+                          <div className="grid grid-cols-2 gap-2 text-sm">
+                            <div className="min-w-0 rounded-lg bg-muted/40 px-3 py-2.5 overflow-hidden">
                               <div className="flex items-center justify-between gap-1.5">
                                 <span className="flex items-center gap-1.5 text-muted-foreground text-xs shrink-0">
                                   <Eye className="w-3.5 h-3.5 shrink-0" />เปิดอ่าน
@@ -785,7 +785,7 @@ export default function CampaignsPage() {
                               </div>
                               <div className="text-[11px] text-muted-foreground mt-1">{campaign.total_opens} จาก {campaign.total_sent} คน</div>
                             </div>
-                            <div className="min-w-0">
+                            <div className="min-w-0 rounded-lg bg-muted/40 px-3 py-2.5 overflow-hidden">
                               <div className="flex items-center justify-between gap-1.5">
                                 <span className="flex items-center gap-1.5 text-muted-foreground text-xs shrink-0">
                                   <MousePointer className="w-3.5 h-3.5 shrink-0" />คลิก

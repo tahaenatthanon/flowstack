@@ -37,11 +37,23 @@ export interface ContentItem {
   week_start?: string | null;
   // SEO / AEO fields
   seo_title?: string | null;
+  /** Last SEO checklist score (0-100), persisted after generate/repair or quality-recheck. Null = never evaluated. */
+  seo_score?: number | null;
+  /** Last AEO checklist score (0-100) — a separate evaluation from seo_score, not a duplicate. Null = never evaluated. */
+  aeo_score?: number | null;
   slug?: string | null;
   meta_description?: string | null;
   meta_keywords?: string | null;
   structured_data?: string | null;
   og_image?: string | null;
+  /** Full round-by-round approval decision history, oldest first. Empty until the first decision after this feature shipped. */
+  approval_rounds?: ApprovalRound[];
+}
+
+export interface ApprovalRound {
+  decision: 'approved' | 'revision' | 'rejected';
+  reason: string | null;
+  decided_at: string;
 }
 
 export interface BrandContext {

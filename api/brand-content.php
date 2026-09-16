@@ -481,8 +481,8 @@ if ($action === 'quality-recheck') {
     if (!is_array($art)) $art = [];
     $checkedAt = dbNow($db);
     $art['quality_checked_at'] = $checkedAt;
-    $db->prepare('UPDATE content_items SET article_content=?, updated_at=NOW() WHERE id=? AND tenant_id=?')
-       ->execute([json_encode($art, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), $itemId, $tenantId]);
+    $db->prepare('UPDATE content_items SET article_content=?, seo_score=?, aeo_score=?, updated_at=NOW() WHERE id=? AND tenant_id=?')
+       ->execute([json_encode($art, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), (int)$seoEval['score'], (int)$aeoEval['score'], $itemId, $tenantId]);
 
     jsonResponse([
         'seo' => [
@@ -2996,19 +2996,19 @@ if ($action === 'generate-article') {
     $newCaption = $mainData['caption'] ?? null;
     if ($newCaption !== null) {
         if ($finalStatus !== null) {
-            $db->prepare("UPDATE content_items SET article_content=?, title=?, type=?, caption=?, seo_title=?, slug=?, meta_description=?, meta_keywords=?, structured_data=?, og_image=?, status=?, updated_at=NOW() WHERE id=? AND tenant_id=?")
-               ->execute([json_encode($art), $artTitle, $ciType, $newCaption, $art['seo_title'], $art['slug'], $art['meta_description'], $art['meta_keywords'], $structuredData, $art['og_image'], $finalStatus, $itemId, $tenantId]);
+            $db->prepare("UPDATE content_items SET article_content=?, title=?, type=?, caption=?, seo_title=?, slug=?, meta_description=?, meta_keywords=?, structured_data=?, og_image=?, seo_score=?, aeo_score=?, status=?, updated_at=NOW() WHERE id=? AND tenant_id=?")
+               ->execute([json_encode($art), $artTitle, $ciType, $newCaption, $art['seo_title'], $art['slug'], $art['meta_description'], $art['meta_keywords'], $structuredData, $art['og_image'], (int)$seoEval['score'], (int)$aeoEval['score'], $finalStatus, $itemId, $tenantId]);
         } else {
-            $db->prepare("UPDATE content_items SET article_content=?, title=?, type=?, caption=?, seo_title=?, slug=?, meta_description=?, meta_keywords=?, structured_data=?, og_image=?, updated_at=NOW() WHERE id=? AND tenant_id=?")
-               ->execute([json_encode($art), $artTitle, $ciType, $newCaption, $art['seo_title'], $art['slug'], $art['meta_description'], $art['meta_keywords'], $structuredData, $art['og_image'], $itemId, $tenantId]);
+            $db->prepare("UPDATE content_items SET article_content=?, title=?, type=?, caption=?, seo_title=?, slug=?, meta_description=?, meta_keywords=?, structured_data=?, og_image=?, seo_score=?, aeo_score=?, updated_at=NOW() WHERE id=? AND tenant_id=?")
+               ->execute([json_encode($art), $artTitle, $ciType, $newCaption, $art['seo_title'], $art['slug'], $art['meta_description'], $art['meta_keywords'], $structuredData, $art['og_image'], (int)$seoEval['score'], (int)$aeoEval['score'], $itemId, $tenantId]);
         }
     } else {
         if ($finalStatus !== null) {
-            $db->prepare("UPDATE content_items SET article_content=?, title=?, type=?, seo_title=?, slug=?, meta_description=?, meta_keywords=?, structured_data=?, og_image=?, status=?, updated_at=NOW() WHERE id=? AND tenant_id=?")
-               ->execute([json_encode($art), $artTitle, $ciType, $art['seo_title'], $art['slug'], $art['meta_description'], $art['meta_keywords'], $structuredData, $art['og_image'], $finalStatus, $itemId, $tenantId]);
+            $db->prepare("UPDATE content_items SET article_content=?, title=?, type=?, seo_title=?, slug=?, meta_description=?, meta_keywords=?, structured_data=?, og_image=?, seo_score=?, aeo_score=?, status=?, updated_at=NOW() WHERE id=? AND tenant_id=?")
+               ->execute([json_encode($art), $artTitle, $ciType, $art['seo_title'], $art['slug'], $art['meta_description'], $art['meta_keywords'], $structuredData, $art['og_image'], (int)$seoEval['score'], (int)$aeoEval['score'], $finalStatus, $itemId, $tenantId]);
         } else {
-            $db->prepare("UPDATE content_items SET article_content=?, title=?, type=?, seo_title=?, slug=?, meta_description=?, meta_keywords=?, structured_data=?, og_image=?, updated_at=NOW() WHERE id=? AND tenant_id=?")
-               ->execute([json_encode($art), $artTitle, $ciType, $art['seo_title'], $art['slug'], $art['meta_description'], $art['meta_keywords'], $structuredData, $art['og_image'], $itemId, $tenantId]);
+            $db->prepare("UPDATE content_items SET article_content=?, title=?, type=?, seo_title=?, slug=?, meta_description=?, meta_keywords=?, structured_data=?, og_image=?, seo_score=?, aeo_score=?, updated_at=NOW() WHERE id=? AND tenant_id=?")
+               ->execute([json_encode($art), $artTitle, $ciType, $art['seo_title'], $art['slug'], $art['meta_description'], $art['meta_keywords'], $structuredData, $art['og_image'], (int)$seoEval['score'], (int)$aeoEval['score'], $itemId, $tenantId]);
         }
     }
 
