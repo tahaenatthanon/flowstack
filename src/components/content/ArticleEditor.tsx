@@ -115,6 +115,22 @@ export default function ArticleEditor({
   const [ctaOpen, setCtaOpen] = useState(false);
   const [ctaUrl, setCtaUrl] = useState('');
   const [ctaText, setCtaText] = useState('');
+  // Tiptap fires onUpdate once for the transaction that applies the initial
+  // `content` option, even though nothing was actually edited yet. That
+  // transaction's re-serialized HTML has already been through the schema
+  // (which drops styles it doesn't model, e.g. table-cell background-color),
+  // so letting it reach onChange silently replaces the pristine incoming
+  // `html` with a lossy copy — this bites hardest when the whole component
+  // remounts (e.g. a parent Tabs unmounting the inactive panel), since each
+  // remount re-triggers it.
+  //
+  // Can't just skip "the first onUpdate call" unconditionally: when `html`
+  // starts empty, Tiptap doesn't emit this synthetic update at all, so the
+  // first onUpdate IS the user's real first keystroke — skipping it would
+  // silently swallow it. Use focus as the discriminator instead: the
+  // synthetic initial-content transaction fires before the user could have
+  // clicked into the editor, so `isFocused` is still false; any update while
+  // genuinely focused is a real edit and must always reach onChange.
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ link: false, underline: false, paragraph: false }),
@@ -134,6 +150,9 @@ export default function ArticleEditor({
     ],
     content: html,
     onUpdate({ editor }) {
+      if (!editor.isFocused) {
+        return;
+      }
       // Defer to avoid setState-in-render warning from parent re-render
       requestAnimationFrame(() => onChange(editor.getHTML()));
     },
@@ -144,7 +163,7 @@ export default function ArticleEditor({
   const prevHtmlRef = useRef(html);
   useEffect(() => {
     if (editor && html !== prevHtmlRef.current && html !== editor.getHTML()) {
-      const id = setTimeout(() => editor.commands.setContent(html, false), 0);
+      const id = setTimeout(() => editor.commands.setContent(html, { emitUpdate: false }), 0);
       return () => clearTimeout(id);
     }
     prevHtmlRef.current = html;
@@ -195,15 +214,21 @@ export default function ArticleEditor({
   }, [seoOpen, contentItemId, seoCheck, seoCheckLoading, seoCheckError, aeoCheck, aeoCheckLoading, aeoCheckError, runSeoCheck, runAeoCheck]);
 
   // ── Source mode toggle ──────────────────────────────────────────
+  // Use the `html` prop (not editor.getHTML()) as the starting source: Tiptap's
+  // own serialization drops inline styles its schema doesn't know about (e.g.
+  // background-color on table cells), so reading it back here would silently
+  // strip styling from content that was never actually edited by hand. `html`
+  // already equals editor.getHTML() once the user has made real edits (synced
+  // via onUpdate → onChange), so this is only ever more faithful, never less.
   const enterSourceMode = useCallback(() => {
     if (!editor) return;
-    setSourceHtml(editor.getHTML());
+    setSourceHtml(html);
     setSourceMode(true);
-  }, [editor]);
+  }, [editor, html]);
 
   const exitSourceMode = useCallback(() => {
     if (!editor) return;
-    editor.commands.setContent(sourceHtml, false);
+    editor.commands.setContent(sourceHtml, { emitUpdate: false });
     onChange(sourceHtml);
     setSourceMode(false);
   }, [editor, sourceHtml, onChange]);
