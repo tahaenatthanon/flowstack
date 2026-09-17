@@ -1250,7 +1250,7 @@ export default function CampaignsPage() {
                   <TabsTrigger value="edit" className="text-xs flex-1 sm:flex-none">✏️ แก้ไข</TabsTrigger>
                   <TabsTrigger value="preview" className="text-xs flex-1 sm:flex-none">👁 ตัวอย่าง</TabsTrigger>
                 </TabsList>
-                <TabsContent value="edit" className="mt-2">
+                <TabsContent value="edit" className="mt-2 data-[state=inactive]:hidden" forceMount>
                   <div className="min-w-0 w-full overflow-x-hidden">
                     <ArticleEditor
                       html={campaignBody}
@@ -1269,7 +1269,7 @@ export default function CampaignsPage() {
                     💡 toolbar: <strong>ใส่ลิงค์</strong> เพื่อ hyperlink, <strong>อ่านต่อ</strong> เพื่อปุ่ม Read More, <strong>กดลิงค์</strong> เพื่อปุ่ม CTA สี
                   </p>
                 </TabsContent>
-                <TabsContent value="preview" className="mt-2">
+                <TabsContent value="preview" className="mt-2 data-[state=inactive]:hidden" forceMount>
                   <div className="border rounded-lg overflow-hidden bg-[#f4f4f5]">
                     <iframe
                       srcDoc={buildEmailPreviewHtml(campaignBody, campaignSubject, senderName || smtpFromName)}

@@ -131,6 +131,11 @@ export default function ArticleEditor({
   // synthetic initial-content transaction fires before the user could have
   // clicked into the editor, so `isFocused` is still false; any update while
   // genuinely focused is a real edit and must always reach onChange.
+  // Track the pending rAF from onUpdate below so the unmount-flush effect can
+  // cancel it — otherwise, on a destroyed editor, it would fire late with a
+  // stale/empty getHTML() and overwrite the value the flush already sent.
+  const pendingFlushRef = useRef<number | null>(null);
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ link: false, underline: false, paragraph: false }),
@@ -154,9 +159,32 @@ export default function ArticleEditor({
         return;
       }
       // Defer to avoid setState-in-render warning from parent re-render
-      requestAnimationFrame(() => onChange(editor.getHTML()));
+      pendingFlushRef.current = requestAnimationFrame(() => {
+        pendingFlushRef.current = null;
+        onChange(editor.getHTML());
+      });
     },
   });
+
+  // Flush any pending content update synchronously before the editor instance
+  // is destroyed (e.g. the dialog closes mid-type). Without this, a deferred
+  // onChange from onUpdate's requestAnimationFrame above can fire after
+  // destroy() and silently wipe the parent's state with a stale/empty
+  // getHTML() result — this cleanup runs before Tiptap's own destroy effect
+  // because it's registered after useEditor() in render order (React tears
+  // down effects in reverse registration order).
+  useEffect(() => {
+    if (!editor) return;
+    return () => {
+      if (pendingFlushRef.current !== null) {
+        cancelAnimationFrame(pendingFlushRef.current);
+        pendingFlushRef.current = null;
+      }
+      if (!editor.isDestroyed) {
+        onChange(editor.getHTML());
+      }
+    };
+  }, [editor, onChange]);
 
   // Sync content when html prop changes externally (e.g. after AI generation)
   // Use setTimeout to avoid setState-in-render warning from editor.onUpdate → onChange → parent re-render
