@@ -194,6 +194,13 @@ function buildBodyFromContent(item: ContentItem): string {
 
 // Build a full email preview HTML (mirrors PHP wrapEmailHtml) for client-side iframe rendering.
 function buildEmailPreviewHtml(html: string, subject: string, companyName: string): string {
+  // Mirrors PHP wrapEmailHtml's own guard: content that's already a full HTML
+  // document (e.g. a selected template) must not be wrapped again, or its own
+  // header/footer ends up duplicated alongside this function's wrapper.
+  if (/<html/i.test(html)) {
+    return html;
+  }
+
   const base = getServerBase();
   let body = html
     .replace(/src="\/uploads\//g, `src="${base}/uploads/`)
