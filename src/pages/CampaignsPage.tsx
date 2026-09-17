@@ -220,7 +220,7 @@ function buildEmailPreviewHtml(html: string, subject: string, companyName: strin
   const header = `<div style="padding:20px 32px 14px;border-bottom:1px solid #e4e4e7;"><span style="font-size:18px;font-weight:700;color:#3b82f6;">${co}</span></div>`;
   const footer = `<div style="padding:16px 32px;border-top:1px solid #e4e4e7;background:#fafafa;font-size:12px;color:#71717a;text-align:center;"><p style="margin:0 0 6px;">${co}</p><p style="margin:0;color:#a1a1aa;font-size:11px;">คุณได้รับอีเมลนี้เพราะสมัครรับข้อมูลจากเรา</p></div>`;
   const styles = `h1{font-size:22px;font-weight:700;color:#18181b;margin:0 0 16px;line-height:1.3}h2{font-size:18px;font-weight:600;color:#18181b;margin:24px 0 12px}h3{font-size:16px;font-weight:600;color:#18181b;margin:20px 0 8px}p{margin:0 0 16px}ul,ol{padding-left:24px;margin:0 0 16px}li{margin-bottom:4px}img{max-width:100%;height:auto;border-radius:6px;display:block;margin:16px auto}a{color:#3b82f6;text-decoration:underline}blockquote{border-left:4px solid #e4e4e7;padding:8px 16px;margin:16px 0;color:#71717a;font-style:italic}strong,b{font-weight:600}.lead{font-size:16px;color:#52525b;font-style:italic;margin-bottom:24px}`;
-  return `<!DOCTYPE html><html lang="th"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${subject}</title></head><body style="margin:0;padding:0;background:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;"><div style="background:#f4f4f5;padding:24px 0;"><div style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1);">${header}${heroHtml}<div style="padding:32px;font-size:15px;line-height:1.75;color:#27272a;"><style>${styles}</style>${body}</div>${footer}</div></div></body></html>`;
+  return `<!DOCTYPE html><html lang="th"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${subject}</title></head><body style="margin:0;padding:0;background:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;"><div style="background:#f4f4f5;padding:24px 0;"><div style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow-x:auto;box-shadow:0 1px 3px rgba(0,0,0,.1);">${header}${heroHtml}<div style="padding:32px;font-size:15px;line-height:1.75;color:#27272a;"><style>${styles}</style>${body}</div>${footer}</div></div></body></html>`;
 }
 
 export default function CampaignsPage() {
@@ -1084,7 +1084,7 @@ export default function CampaignsPage() {
         if (!tpl) return null;
         return (
           <Dialog open={!!templatePreviewId} onOpenChange={(v) => { if (!v) setTemplatePreviewId(null); }}>
-            <DialogContent className="w-full sm:max-w-3xl sm:max-h-[90vh] overflow-hidden flex flex-col">
+            <DialogContent className="w-full sm:max-w-4xl sm:max-h-[90vh] overflow-hidden flex flex-col">
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2 pr-8">
                   <span className="text-xl">{tpl.thumbnail}</span>
