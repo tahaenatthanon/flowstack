@@ -11,6 +11,7 @@ import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table
 import Link from '@tiptap/extension-link';
 import Image from '@tiptap/extension-image';
 import Paragraph from '@tiptap/extension-paragraph';
+import { Node, Extension } from '@tiptap/core';
 
 // Tiptap nodes/marks only keep attributes declared in their schema, so inline `style`
 // is stripped on parse. The CTA button inserted by "แทรกปุ่มลิงก์ในอีเมล" relies on
@@ -34,6 +35,45 @@ const StyledLink = Link.extend({
 const StyledParagraph = Paragraph.extend({
   addAttributes() {
     return { ...this.parent?.(), ...keepStyleAttribute };
+  },
+});
+
+// Email templates (src/data/emailTemplates.ts) use <div style="..."> for decorative
+// chrome (e.g. flex-centered icon circles, bordered info boxes) that has no equivalent
+// node in the default schema — without this, those <div>s are dropped entirely rather
+// than just losing style. Content must be 'block+' (not 'inline*'): some templates wrap
+// bare inline text (icon circles), others wrap <p> children (e.g. template-12's bordered
+// "VIP Box") — 'inline*' can't fit <p> children, which silently ejects them as siblings
+// and leaves the div empty. ProseMirror auto-wraps stray inline content into an implicit
+// paragraph when the content model requires a block, so bare-text divs still parse fine.
+const StyledDiv = Node.create({
+  name: 'div',
+  group: 'block',
+  content: 'block+',
+  parseHTML() {
+    return [{ tag: 'div' }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ['div', HTMLAttributes, 0];
+  },
+  addAttributes() {
+    return { ...keepStyleAttribute };
+  },
+});
+
+// Email templates set colors/backgrounds via inline `style` on table chrome and
+// headings (e.g. <td style="background-color:...">, <h1 style="color:#fff">). These
+// node types aren't otherwise patched like StyledParagraph/StyledLink above, so without
+// this, editing a template's text strips its design on the very next re-serialize.
+const PreserveInlineStyle = Extension.create({
+  name: 'preserveInlineStyle',
+  addGlobalAttributes() {
+    return [
+      {
+        types: ['table', 'tableRow', 'tableCell', 'tableHeader', 'heading'],
+        attributes: keepStyleAttribute,
+      },
+    ];
   },
 });
 import Placeholder from '@tiptap/extension-placeholder';
@@ -151,6 +191,8 @@ export default function ArticleEditor({
       TableCell,
       StyledLink.configure({ openOnClick: false }),
       Image,
+      StyledDiv,
+      PreserveInlineStyle,
       Placeholder.configure({ placeholder: 'เริ่มพิมพ์เนื้อหาบทความ...' }),
     ],
     content: html,
