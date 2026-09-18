@@ -276,6 +276,9 @@ function createEmailCampaign($db, $userId, string $tenantId = '') {
     $bodyHtml = $body['body_html'] ?? '';
     $bodyText = $body['body_text'] ?? '';
     $templateId = $body['template_id'] ?? null;
+    $editableContent = $body['editable_content'] ?? null;
+    $ctaText = $body['cta_text'] ?? null;
+    $ctaUrl = $body['cta_url'] ?? null;
     $senderName = trim($body['sender_name'] ?? '');
     $senderEmail = trim($body['sender_email'] ?? '');
     $groupIds = $body['group_ids'] ?? [];
@@ -298,12 +301,14 @@ function createEmailCampaign($db, $userId, string $tenantId = '') {
     $stmt = $db->prepare("
         INSERT INTO email_campaigns (
             id, tenant_id, name, subject, body_html, body_text, template_id,
+            editable_content, cta_text, cta_url,
             sender_name, sender_email, enable_track_opens, enable_track_clicks,
             status, created_by, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, NOW())
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, NOW())
     ");
     $stmt->execute([
         $id, $tenantId, $name, $subject, $bodyHtml, $bodyText, $templateId,
+        $editableContent, $ctaText, $ctaUrl,
         $senderName, $senderEmail, $enableTrackOpens, $enableTrackClicks, $userId
     ]);
     
@@ -404,7 +409,19 @@ function updateEmailCampaign($db, string $tenantId) {
         $updates[] = 'template_id = ?';
         $params[] = $body['template_id'];
     }
-    
+    if (array_key_exists('editable_content', $body)) {
+        $updates[] = 'editable_content = ?';
+        $params[] = $body['editable_content'];
+    }
+    if (array_key_exists('cta_text', $body)) {
+        $updates[] = 'cta_text = ?';
+        $params[] = $body['cta_text'];
+    }
+    if (array_key_exists('cta_url', $body)) {
+        $updates[] = 'cta_url = ?';
+        $params[] = $body['cta_url'];
+    }
+
     if (!empty($updates)) {
         $params[] = $id;
         $params[] = $tenantId;

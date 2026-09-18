@@ -7,7 +7,18 @@ export interface EmailTemplate {
   name: string;
   nameTH: string;
   thumbnail: string;
+  /**
+   * HTML เต็มก้อนของ template (chrome) — สำหรับ template ที่รองรับระบบ
+   * chrome-lock (มี `defaultContent`) ต้องมี token `{{EMAIL_CONTENT}}` ฝังอยู่
+   * ในตำแหน่งโซนเนื้อหาที่แก้ไขได้ และถ้า `hasCta` เป็นจริง ต้องมี
+   * `{{CTA_TEXT}}`/`{{CTA_URL}}` ฝังอยู่ตรงตำแหน่งปุ่ม CTA ด้วย
+   */
   html: string;
+  /** เนื้อหาเริ่มต้นที่แทนที่ `{{EMAIL_CONTENT}}` — undefined = ยังไม่รองรับ chrome-lock (legacy) */
+  defaultContent?: string;
+  hasCta?: boolean;
+  defaultCtaText?: string;
+  defaultCtaUrl?: string;
 }
 
 export const emailTemplates: EmailTemplate[] = [
@@ -38,14 +49,7 @@ export const emailTemplates: EmailTemplate[] = [
           <!-- Content -->
           <tr>
             <td style="padding:40px 30px;">
-              <h2 style="color:#1f2937;margin:0 0 20px 0;font-size:24px;">สวัสดีคุณ {{first_name}} {{last_name}} จาก {{customer_company_name}}</h2>
-              <p style="color:#4b5563;margin:0 0 20px 0;line-height:1.6;font-size:16px;">
-                ขอบคุณที่ให้ความสนใจในบริการของเรา หากมีข้อสงสัยหรือต้องการข้อมูลเพิ่มเติม กรุณาติดต่อกลับมาได้เลย
-              </p>
-              <p style="color:#4b5563;margin:0;line-height:1.6;font-size:16px;">
-                ด้วยความนับถือ<br>
-                {{company_name}}
-              </p>
+              {{EMAIL_CONTENT}}
             </td>
           </tr>
           <!-- Footer -->
@@ -61,7 +65,15 @@ export const emailTemplates: EmailTemplate[] = [
     </tr>
   </table>
 </body>
-</html>`
+</html>`,
+    defaultContent: `<h2 style="color:#1f2937;margin:0 0 20px 0;font-size:24px;">สวัสดีคุณ {{first_name}} {{last_name}} จาก {{customer_company_name}}</h2>
+              <p style="color:#4b5563;margin:0 0 20px 0;line-height:1.6;font-size:16px;">
+                ขอบคุณที่ให้ความสนใจในบริการของเรา หากมีข้อสงสัยหรือต้องการข้อมูลเพิ่มเติม กรุณาติดต่อกลับมาได้เลย
+              </p>
+              <p style="color:#4b5563;margin:0;line-height:1.6;font-size:16px;">
+                ด้วยความนับถือ<br>
+                {{company_name}}
+              </p>`,
   },
   {
     id: 'template-2',
@@ -89,16 +101,7 @@ export const emailTemplates: EmailTemplate[] = [
           <!-- Main Content -->
           <tr>
             <td style="padding:40px 20px;">
-              <p style="color:#374151;font-size:18px;margin:0;">สวัสดีคุณ <strong>{{full_name}}</strong> จาก {{customer_company_name}}</p>
-              <div style="margin:30px 0;padding:20px;background-color:#f0f9ff;border-left:4px solid #3b82f6;">
-                <p style="color:#1e3a8a;font-size:16px;margin:0;line-height:1.6;">
-                  ขอบคุณสำหรับความไว้วางใจ ทีมงานของเราพร้อมให้บริการและตอบทุกคำถามของคุณ
-                </p>
-              </div>
-              <p style="color:#6b7280;font-size:14px;margin:0;">
-                ด้วยความนับถือ,<br>
-                <strong>{{company_name}}</strong>
-              </p>
+              {{EMAIL_CONTENT}}
             </td>
           </tr>
           <!-- Contact Bar -->
@@ -114,7 +117,17 @@ export const emailTemplates: EmailTemplate[] = [
     </tr>
   </table>
 </body>
-</html>`
+</html>`,
+    defaultContent: `<p style="color:#374151;font-size:18px;margin:0;">สวัสดีคุณ <strong>{{full_name}}</strong> จาก {{customer_company_name}}</p>
+              <div style="margin:30px 0;padding:20px;background-color:#f0f9ff;border-left:4px solid #3b82f6;">
+                <p style="color:#1e3a8a;font-size:16px;margin:0;line-height:1.6;">
+                  ขอบคุณสำหรับความไว้วางใจ ทีมงานของเราพร้อมให้บริการและตอบทุกคำถามของคุณ
+                </p>
+              </div>
+              <p style="color:#6b7280;font-size:14px;margin:0;">
+                ด้วยความนับถือ,<br>
+                <strong>{{company_name}}</strong>
+              </p>`,
   },
   {
     id: 'template-3',
@@ -143,7 +156,16 @@ export const emailTemplates: EmailTemplate[] = [
           <!-- Content -->
           <tr>
             <td style="padding:40px 30px;">
-              <h2 style="color:#92400e;margin:0 0 20px 0;font-size:22px;">👋 สวัสดีคุณ {{first_name}} จาก {{customer_company_name}}!</h2>
+              {{EMAIL_CONTENT}}
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`,
+    defaultContent: `<h2 style="color:#92400e;margin:0 0 20px 0;font-size:22px;">👋 สวัสดีคุณ {{first_name}} จาก {{customer_company_name}}!</h2>
               <p style="color:#451a03;margin:0 0 20px 0;line-height:1.8;font-size:16px;">
                 ขอบคุณมากที่ติดต่อมาหาเรา ยินดีต้อนรับสู่ครอบครัว {{company_name}} เราหวังว่าจะได้รับใช้คุณด้วยความเต็มที่
               </p>
@@ -154,15 +176,7 @@ export const emailTemplates: EmailTemplate[] = [
                 <p style="color:#b45309;margin:0;font-size:14px;">
                   📞 {{company_phone}} | ✉️ {{company_email}}
                 </p>
-              </div>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`
+              </div>`,
   },
   {
     id: 'template-4',
@@ -258,14 +272,9 @@ export const emailTemplates: EmailTemplate[] = [
           <!-- Content -->
           <tr>
             <td style="padding:50px 40px;">
-              <p style="color:#1f2937;font-size:18px;margin:0 0 25px 0;text-align:center;">
-                Hello <span style="color:#7c3aed;font-weight:600;">{{first_name}}</span> from {{customer_company_name}}
-              </p>
-              <p style="color:#4b5563;margin:0 0 20px 0;line-height:1.8;font-size:15px;text-align:center;">
-                We are excited to have you here. Our team is ready to provide you with the best experience and solutions.
-              </p>
+              {{EMAIL_CONTENT}}
               <div style="text-align:center;margin:30px 0;">
-                <a href="{{company_website}}" style="display:inline-block;padding:14px 35px;background:linear-gradient(135deg,#7c3aed 0%,#5b21b6 100%);color:#ffffff;text-decoration:none;border-radius:30px;font-size:14px;font-weight:600;">Visit Our Website</a>
+                <a href="{{CTA_URL}}" style="display:inline-block;padding:14px 35px;background:linear-gradient(135deg,#7c3aed 0%,#5b21b6 100%);color:#ffffff;text-decoration:none;border-radius:30px;font-size:14px;font-weight:600;">{{CTA_TEXT}}</a>
               </div>
             </td>
           </tr>
@@ -282,7 +291,16 @@ export const emailTemplates: EmailTemplate[] = [
     </tr>
   </table>
 </body>
-</html>`
+</html>`,
+    defaultContent: `<p style="color:#1f2937;font-size:18px;margin:0 0 25px 0;text-align:center;">
+                Hello <span style="color:#7c3aed;font-weight:600;">{{first_name}}</span> from {{customer_company_name}}
+              </p>
+              <p style="color:#4b5563;margin:0 0 20px 0;line-height:1.8;font-size:15px;text-align:center;">
+                We are excited to have you here. Our team is ready to provide you with the best experience and solutions.
+              </p>`,
+    hasCta: true,
+    defaultCtaText: 'Visit Our Website',
+    defaultCtaUrl: '{{company_website}}',
   },
   {
     id: 'template-6',
@@ -693,22 +711,7 @@ export const emailTemplates: EmailTemplate[] = [
           <!-- Content -->
           <tr>
             <td style="padding:50px 30px;">
-              <p style="color:#d1d5db;margin:0 0 30px 0;font-size:18px;text-align:center;font-style:italic;">
-                "Excellence is not a destination but a continuous journey."
-              </p>
-              <h2 style="color:#ffffff;margin:0 0 25px 0;font-size:24px;text-align:center;font-family:Arial,sans-serif;">Dear {{full_name}} from {{customer_company_name}}</h2>
-              <p style="color:#9ca3af;margin:0;line-height:1.8;font-size:14px;text-align:center;font-family:Arial,sans-serif;">
-                Thank you for being part of our exclusive community. We are honored to serve you with the finest quality and unparalleled service.
-              </p>
-              <!-- VIP Box -->
-              <div style="border:1px solid #d4af37;border-radius:8px;padding:30px;margin:40px 0;text-align:center;">
-                <p style="color:#d4af37;margin:0;font-size:13px;letter-spacing:2px;text-transform:uppercase;font-family:Arial,sans-serif;">
-                  ✨ Exclusive Access
-                </p>
-                <p style="color:#d1d5db;margin:15px 0 0 0;font-size:14px;font-family:Arial,sans-serif;">
-                  Members enjoy priority service and special privileges
-                </p>
-              </div>
+              {{EMAIL_CONTENT}}
             </td>
           </tr>
           <!-- Contact -->
@@ -727,7 +730,22 @@ export const emailTemplates: EmailTemplate[] = [
     </tr>
   </table>
 </body>
-</html>`
+</html>`,
+    defaultContent: `<p style="color:#d1d5db;margin:0 0 30px 0;font-size:18px;text-align:center;font-style:italic;">
+                "Excellence is not a destination but a continuous journey."
+              </p>
+              <h2 style="color:#ffffff;margin:0 0 25px 0;font-size:24px;text-align:center;font-family:Arial,sans-serif;">Dear {{full_name}} from {{customer_company_name}}</h2>
+              <p style="color:#9ca3af;margin:0;line-height:1.8;font-size:14px;text-align:center;font-family:Arial,sans-serif;">
+                Thank you for being part of our exclusive community. We are honored to serve you with the finest quality and unparalleled service.
+              </p>
+              <div style="border:1px solid #d4af37;border-radius:8px;padding:30px;margin:40px 0;text-align:center;">
+                <p style="color:#d4af37;margin:0;font-size:13px;letter-spacing:2px;text-transform:uppercase;font-family:Arial,sans-serif;">
+                  ✨ Exclusive Access
+                </p>
+                <p style="color:#d1d5db;margin:15px 0 0 0;font-size:14px;font-family:Arial,sans-serif;">
+                  Members enjoy priority service and special privileges
+                </p>
+              </div>`,
   },
   {
     id: 'template-13',

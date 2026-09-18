@@ -12,7 +12,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import ArticleEditor from '@/components/content/ArticleEditor';
 import type { SeoFields } from '@/components/content/types';
-import { emailTemplates } from '@/data/emailTemplates';
+import { emailTemplates, type EmailTemplate } from '@/data/emailTemplates';
+import { composeCampaignHtml } from '@/lib/campaignTemplateCompose';
 import { Loader2, Plus, Send, Eye, MousePointer, X, Search, Mail, Users, Pencil, Trash2, UserMinus, Copy, Building2, FileText, LayoutTemplate, Palette, Route } from 'lucide-react';
 import AttributionTab from '@/components/marketing/AttributionTab';
 import PullFromContentDialog from '@/components/content/dialogs/PullFromContentDialog';
@@ -270,6 +271,7 @@ export default function CampaignsPage() {
     setSenderEmail(smtpRef.current.email);
     setSelectedCampaignGroups([]);
     setSelectedTemplate('');
+    setEditableContent(''); setCtaText(''); setCtaUrl(''); setForceLegacyEditor(false);
     setIsCampaignDialogOpen(true);
     // Clear state to prevent re-opening on back/forward
     window.history.replaceState({}, '');
@@ -296,6 +298,17 @@ export default function CampaignsPage() {
   const [campaignSubject, setCampaignSubject] = useState('');
   const [campaignBody, setCampaignBody] = useState('');
   const [selectedTemplate, setSelectedTemplate] = useState<string>('');
+  // Chrome-lock fields: only used when the selected template has `defaultContent`
+  // (migrated to the marker-based system) — ArticleEditor binds to `editableContent`
+  // instead of `campaignBody` in that case, so chrome never passes through the editor.
+  const [editableContent, setEditableContent] = useState('');
+  // True when editing an existing campaign saved before this system existed
+  // (template_id set, but editable_content is null) — even if its template has since
+  // been migrated, this specific campaign's content is a full document in campaignBody,
+  // not a content-only fragment, so it must stay in the legacy whole-document editor.
+  const [forceLegacyEditor, setForceLegacyEditor] = useState(false);
+  const [ctaText, setCtaText] = useState('');
+  const [ctaUrl, setCtaUrl] = useState('');
   const [sendingId, setSendingId] = useState<string | null>(null);
   const [senderName, setSenderName] = useState('');
   const [senderEmail, setSenderEmail] = useState('');
@@ -344,6 +357,13 @@ export default function CampaignsPage() {
   const addMembers = useAddGroupMembers();
   const removeMember = useRemoveGroupMember();
 
+  // Chrome-lock is active only when the selected template has been migrated to the
+  // marker-based system (`defaultContent` present) AND this isn't a pre-migration
+  // campaign forced into the legacy editor (see `forceLegacyEditor`) — templates not
+  // yet migrated fall back to the legacy whole-document editing path via `campaignBody`.
+  const selectedTemplateObj = emailTemplates.find(t => t.id === selectedTemplate);
+  const isChromeLocked = !forceLegacyEditor && !!selectedTemplateObj?.defaultContent;
+
   // ── Campaign handlers ──────────────────────────────────────
   const openCreateCampaign = () => {
     setEditingCampaignId(null);
@@ -351,6 +371,7 @@ export default function CampaignsPage() {
     setSenderName(smtpRef.current.name); setSenderEmail(smtpRef.current.email); setSelectedCampaignGroups([]);
     setEnableTrackOpens(true); setEnableTrackClicks(true);
     setSelectedTemplate('');
+    setEditableContent(''); setCtaText(''); setCtaUrl(''); setForceLegacyEditor(false);
     setIsCampaignDialogOpen(true);
   };
 
@@ -368,6 +389,15 @@ export default function CampaignsPage() {
       setEnableTrackOpens(c.enable_track_opens !== 0);
       setEnableTrackClicks(c.enable_track_clicks !== 0);
       setSelectedTemplate(c.template_id ?? '');
+      // editable_content present = created with the chrome-lock system (marker-based
+      // template) — restore the raw editable pieces directly instead of trying to
+      // re-derive them from body_html. Absent = legacy campaign (even if its template
+      // has since been migrated), so force the legacy editor: campaignBody above (the
+      // full composed document) is what the editor edits directly, not editableContent.
+      setEditableContent(c.editable_content ?? '');
+      setCtaText(c.cta_text ?? '');
+      setCtaUrl(c.cta_url ?? '');
+      setForceLegacyEditor(!c.editable_content);
       const groupIds = (full?.groups ?? []).map((g: any) => g.id);
       setSelectedCampaignGroups(groupIds);
     } catch {
@@ -379,27 +409,43 @@ export default function CampaignsPage() {
       setEnableTrackOpens(campaign.enable_track_opens !== 0);
       setEnableTrackClicks(campaign.enable_track_clicks !== 0);
       setSelectedTemplate(campaign.template_id ?? '');
+      setEditableContent(campaign.editable_content ?? '');
+      setCtaText(campaign.cta_text ?? '');
+      setCtaUrl(campaign.cta_url ?? '');
+      setForceLegacyEditor(!campaign.editable_content);
       setSelectedCampaignGroups([]);
     }
     setIsCampaignDialogOpen(true);
   };
+
+  // Compose once here so validation, save, and send payloads all agree — chrome-locked
+  // campaigns compose chrome (from the template, untouched) + editableContent + CTA;
+  // everything else (no template, or a template not yet migrated) uses campaignBody
+  // exactly as the editor produced it, same as before this change.
+  const buildFinalBodyHtml = () =>
+    isChromeLocked && selectedTemplateObj
+      ? composeCampaignHtml(selectedTemplateObj, editableContent, ctaText, ctaUrl)
+      : campaignBody;
 
   const handleSubmitCampaign = async () => {
     if (!campaignName || !campaignSubject) {
       toast({ title: 'กรุณากรอกชื่อแคมเปญและหัวข้ออีเมล', variant: 'destructive' });
       return;
     }
-    if (!campaignBody.trim()) {
+    if (!(isChromeLocked ? editableContent : campaignBody).trim()) {
       toast({ title: 'กรุณากรอกเนื้อหาอีเมล', variant: 'destructive' });
       return;
     }
     const payload = {
       name: campaignName, subject: campaignSubject,
-      body_html: makeUploadsAbsolute(campaignBody), sender_name: senderName,
+      body_html: makeUploadsAbsolute(buildFinalBodyHtml()), sender_name: senderName,
       sender_email: senderEmail, group_ids: selectedCampaignGroups,
       enable_track_opens: enableTrackOpens ? 1 : 0,
       enable_track_clicks: enableTrackClicks ? 1 : 0,
       template_id: selectedTemplate || null,
+      editable_content: isChromeLocked ? editableContent : null,
+      cta_text: isChromeLocked && selectedTemplateObj?.hasCta ? ctaText : null,
+      cta_url: isChromeLocked && selectedTemplateObj?.hasCta ? ctaUrl : null,
     };
     try {
       if (editingCampaignId) {
@@ -420,7 +466,7 @@ export default function CampaignsPage() {
       toast({ title: 'กรุณากรอกชื่อแคมเปญและหัวข้ออีเมล', variant: 'destructive' });
       return;
     }
-    if (!campaignBody.trim()) {
+    if (!(isChromeLocked ? editableContent : campaignBody).trim()) {
       toast({ title: 'กรุณากรอกเนื้อหาอีเมล', variant: 'destructive' });
       return;
     }
@@ -430,11 +476,14 @@ export default function CampaignsPage() {
     }
     const payload = {
       name: campaignName, subject: campaignSubject,
-      body_html: makeUploadsAbsolute(campaignBody), sender_name: senderName,
+      body_html: makeUploadsAbsolute(buildFinalBodyHtml()), sender_name: senderName,
       sender_email: senderEmail, group_ids: selectedCampaignGroups,
       enable_track_opens: enableTrackOpens ? 1 : 0,
       enable_track_clicks: enableTrackClicks ? 1 : 0,
       template_id: selectedTemplate || null,
+      editable_content: isChromeLocked ? editableContent : null,
+      cta_text: isChromeLocked && selectedTemplateObj?.hasCta ? ctaText : null,
+      cta_url: isChromeLocked && selectedTemplateObj?.hasCta ? ctaUrl : null,
     };
     try {
       let id: string;
@@ -480,18 +529,41 @@ export default function CampaignsPage() {
     }
   };
 
+  // Shared by every entry point that applies a template to the campaign form (gallery
+  // picker, templates-tab "ใช้", template-preview-dialog "ใช้เทมเพลตนี้") so the
+  // chrome-lock branching logic (migrated vs legacy template) lives in exactly one place.
+  const applyTemplateSelection = (template: EmailTemplate) => {
+    setSelectedTemplate(template.id);
+    // A fresh, deliberate template pick always supersedes any pre-migration legacy
+    // state this dialog session started with (see `forceLegacyEditor`).
+    setForceLegacyEditor(false);
+    if (template.defaultContent !== undefined) {
+      // Migrated template: editor only ever sees editableContent, never template.html —
+      // chrome is composed back in at preview/save time, never touched by the editor.
+      setEditableContent(template.defaultContent);
+      setCtaText(template.defaultCtaText ?? '');
+      setCtaUrl(template.defaultCtaUrl ?? '');
+      setCampaignBody('');
+    } else {
+      // Not yet migrated (Phase 1 covers 5 of 20 templates) — same legacy behavior as
+      // before this change: whole document goes into the editor.
+      setCampaignBody(template.html);
+      setEditableContent(''); setCtaText(''); setCtaUrl('');
+    }
+  };
+
   const handleTemplateClick = async (templateId: string) => {
     if (selectedTemplate === templateId) {
       const ok = await confirm({ title: 'ยกเลิกการเลือก Template?', description: 'เนื้อหาอีเมลที่ใช้จาก Template นี้จะถูกล้างกลับเป็นค่าว่าง', variant: 'default' });
       if (!ok) return;
       setSelectedTemplate('');
       setCampaignBody('');
+      setEditableContent(''); setCtaText(''); setCtaUrl(''); setForceLegacyEditor(false);
       return;
     }
     const template = emailTemplates.find(t => t.id === templateId);
     if (!template) return;
-    setSelectedTemplate(template.id);
-    setCampaignBody(template.html);
+    applyTemplateSelection(template);
   };
 
   const handleDeleteCampaign = async (id: string) => {
@@ -876,11 +948,10 @@ export default function CampaignsPage() {
                       setEditingCampaignId(null);
                       setCampaignName('');
                       setCampaignSubject('');
-                      setCampaignBody(tpl.html);
                       setSenderName('');
                       setSenderEmail('');
                       setSelectedCampaignGroups([]);
-                      setSelectedTemplate(tpl.id);
+                      applyTemplateSelection(tpl);
                       setIsCampaignDialogOpen(true);
                     }}>
                       <Plus className="w-3 h-3 mr-1" />ใช้
@@ -1113,11 +1184,10 @@ export default function CampaignsPage() {
                   setEditingCampaignId(null);
                   setCampaignName('');
                   setCampaignSubject('');
-                  setCampaignBody(tpl.html);
                   setSenderName('');
                   setSenderEmail('');
                   setSelectedCampaignGroups([]);
-                  setSelectedTemplate(tpl.id);
+                  applyTemplateSelection(tpl);
                   setIsCampaignDialogOpen(true);
                   setTemplatePreviewId(null);
                 }}>
@@ -1130,7 +1200,7 @@ export default function CampaignsPage() {
       })()}
 
       {/* ── Create / Edit Campaign Dialog ── */}
-      <Dialog open={isCampaignDialogOpen} onOpenChange={(v) => { setIsCampaignDialogOpen(v); if (!v) { setCampaignName(''); setCampaignSubject(''); setCampaignBody(''); setSenderName(''); setSenderEmail(''); setSelectedCampaignGroups([]); setSelectedTemplate(''); setEditingCampaignId(null); } }}>
+      <Dialog open={isCampaignDialogOpen} onOpenChange={(v) => { setIsCampaignDialogOpen(v); if (!v) { setCampaignName(''); setCampaignSubject(''); setCampaignBody(''); setSenderName(''); setSenderEmail(''); setSelectedCampaignGroups([]); setSelectedTemplate(''); setEditableContent(''); setCtaText(''); setCtaUrl(''); setForceLegacyEditor(false); setEditingCampaignId(null); } }}>
         <DialogContent className="w-full overflow-x-hidden overflow-y-auto sm:max-w-[95vw] sm:max-h-[95vh]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1238,6 +1308,23 @@ export default function CampaignsPage() {
               </div>
             </div>
 
+            {/* ── ปุ่ม CTA ของ template (chrome ที่ล็อกไว้ — แก้ผ่าน field นี้เท่านั้น ไม่ผ่านตัวแก้ไขเนื้อหา) ── */}
+            {isChromeLocked && selectedTemplateObj?.hasCta && (
+              <div className="rounded-lg border bg-muted/20 p-4 space-y-3">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">ปุ่ม CTA ของ Template</p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="grid gap-1.5">
+                    <Label className="text-xs">ข้อความบนปุ่ม</Label>
+                    <Input value={ctaText} onChange={(e) => setCtaText(e.target.value)} placeholder="เช่น Visit Our Website" />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label className="text-xs">URL ปลายทาง</Label>
+                    <Input value={ctaUrl} onChange={(e) => setCtaUrl(e.target.value)} placeholder="https://... หรือ {{company_website}}" />
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* ── Section 5: Content editor ── */}
             <div className="rounded-lg border bg-muted/20 p-4 space-y-3">
               <div className="flex items-center justify-between flex-wrap gap-2">
@@ -1266,8 +1353,8 @@ export default function CampaignsPage() {
                 <TabsContent value="edit" className="mt-2 data-[state=inactive]:hidden" forceMount>
                   <div className="min-w-0 w-full overflow-x-hidden">
                     <ArticleEditor
-                      html={campaignBody}
-                      onChange={setCampaignBody}
+                      html={isChromeLocked ? editableContent : campaignBody}
+                      onChange={isChromeLocked ? setEditableContent : setCampaignBody}
                       seoFields={{ seo_title: '', slug: '', meta_description: '', meta_keywords: '', og_image: '', structured_data: '' }}
                       onSeoChange={() => {}}
                       topic={campaignName}
@@ -1285,7 +1372,7 @@ export default function CampaignsPage() {
                 <TabsContent value="preview" className="mt-2 data-[state=inactive]:hidden" forceMount>
                   <div className="border rounded-lg overflow-hidden bg-[#f4f4f5]">
                     <iframe
-                      srcDoc={buildEmailPreviewHtml(campaignBody, campaignSubject, senderName || smtpFromName)}
+                      srcDoc={buildEmailPreviewHtml(buildFinalBodyHtml(), campaignSubject, senderName || smtpFromName)}
                       className="w-full"
                       style={{ height: 560, border: 'none' }}
                       title="ตัวอย่างอีเมล"
