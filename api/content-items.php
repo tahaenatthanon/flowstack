@@ -30,6 +30,16 @@ try {
 
 if ($method === 'GET') {
     $search = $_GET['search'] ?? '';
+    // Optional comma-separated status filter — unknown values are dropped silently
+    // (not a 400) since this is a display filter, not a data-mutating request; an
+    // empty result after whitelisting falls back to "no status condition" so an
+    // empty/garbage param behaves exactly like omitting it entirely.
+    $validStatus = ['published', 'draft', 'revision', 'pending_approval', 'rejected', 'approved'];
+    $statusFilter = [];
+    if (!empty($_GET['status'])) {
+        $requested = array_map('trim', explode(',', $_GET['status']));
+        $statusFilter = array_values(array_intersect($requested, $validStatus));
+    }
     // Base query from content_items as primary content store
     $sql    = 'SELECT
                       ci.id,
@@ -72,6 +82,10 @@ if ($method === 'GET') {
                WHERE ci.tenant_id = ?';
     $params = [$tenantId, $tenantId];
     if ($search) { $sql .= ' AND (ci.title LIKE ? OR ci.caption LIKE ? OR ci.platform LIKE ?)'; $params[] = "%$search%"; $params[] = "%$search%"; $params[] = "%$search%"; }
+    if ($statusFilter) {
+        $sql .= ' AND ci.status IN (' . implode(',', array_fill(0, count($statusFilter), '?')) . ')';
+        array_push($params, ...$statusFilter);
+    }
     $sql .= ' ORDER BY ci.created_at DESC';
     $stmt = $db->prepare($sql);
     $stmt->execute($params);

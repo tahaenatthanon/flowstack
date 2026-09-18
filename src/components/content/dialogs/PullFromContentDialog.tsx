@@ -8,8 +8,11 @@ import { useQuery } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
 import { apiFetch } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import type { ContentItem, ArticleContent } from '@/components/content/types';
+import { TYPE_MAP, STATUS_MAP, PLATFORM_MAP, type ContentItem, type ArticleContent } from '@/components/content/types';
 import { PlatformBadgeList } from '@/components/content/PlatformBadgeList';
+import { PlatformIcon } from '@/components/content/PlatformIcon';
+import { getPlatformColors } from '@/lib/platformConfig';
+import { parsePlatforms } from '@/lib/contentPlatforms';
 
 interface Props {
   open: boolean;
@@ -17,20 +20,29 @@ interface Props {
   onSelect: (content: ContentItem) => void;
 }
 
+// Content ที่ยังไม่ผ่านอนุมัติไม่ควรหลุดเข้าแคมเปญอีเมลโดยไม่ตั้งใจ — ค่าเริ่มต้นนี้
+// กรองที่ backend จริง (ไม่ใช่แค่ซ่อนที่ UI) ผู้ใช้เปลี่ยนดูสถานะอื่นได้เอง
+const DEFAULT_STATUS_FILTER = ['approved', 'published'];
+
 export default function PullFromContentDialog({ open, onOpenChange, onSelect }: Props) {
   const { toast } = useToast();
   const [search, setSearch] = useState('');
   const [previewItem, setPreviewItem] = useState<ContentItem | null>(null);
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState<string[]>(DEFAULT_STATUS_FILTER);
+  const [platformFilter, setPlatformFilter] = useState('all');
 
   const { data: items = [], isLoading, isError, refetch } = useQuery<ContentItem[]>({
-    queryKey: ['content', 'items'],
-    queryFn: () => apiFetch('/content-items.php'),
+    queryKey: ['content', 'items', { status: statusFilter }],
+    queryFn: () => apiFetch(`/content-items.php?status=${statusFilter.join(',')}`),
     enabled: open,
   });
 
-  const filtered = search
-    ? items.filter(a => a.title.toLowerCase().includes(search.toLowerCase()))
-    : items;
+  const filtered = items.filter(a =>
+    (!search || a.title.toLowerCase().includes(search.toLowerCase())) &&
+    (typeFilter === 'all' || a.type === typeFilter) &&
+    (platformFilter === 'all' || parsePlatforms(a.platforms ?? a.platform).includes(platformFilter))
+  );
 
   const handleSelect = (item: ContentItem) => {
     onSelect(item);
@@ -48,8 +60,23 @@ export default function PullFromContentDialog({ open, onOpenChange, onSelect }: 
     try { previewArt = JSON.parse(previewItem.article_content); } catch {}
   }
 
+  // สถานะเป็น multi-select (default มี 2 ค่าพร้อมกัน) ต่างจาก type/platform ที่เลือกได้ทีละค่า
+  // array ว่าง = "ทั้งหมด" (ตรงกับ backend ที่ไม่ส่ง status param เมื่อกรองแล้วว่างเปล่า)
+  const toggleStatus = (key: string) => {
+    setStatusFilter(prev => prev.includes(key) ? prev.filter(s => s !== key) : [...prev, key]);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) setPreviewItem(null); }}>
+    <Dialog open={open} onOpenChange={(v) => {
+      onOpenChange(v);
+      if (!v) {
+        setPreviewItem(null);
+        setSearch('');
+        setTypeFilter('all');
+        setStatusFilter(DEFAULT_STATUS_FILTER);
+        setPlatformFilter('all');
+      }
+    }}>
       <DialogContent className="w-full sm:max-w-3xl sm:max-h-[85vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -59,6 +86,65 @@ export default function PullFromContentDialog({ open, onOpenChange, onSelect }: 
             เลือกคอนเทนต์เพื่อนำไปใช้ในแคมเปญอีเมล — คลิกรายการเพื่อดูตัวอย่าง
           </DialogDescription>
         </DialogHeader>
+
+        {/* ตัวกรอง — เรียงตามลำดับ ประเภท → สถานะ → แพลตฟอร์ม */}
+        <div className="space-y-1.5">
+          <div className="flex flex-wrap gap-1.5 items-center">
+            <span className="text-[11px] text-muted-foreground shrink-0">ประเภท:</span>
+            <div className="flex gap-1 flex-wrap">
+              {[{ key: 'all', label: 'ทั้งหมด' }, ...Object.entries(TYPE_MAP).map(([key, val]) => ({ key, label: val.label }))].map(({ key, label }) => (
+                <button key={key} type="button" onClick={() => setTypeFilter(key)}
+                  className={cn('text-[11px] px-2 py-0.5 rounded-full border transition-colors',
+                    typeFilter === key ? 'bg-primary text-primary-foreground border-primary' : 'border-border hover:bg-muted')}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-1.5 items-center">
+            <span className="text-[11px] text-muted-foreground shrink-0">สถานะ:</span>
+            <div className="flex gap-1 flex-wrap">
+              <button type="button" onClick={() => setStatusFilter([])}
+                className={cn('text-[11px] px-2 py-0.5 rounded-full border transition-colors',
+                  statusFilter.length === 0 ? 'bg-primary text-primary-foreground border-primary' : 'border-border hover:bg-muted')}>
+                ทั้งหมด
+              </button>
+              {Object.entries(STATUS_MAP).map(([key, val]) => (
+                <button key={key} type="button" onClick={() => toggleStatus(key)}
+                  className={cn('text-[11px] px-2 py-0.5 rounded-full border transition-colors',
+                    statusFilter.includes(key) ? 'bg-primary text-primary-foreground border-primary' : 'border-border hover:bg-muted')}>
+                  {val.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-1.5 items-center">
+            <span className="text-[11px] text-muted-foreground shrink-0">แพลตฟอร์ม:</span>
+            <div className="flex gap-1 flex-wrap">
+              <button type="button" onClick={() => setPlatformFilter('all')}
+                className={cn('text-[11px] px-2 py-0.5 rounded-full border transition-colors',
+                  platformFilter === 'all' ? 'bg-primary text-primary-foreground border-primary' : 'border-border hover:bg-muted')}>
+                ทั้งหมด
+              </button>
+              {Object.entries(PLATFORM_MAP).map(([key, val]) => {
+                const colors = getPlatformColors(key);
+                const isActive = platformFilter === key;
+                return (
+                  <button key={key} type="button" onClick={() => setPlatformFilter(key)}
+                    className="text-[11px] px-2 py-0.5 rounded-full border transition-colors flex items-center gap-1"
+                    style={isActive
+                      ? { backgroundColor: colors.text, color: '#fff', borderColor: colors.text }
+                      : { backgroundColor: colors.bg, color: colors.text, borderColor: colors.border }}>
+                    <PlatformIcon platform={key} size={10} />
+                    {val.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
 
         <div className="relative">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
