@@ -279,6 +279,8 @@ function createEmailCampaign($db, $userId, string $tenantId = '') {
     $editableContent = $body['editable_content'] ?? null;
     $ctaText = $body['cta_text'] ?? null;
     $ctaUrl = $body['cta_url'] ?? null;
+    $discountPercent = $body['discount_percent'] ?? null;
+    $countdown = $body['countdown_text'] ?? null;
     $senderName = trim($body['sender_name'] ?? '');
     $senderEmail = trim($body['sender_email'] ?? '');
     $groupIds = $body['group_ids'] ?? [];
@@ -301,14 +303,14 @@ function createEmailCampaign($db, $userId, string $tenantId = '') {
     $stmt = $db->prepare("
         INSERT INTO email_campaigns (
             id, tenant_id, name, subject, body_html, body_text, template_id,
-            editable_content, cta_text, cta_url,
+            editable_content, cta_text, cta_url, discount_percent, countdown_text,
             sender_name, sender_email, enable_track_opens, enable_track_clicks,
             status, created_by, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, NOW())
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, NOW())
     ");
     $stmt->execute([
         $id, $tenantId, $name, $subject, $bodyHtml, $bodyText, $templateId,
-        $editableContent, $ctaText, $ctaUrl,
+        $editableContent, $ctaText, $ctaUrl, $discountPercent, $countdown,
         $senderName, $senderEmail, $enableTrackOpens, $enableTrackClicks, $userId
     ]);
     
@@ -420,6 +422,14 @@ function updateEmailCampaign($db, string $tenantId) {
     if (array_key_exists('cta_url', $body)) {
         $updates[] = 'cta_url = ?';
         $params[] = $body['cta_url'];
+    }
+    if (array_key_exists('discount_percent', $body)) {
+        $updates[] = 'discount_percent = ?';
+        $params[] = $body['discount_percent'];
+    }
+    if (array_key_exists('countdown_text', $body)) {
+        $updates[] = 'countdown_text = ?';
+        $params[] = $body['countdown_text'];
     }
 
     if (!empty($updates)) {

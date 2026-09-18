@@ -13,12 +13,19 @@ export function composeCampaignHtml(
   editableContent: string,
   ctaText?: string,
   ctaUrl?: string,
+  discountPercent?: string,
+  countdown?: string,
 ): string {
   let html = template.html.replace('{{EMAIL_CONTENT}}', editableContent);
   if (template.hasCta) {
     html = html
       .replace('{{CTA_TEXT}}', ctaText ?? template.defaultCtaText ?? '')
       .replace('{{CTA_URL}}', ctaUrl ?? template.defaultCtaUrl ?? '');
+  }
+  if (template.hasDiscountPromo) {
+    html = html
+      .replace('{{DISCOUNT_PERCENT}}', discountPercent ?? template.defaultDiscountPercent ?? '')
+      .replace('{{COUNTDOWN}}', countdown ?? template.defaultCountdown ?? '');
   }
   return html;
 }

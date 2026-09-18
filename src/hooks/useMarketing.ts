@@ -24,6 +24,8 @@ export interface EmailCampaign {
   editable_content?: string | null;
   cta_text?: string | null;
   cta_url?: string | null;
+  discount_percent?: string | null;
+  countdown_text?: string | null;
   sender_name?: string;
   sender_email?: string;
   total_recipients: number;

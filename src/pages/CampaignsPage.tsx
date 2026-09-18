@@ -271,7 +271,7 @@ export default function CampaignsPage() {
     setSenderEmail(smtpRef.current.email);
     setSelectedCampaignGroups([]);
     setSelectedTemplate('');
-    setEditableContent(''); setCtaText(''); setCtaUrl(''); setForceLegacyEditor(false);
+    setEditableContent(''); setCtaText(''); setCtaUrl(''); setDiscountPercent(''); setCountdown(''); setForceLegacyEditor(false);
     setIsCampaignDialogOpen(true);
     // Clear state to prevent re-opening on back/forward
     window.history.replaceState({}, '');
@@ -309,6 +309,9 @@ export default function CampaignsPage() {
   const [forceLegacyEditor, setForceLegacyEditor] = useState(false);
   const [ctaText, setCtaText] = useState('');
   const [ctaUrl, setCtaUrl] = useState('');
+  // template-20 only — see EmailTemplate.hasDiscountPromo
+  const [discountPercent, setDiscountPercent] = useState('');
+  const [countdown, setCountdown] = useState('');
   const [sendingId, setSendingId] = useState<string | null>(null);
   const [senderName, setSenderName] = useState('');
   const [senderEmail, setSenderEmail] = useState('');
@@ -371,7 +374,7 @@ export default function CampaignsPage() {
     setSenderName(smtpRef.current.name); setSenderEmail(smtpRef.current.email); setSelectedCampaignGroups([]);
     setEnableTrackOpens(true); setEnableTrackClicks(true);
     setSelectedTemplate('');
-    setEditableContent(''); setCtaText(''); setCtaUrl(''); setForceLegacyEditor(false);
+    setEditableContent(''); setCtaText(''); setCtaUrl(''); setDiscountPercent(''); setCountdown(''); setForceLegacyEditor(false);
     setIsCampaignDialogOpen(true);
   };
 
@@ -397,6 +400,8 @@ export default function CampaignsPage() {
       setEditableContent(c.editable_content ?? '');
       setCtaText(c.cta_text ?? '');
       setCtaUrl(c.cta_url ?? '');
+      setDiscountPercent(c.discount_percent ?? '');
+      setCountdown(c.countdown_text ?? '');
       setForceLegacyEditor(!c.editable_content);
       const groupIds = (full?.groups ?? []).map((g: any) => g.id);
       setSelectedCampaignGroups(groupIds);
@@ -412,6 +417,8 @@ export default function CampaignsPage() {
       setEditableContent(campaign.editable_content ?? '');
       setCtaText(campaign.cta_text ?? '');
       setCtaUrl(campaign.cta_url ?? '');
+      setDiscountPercent(campaign.discount_percent ?? '');
+      setCountdown(campaign.countdown_text ?? '');
       setForceLegacyEditor(!campaign.editable_content);
       setSelectedCampaignGroups([]);
     }
@@ -424,7 +431,7 @@ export default function CampaignsPage() {
   // exactly as the editor produced it, same as before this change.
   const buildFinalBodyHtml = () =>
     isChromeLocked && selectedTemplateObj
-      ? composeCampaignHtml(selectedTemplateObj, editableContent, ctaText, ctaUrl)
+      ? composeCampaignHtml(selectedTemplateObj, editableContent, ctaText, ctaUrl, discountPercent, countdown)
       : campaignBody;
 
   const handleSubmitCampaign = async () => {
@@ -446,6 +453,8 @@ export default function CampaignsPage() {
       editable_content: isChromeLocked ? editableContent : null,
       cta_text: isChromeLocked && selectedTemplateObj?.hasCta ? ctaText : null,
       cta_url: isChromeLocked && selectedTemplateObj?.hasCta ? ctaUrl : null,
+      discount_percent: isChromeLocked && selectedTemplateObj?.hasDiscountPromo ? discountPercent : null,
+      countdown_text: isChromeLocked && selectedTemplateObj?.hasDiscountPromo ? countdown : null,
     };
     try {
       if (editingCampaignId) {
@@ -484,6 +493,8 @@ export default function CampaignsPage() {
       editable_content: isChromeLocked ? editableContent : null,
       cta_text: isChromeLocked && selectedTemplateObj?.hasCta ? ctaText : null,
       cta_url: isChromeLocked && selectedTemplateObj?.hasCta ? ctaUrl : null,
+      discount_percent: isChromeLocked && selectedTemplateObj?.hasDiscountPromo ? discountPercent : null,
+      countdown_text: isChromeLocked && selectedTemplateObj?.hasDiscountPromo ? countdown : null,
     };
     try {
       let id: string;
@@ -543,12 +554,14 @@ export default function CampaignsPage() {
       setEditableContent(template.defaultContent);
       setCtaText(template.defaultCtaText ?? '');
       setCtaUrl(template.defaultCtaUrl ?? '');
+      setDiscountPercent(template.defaultDiscountPercent ?? '');
+      setCountdown(template.defaultCountdown ?? '');
       setCampaignBody('');
     } else {
-      // Not yet migrated (Phase 1 covers 5 of 20 templates) — same legacy behavior as
-      // before this change: whole document goes into the editor.
+      // Not yet migrated — same legacy behavior as before this change: whole document
+      // goes into the editor.
       setCampaignBody(template.html);
-      setEditableContent(''); setCtaText(''); setCtaUrl('');
+      setEditableContent(''); setCtaText(''); setCtaUrl(''); setDiscountPercent(''); setCountdown('');
     }
   };
 
@@ -558,7 +571,7 @@ export default function CampaignsPage() {
       if (!ok) return;
       setSelectedTemplate('');
       setCampaignBody('');
-      setEditableContent(''); setCtaText(''); setCtaUrl(''); setForceLegacyEditor(false);
+      setEditableContent(''); setCtaText(''); setCtaUrl(''); setDiscountPercent(''); setCountdown(''); setForceLegacyEditor(false);
       return;
     }
     const template = emailTemplates.find(t => t.id === templateId);
@@ -1200,7 +1213,7 @@ export default function CampaignsPage() {
       })()}
 
       {/* ── Create / Edit Campaign Dialog ── */}
-      <Dialog open={isCampaignDialogOpen} onOpenChange={(v) => { setIsCampaignDialogOpen(v); if (!v) { setCampaignName(''); setCampaignSubject(''); setCampaignBody(''); setSenderName(''); setSenderEmail(''); setSelectedCampaignGroups([]); setSelectedTemplate(''); setEditableContent(''); setCtaText(''); setCtaUrl(''); setForceLegacyEditor(false); setEditingCampaignId(null); } }}>
+      <Dialog open={isCampaignDialogOpen} onOpenChange={(v) => { setIsCampaignDialogOpen(v); if (!v) { setCampaignName(''); setCampaignSubject(''); setCampaignBody(''); setSenderName(''); setSenderEmail(''); setSelectedCampaignGroups([]); setSelectedTemplate(''); setEditableContent(''); setCtaText(''); setCtaUrl(''); setDiscountPercent(''); setCountdown(''); setForceLegacyEditor(false); setEditingCampaignId(null); } }}>
         <DialogContent className="w-full overflow-x-hidden overflow-y-auto sm:max-w-[95vw] sm:max-h-[95vh]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1312,14 +1325,35 @@ export default function CampaignsPage() {
             {isChromeLocked && selectedTemplateObj?.hasCta && (
               <div className="rounded-lg border bg-muted/20 p-4 space-y-3">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">ปุ่ม CTA ของ Template</p>
-                <div className="grid gap-3 sm:grid-cols-2">
+                {/* URL ปลายทางแสดงเฉพาะ template ที่ปล่อยให้แก้ได้ — บาง template (เช่น mailto:{{company_email}})
+                    ล็อกปลายทางไว้ใน chrome ตายตัว ไม่มี defaultCtaUrl จึงไม่มี field ให้แก้ */}
+                <div className={`grid gap-3 ${selectedTemplateObj?.defaultCtaUrl !== undefined ? 'sm:grid-cols-2' : ''}`}>
                   <div className="grid gap-1.5">
                     <Label className="text-xs">ข้อความบนปุ่ม</Label>
                     <Input value={ctaText} onChange={(e) => setCtaText(e.target.value)} placeholder="เช่น Visit Our Website" />
                   </div>
+                  {selectedTemplateObj?.defaultCtaUrl !== undefined && (
+                    <div className="grid gap-1.5">
+                      <Label className="text-xs">URL ปลายทาง</Label>
+                      <Input value={ctaUrl} onChange={(e) => setCtaUrl(e.target.value)} placeholder="https://... หรือ {{company_website}}" />
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ── ตัวเลขโปรโมชั่นของ template (template-20 เท่านั้น — chrome ล็อกโครงสร้าง/สี/ขนาด แก้ได้แค่ค่าตัวเลข) ── */}
+            {isChromeLocked && selectedTemplateObj?.hasDiscountPromo && (
+              <div className="rounded-lg border bg-muted/20 p-4 space-y-3">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">ตัวเลขโปรโมชั่นของ Template</p>
+                <div className="grid gap-3 sm:grid-cols-2">
                   <div className="grid gap-1.5">
-                    <Label className="text-xs">URL ปลายทาง</Label>
-                    <Input value={ctaUrl} onChange={(e) => setCtaUrl(e.target.value)} placeholder="https://... หรือ {{company_website}}" />
+                    <Label className="text-xs">เปอร์เซ็นต์ส่วนลด</Label>
+                    <Input value={discountPercent} onChange={(e) => setDiscountPercent(e.target.value)} placeholder="เช่น 50" />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label className="text-xs">เวลานับถอยหลัง</Label>
+                    <Input value={countdown} onChange={(e) => setCountdown(e.target.value)} placeholder="เช่น 24:00:00" />
                   </div>
                 </div>
               </div>
