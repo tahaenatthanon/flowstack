@@ -9,9 +9,8 @@ import { useToast } from '@/hooks/use-toast';
 import { apiFetch } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { TYPE_MAP, STATUS_MAP, PLATFORM_MAP, type ContentItem, type ArticleContent } from '@/components/content/types';
-import { PlatformBadgeList } from '@/components/content/PlatformBadgeList';
 import { PlatformIcon } from '@/components/content/PlatformIcon';
-import { getPlatformColors } from '@/lib/platformConfig';
+import { getPlatformColors, getPlatformLabel } from '@/lib/platformConfig';
 import { parsePlatforms } from '@/lib/contentPlatforms';
 
 interface Props {
@@ -89,7 +88,7 @@ export default function PullFromContentDialog({ open, onOpenChange, onSelect }: 
 
         {/* ตัวกรอง — เรียงตามลำดับ ประเภท → สถานะ → แพลตฟอร์ม */}
         <div className="space-y-1.5">
-          <div className="flex flex-wrap gap-1.5 items-center">
+          <div className="flex gap-1.5 items-center">
             <span className="text-[11px] text-muted-foreground shrink-0">ประเภท:</span>
             <div className="flex gap-1 flex-wrap">
               {[{ key: 'all', label: 'ทั้งหมด' }, ...Object.entries(TYPE_MAP).map(([key, val]) => ({ key, label: val.label }))].map(({ key, label }) => (
@@ -102,7 +101,7 @@ export default function PullFromContentDialog({ open, onOpenChange, onSelect }: 
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-1.5 items-center">
+          <div className="flex gap-1.5 items-center">
             <span className="text-[11px] text-muted-foreground shrink-0">สถานะ:</span>
             <div className="flex gap-1 flex-wrap">
               <button type="button" onClick={() => setStatusFilter([])}
@@ -120,7 +119,7 @@ export default function PullFromContentDialog({ open, onOpenChange, onSelect }: 
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-1.5 items-center">
+          <div className="flex gap-1.5 items-center">
             <span className="text-[11px] text-muted-foreground shrink-0">แพลตฟอร์ม:</span>
             <div className="flex gap-1 flex-wrap">
               <button type="button" onClick={() => setPlatformFilter('all')}
@@ -133,12 +132,12 @@ export default function PullFromContentDialog({ open, onOpenChange, onSelect }: 
                 const isActive = platformFilter === key;
                 return (
                   <button key={key} type="button" onClick={() => setPlatformFilter(key)}
-                    className="text-[11px] px-2 py-0.5 rounded-full border transition-colors flex items-center gap-1"
+                    title={val.label}
+                    className="p-1 rounded-full border transition-colors flex items-center"
                     style={isActive
                       ? { backgroundColor: colors.text, color: '#fff', borderColor: colors.text }
                       : { backgroundColor: colors.bg, color: colors.text, borderColor: colors.border }}>
-                    <PlatformIcon platform={key} size={10} />
-                    {val.label}
+                    <PlatformIcon platform={key} size={12} />
                   </button>
                 );
               })}
@@ -174,6 +173,7 @@ export default function PullFromContentDialog({ open, onOpenChange, onSelect }: 
                 try { const art = JSON.parse(item.article_content || ''); excerpt = art.excerpt || ''; } catch {}
                 const isPreviewed = previewItem?.id === item.id;
                 const TypeIcon = item.type === 'image' ? Image : item.type === 'video' ? Video : item.type === 'article' ? BookOpen : FileText;
+                const itemPlatforms = parsePlatforms(item.platforms ?? item.platform);
 
                 return (
                   <button key={item.id}
@@ -184,11 +184,22 @@ export default function PullFromContentDialog({ open, onOpenChange, onSelect }: 
                       <TypeIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                       <span className="font-medium text-sm flex-1 truncate">{item.title}</span>
                       <Eye className={cn('h-3.5 w-3.5 shrink-0', isPreviewed ? 'text-primary' : 'text-muted-foreground')} />
-                      {/* item.platform อาจเป็นสตริงรวมหลายแพลตฟอร์มคั่นด้วย comma — lookup
-                          ด้วยค่าดิบทั้งก้อนไม่มีทาง match key ใน PLATFORM_MAP เลย ทำให้ badge
-                          ว่างเปล่า ดู openspec/changes/pull-from-content-platform-badge-fix */}
-                      <PlatformBadgeList platforms={item.platforms ?? item.platform} variant="pill" size={10} className="shrink-0" />
                     </div>
+                    {itemPlatforms.length > 0 && (
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {itemPlatforms.map(platform => {
+                          const pc = getPlatformColors(platform);
+                          return (
+                            <span key={platform}
+                              className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded font-medium"
+                              style={{ backgroundColor: pc.bg, color: pc.text }}
+                              title={getPlatformLabel(platform)}>
+                              <PlatformIcon platform={platform} size={12} />
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
                     {(excerpt || item.caption) && (
                       <p className="text-xs text-muted-foreground line-clamp-2">{excerpt || item.caption}</p>
                     )}
