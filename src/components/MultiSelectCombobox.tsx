@@ -1,6 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type KeyboardEvent } from 'react';
 import { Check, ChevronsUpDown, X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
@@ -32,8 +31,9 @@ interface MultiSelectComboboxProps {
  * "ไม่ปิด popover" หลังเลือกแต่ละรายการ เพื่อให้เลือกต่อเนื่องได้หลายอัน — ปิดเฉพาะ
  * ตอนคลิกนอก popover หรือกด Escape (ค่าเริ่มต้นของ Popover เอง)
  *
- * รายการที่เลือกไว้แสดงเป็น chip อยู่นอก popover เห็นตลอดเวลา ลบออกได้จากปุ่ม ×
- * บน chip โดยตรง ไม่ต้องเปิด popover — เป็น pattern ใหม่ที่ยังไม่มีที่อื่นในระบบ
+ * รายการที่เลือกไว้แสดงเป็น chip อยู่ภายในกล่อง trigger เอง เห็นตลอดเวลา ลบออกได้จากปุ่ม ×
+ * บน chip โดยตรง ไม่ต้องเปิด popover — trigger เป็น <div role="combobox"> ไม่ใช่ <button>
+ * เพราะปุ่ม × ของแต่ละ chip เป็น <button> จริง ซ้อนใน <button> ไม่ได้ (invalid HTML)
  *
  * เป็น component ทั่วไป ไม่ผูกกับ domain ใดโดยเฉพาะ — ใช้ `meta` สำหรับข้อความรอง
  * แบบ domain-specific (เช่น "22 คน" ของกลุ่มผู้รับ) แทนการผูก field ตรงๆ เข้ากับ props
@@ -80,19 +80,47 @@ export function MultiSelectCombobox({
     );
   };
 
+  // Enter/Space normally activates a <button> for free; a div-based trigger needs
+  // this wired manually — simulate a real click so Radix's own composed onClick
+  // (attached to this element by PopoverTrigger asChild) drives open state, instead
+  // of us duplicating that logic here.
+  const handleTriggerKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      e.currentTarget.click();
+    }
+  };
+
   return (
     <div className={cn('space-y-2', className)}>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
-          <Button
-            variant="outline"
+          <div
             role="combobox"
             aria-expanded={open}
-            className="w-full justify-between font-normal"
+            tabIndex={0}
+            onKeyDown={handleTriggerKeyDown}
+            className="flex w-full min-h-10 flex-wrap items-center gap-1.5 rounded-md border border-input bg-background px-3 py-2 text-sm font-medium ring-offset-background transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 cursor-pointer"
           >
-            <span className="truncate text-muted-foreground">{placeholder}</span>
-            <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
-          </Button>
+            {selectedOptions.length === 0 ? (
+              <span className="truncate text-muted-foreground font-normal">{placeholder}</span>
+            ) : (
+              selectedOptions.map((opt) => (
+                <Badge key={opt.value} variant="secondary" className="gap-1 pr-1 font-normal">
+                  <span className="truncate max-w-[180px]">{opt.label}</span>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); remove(opt.value); }}
+                    className="rounded-full hover:bg-muted-foreground/20 p-0.5"
+                    aria-label={`เอา ${opt.label} ออก`}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </Badge>
+              ))
+            )}
+            <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50 ml-auto" />
+          </div>
         </PopoverTrigger>
         <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
           <Command shouldFilter={false}>
@@ -129,24 +157,6 @@ export function MultiSelectCombobox({
           </Command>
         </PopoverContent>
       </Popover>
-
-      {selectedOptions.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {selectedOptions.map((opt) => (
-            <Badge key={opt.value} variant="secondary" className="gap-1 pr-1 font-normal">
-              <span className="truncate max-w-[180px]">{opt.label}</span>
-              <button
-                type="button"
-                onClick={() => remove(opt.value)}
-                className="rounded-full hover:bg-muted-foreground/20 p-0.5"
-                aria-label={`เอา ${opt.label} ออก`}
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </Badge>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

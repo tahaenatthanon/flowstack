@@ -2,7 +2,7 @@
 
 ## Purpose
 
-กำหนดพฤติกรรมของ `MultiSelectCombobox` — component ทั่วไปสำหรับเลือกได้หลายรายการพร้อมค้นหา ไม่ผูกกับ domain ใดโดยเฉพาะ สร้างจาก `Popover`+`Command`+`Badge` ที่มีอยู่แล้วในระบบ ต่างจาก Combobox อื่นในระบบ (`CompanyCombobox`, `ProjectCombobox`, `UserCombobox`, `ProjectFilterSelect` ฯลฯ) ที่เป็น single-select และปิด popover ทันทีหลังเลือก — ตัวนี้เลือกได้หลายรายการต่อเนื่องโดย popover ไม่ปิด และแสดงรายการที่เลือกไว้เป็น chip นอก popover
+กำหนดพฤติกรรมของ `MultiSelectCombobox` — component ทั่วไปสำหรับเลือกได้หลายรายการพร้อมค้นหา ไม่ผูกกับ domain ใดโดยเฉพาะ สร้างจาก `Popover`+`Command`+`Badge` ที่มีอยู่แล้วในระบบ ต่างจาก Combobox อื่นในระบบ (`CompanyCombobox`, `ProjectCombobox`, `UserCombobox`, `ProjectFilterSelect` ฯลฯ) ที่เป็น single-select และปิด popover ทันทีหลังเลือก — ตัวนี้เลือกได้หลายรายการต่อเนื่องโดย popover ไม่ปิด และแสดงรายการที่เลือกไว้เป็น chip ภายในกล่อง trigger เอง
 
 ## Requirements
 
@@ -21,20 +21,28 @@
 - **WHEN** ผู้ใช้คลิกนอก popover หรือกดปุ่ม Escape
 - **THEN** popover ปิดลง (พฤติกรรมมาตรฐานของ Popover component ที่มีอยู่แล้ว)
 
-### Requirement: แสดงรายการที่เลือกไว้เป็น chip นอก dropdown
-`MultiSelectCombobox` SHALL แสดงรายการที่ถูกเลือกไว้เป็น chip อยู่นอก popover (มองเห็นได้ตลอดเวลาไม่ต้องเปิด popover) แต่ละ chip มีปุ่มเอาออกในตัว
+### Requirement: แสดงรายการที่เลือกไว้เป็น chip ภายในกล่อง trigger
+`MultiSelectCombobox` SHALL แสดงรายการที่ถูกเลือกไว้เป็น chip อยู่**ภายในกล่อง trigger** (แทนที่ข้อความ placeholder เมื่อมีรายการที่เลือกไว้อย่างน้อย 1 รายการ) มองเห็นได้ตลอดเวลาไม่ต้องเปิด popover แต่ละ chip มีปุ่มเอาออกในตัว กล่อง trigger ต้องขยายความสูงอัตโนมัติเมื่อ chip ขึ้นบรรทัดใหม่
 
-#### Scenario: เห็น chip ของทุกรายการที่เลือก
+#### Scenario: เห็น chip ของทุกรายการที่เลือกอยู่ในกล่อง trigger
 - **WHEN** ผู้ใช้เลือกตัวเลือกอย่างน้อย 1 รายการ
-- **THEN** แสดง chip 1 อันต่อ 1 รายการที่เลือก อยู่นอก popover
+- **THEN** แสดง chip 1 อันต่อ 1 รายการที่เลือก อยู่ภายในกล่อง trigger เอง แทนที่ข้อความ placeholder เดิม
 
-#### Scenario: เอารายการออกจาก chip โดยตรง
-- **WHEN** ผู้ใช้คลิกปุ่ม × บน chip
-- **THEN** รายการนั้นถูกเอาออกจาก `value` ทันที โดยไม่ต้องเปิด popover
+#### Scenario: เอารายการออกจาก chip โดยตรงโดยไม่เปิด popover ที่ซ้อนกันโดยไม่ตั้งใจ
+- **WHEN** ผู้ใช้คลิกปุ่ม × บน chip ที่อยู่ภายในกล่อง trigger
+- **THEN** รายการนั้นถูกเอาออกจาก `value` ทันที โดยไม่ต้องเปิด popover และ popover ต้องไม่เปิดขึ้นมาเป็นผลข้างเคียงจากการคลิก × (คลิกนั้นต้องไม่ไปกระตุ้น click handler ของกล่อง trigger ที่ห่ออยู่)
 
-#### Scenario: ไม่มี chip เมื่อยังไม่ได้เลือกอะไร
+#### Scenario: ไม่มี chip เมื่อยังไม่ได้เลือกอะไร แสดง placeholder แทน
 - **WHEN** `value` เป็น array ว่าง
-- **THEN** ไม่แสดง chip ใดๆ
+- **THEN** กล่อง trigger แสดงข้อความ placeholder ตามปกติ ไม่มี chip ใดๆ
+
+#### Scenario: กล่อง trigger ขยายความสูงเมื่อ chip ล้นบรรทัดเดียว
+- **WHEN** จำนวน chip ที่ต้องแสดงกว้างเกินความกว้างของกล่อง trigger ในบรรทัดเดียว
+- **THEN** chip ขึ้นบรรทัดใหม่ (wrap) และกล่อง trigger ขยายความสูงตามจำนวนบรรทัด แทนที่จะตัด/ซ่อน chip ส่วนเกิน
+
+#### Scenario: เปิด/ปิด popover ด้วยคีย์บอร์ดได้เหมือนเดิม
+- **WHEN** ผู้ใช้ focus ที่กล่อง trigger ด้วย Tab แล้วกด Enter หรือ Space
+- **THEN** popover เปิดขึ้น (หรือปิดลงถ้าเปิดอยู่แล้ว) เหมือนพฤติกรรมเดิมตอนที่ trigger ยังเป็น `<button>`
 
 ### Requirement: ตัวเลือก "เลือกทั้งหมด"
 `MultiSelectCombobox` SHALL แสดงตัวเลือก "เลือกทั้งหมด" ที่หัวรายการใน popover เมื่อ `showSelectAll` เป็นจริง (ค่าเริ่มต้น) — คลิกครั้งเดียวเลือก/ยกเลิกทุกตัวเลือกที่กำลังแสดงอยู่ (หลังกรองด้วยคำค้นหาถ้ามี)
