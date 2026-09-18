@@ -3,7 +3,14 @@ import * as React from "react";
 import type { ToastActionElement, ToastProps } from "@/components/ui/toast";
 
 const TOAST_LIMIT = 1;
-const TOAST_REMOVE_DELAY = 1000000;
+const TOAST_REMOVE_DELAY = 1000;
+// Radix's own auto-dismiss timer pauses on pointermove anywhere in the whole
+// ToastViewport wrapper (not just the toast card) — if another dialog opens
+// on top of that screen region, ordinary mouse movement there keeps
+// re-triggering the pause and the toast never times out. This timer calls
+// dismiss() directly, independent of that pause mechanism, so every toast is
+// guaranteed to start closing within a bounded time regardless of the mouse.
+const TOAST_AUTO_DISMISS_DELAY = 5000;
 
 type ToasterToast = ToastProps & {
   id: string;
@@ -155,6 +162,8 @@ function toast({ ...props }: Toast) {
       },
     },
   });
+
+  setTimeout(dismiss, TOAST_AUTO_DISMISS_DELAY);
 
   return {
     id: id,
