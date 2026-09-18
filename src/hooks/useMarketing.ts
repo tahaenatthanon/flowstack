@@ -20,6 +20,7 @@ export interface EmailCampaign {
   subject: string;
   status: 'draft' | 'scheduled' | 'sending' | 'sent' | 'cancelled';
   body_html?: string;
+  template_id?: string | null;
   sender_name?: string;
   sender_email?: string;
   total_recipients: number;

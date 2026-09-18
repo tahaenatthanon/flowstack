@@ -275,6 +275,7 @@ function createEmailCampaign($db, $userId, string $tenantId = '') {
     $subject = trim($body['subject'] ?? '');
     $bodyHtml = $body['body_html'] ?? '';
     $bodyText = $body['body_text'] ?? '';
+    $templateId = $body['template_id'] ?? null;
     $senderName = trim($body['sender_name'] ?? '');
     $senderEmail = trim($body['sender_email'] ?? '');
     $groupIds = $body['group_ids'] ?? [];
@@ -296,13 +297,13 @@ function createEmailCampaign($db, $userId, string $tenantId = '') {
     $id = generateUUID();
     $stmt = $db->prepare("
         INSERT INTO email_campaigns (
-            id, tenant_id, name, subject, body_html, body_text,
+            id, tenant_id, name, subject, body_html, body_text, template_id,
             sender_name, sender_email, enable_track_opens, enable_track_clicks,
             status, created_by, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, NOW())
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, NOW())
     ");
     $stmt->execute([
-        $id, $tenantId, $name, $subject, $bodyHtml, $bodyText,
+        $id, $tenantId, $name, $subject, $bodyHtml, $bodyText, $templateId,
         $senderName, $senderEmail, $enableTrackOpens, $enableTrackClicks, $userId
     ]);
     
@@ -398,6 +399,10 @@ function updateEmailCampaign($db, string $tenantId) {
     if (array_key_exists('enable_track_clicks', $body)) {
         $updates[] = 'enable_track_clicks = ?';
         $params[] = (int)(bool)$body['enable_track_clicks'];
+    }
+    if (array_key_exists('template_id', $body)) {
+        $updates[] = 'template_id = ?';
+        $params[] = $body['template_id'];
     }
     
     if (!empty($updates)) {
@@ -667,7 +672,9 @@ function sendCampaign($db, $userId, string $tenantId) {
             $rawHtml = '<p>' . htmlspecialchars($subject) . '</p>';
         }
         $htmlBody   = processMergeTags($rawHtml, $recipient, $company, $companySettings, $subject);
-        $htmlBody   = wrapEmailHtml($htmlBody, $subject, $companySettings);
+        if (empty($campaign['template_id'])) {
+            $htmlBody = wrapEmailHtml($htmlBody, $subject, $companySettings);
+        }
         $htmlBody   = processEmailHtml(
             $htmlBody, $trackingId, $baseUrl,
             (bool)($campaign['enable_track_opens']  ?? 1),

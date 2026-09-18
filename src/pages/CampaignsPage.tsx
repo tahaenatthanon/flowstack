@@ -365,6 +365,7 @@ export default function CampaignsPage() {
       setSenderEmail(c.sender_email ?? '');
       setEnableTrackOpens(c.enable_track_opens !== 0);
       setEnableTrackClicks(c.enable_track_clicks !== 0);
+      setSelectedTemplate(c.template_id ?? '');
       const groupIds = (full?.groups ?? []).map((g: any) => g.id);
       setSelectedCampaignGroups(groupIds);
     } catch {
@@ -375,6 +376,7 @@ export default function CampaignsPage() {
       setSenderEmail(campaign.sender_email ?? '');
       setEnableTrackOpens(campaign.enable_track_opens !== 0);
       setEnableTrackClicks(campaign.enable_track_clicks !== 0);
+      setSelectedTemplate(campaign.template_id ?? '');
       setSelectedCampaignGroups([]);
     }
     setIsCampaignDialogOpen(true);
@@ -395,6 +397,7 @@ export default function CampaignsPage() {
       sender_email: senderEmail, group_ids: selectedCampaignGroups,
       enable_track_opens: enableTrackOpens ? 1 : 0,
       enable_track_clicks: enableTrackClicks ? 1 : 0,
+      template_id: selectedTemplate || null,
     };
     try {
       if (editingCampaignId) {
@@ -429,6 +432,7 @@ export default function CampaignsPage() {
       sender_email: senderEmail, group_ids: selectedCampaignGroups,
       enable_track_opens: enableTrackOpens ? 1 : 0,
       enable_track_clicks: enableTrackClicks ? 1 : 0,
+      template_id: selectedTemplate || null,
     };
     try {
       let id: string;
