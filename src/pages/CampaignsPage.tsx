@@ -269,6 +269,7 @@ export default function CampaignsPage() {
     setSenderName(smtpRef.current.name);
     setSenderEmail(smtpRef.current.email);
     setSelectedCampaignGroups([]);
+    setSelectedTemplate('');
     setIsCampaignDialogOpen(true);
     // Clear state to prevent re-opening on back/forward
     window.history.replaceState({}, '');
@@ -349,6 +350,7 @@ export default function CampaignsPage() {
     setCampaignName(''); setCampaignSubject(''); setCampaignBody('');
     setSenderName(smtpRef.current.name); setSenderEmail(smtpRef.current.email); setSelectedCampaignGroups([]);
     setEnableTrackOpens(true); setEnableTrackClicks(true);
+    setSelectedTemplate('');
     setIsCampaignDialogOpen(true);
   };
 
