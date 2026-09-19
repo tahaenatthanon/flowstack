@@ -43,12 +43,20 @@ function Stat({ label, value, icon: Icon, color }: {
   );
 }
 
+const TOP_SORT_OPTIONS = [
+  { value: 'opens', label: 'จำนวนเปิด' },
+  { value: 'clicks', label: 'จำนวนคลิก' },
+  { value: 'open_rate', label: 'อัตราเปิด' },
+  { value: 'click_rate', label: 'อัตราคลิก' },
+];
+
 export default function CampaignAnalyticsPage() {
   const [range, setRange] = useState('30d');
+  const [topSort, setTopSort] = useState('opens');
 
   const { data, isLoading } = useQuery({
-    queryKey: ['campaign-analytics', range],
-    queryFn: () => apiFetch(`/campaign-analytics.php?range=${range}`),
+    queryKey: ['campaign-analytics', range, topSort],
+    queryFn: () => apiFetch(`/campaign-analytics.php?range=${range}&top_sort=${topSort}`),
   });
 
   if (isLoading) {
@@ -95,9 +103,41 @@ export default function CampaignAnalyticsPage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <Stat label="แคมเปญทั้งหมด" value={summary.total_campaigns} icon={Megaphone} color="text-violet-500" />
         <Stat label="ส่งทั้งหมด" value={summary.total_sent.toLocaleString()} icon={Send} color="text-blue-500" />
-        <Stat label="อัตราเปิดเฉลี่ย" value={`${summary.avg_open_rate}%`} icon={Eye} color="text-green-500" />
+        <Stat label="อัตราเปิดรวม" value={`${summary.avg_open_rate}%`} icon={Eye} color="text-green-500" />
         <Stat label="อัตราคลิกเฉลี่ย" value={`${summary.avg_click_rate}%`} icon={MousePointerClick} color="text-orange-500" />
+        <Stat label="CTOR (คลิกต่อการเปิด)" value={`${summary.ctor}%`} icon={MousePointerClick} color="text-violet-500" />
       </div>
+
+      {/* Summary funnel: ส่ง → เปิด → คลิก */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">ภาพรวมขั้นตอนแคมเปญ</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {summary.total_sent === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-8">ไม่มีข้อมูลในช่วงเวลานี้</p>
+          ) : (
+            <div className="grid grid-cols-3 gap-3 sm:gap-4">
+              {[
+                { label: 'ส่ง', value: summary.total_sent, pct: 100, color: 'bg-blue-500' },
+                { label: 'เปิด', value: summary.total_opens, pct: summary.avg_open_rate, color: 'bg-green-500' },
+                { label: 'คลิก', value: summary.total_clicks, pct: summary.avg_click_rate, color: 'bg-amber-500' },
+              ].map((stage) => (
+                <div key={stage.label} className="min-w-0">
+                  <div className="flex items-center justify-between text-sm mb-1">
+                    <span className="text-muted-foreground">{stage.label}</span>
+                    <span className="font-semibold">{stage.pct}%</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-muted overflow-hidden">
+                    <div className={cn('h-full rounded-full', stage.color)} style={{ width: `${Math.min(stage.pct, 100)}%` }} />
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">{stage.value.toLocaleString()} คน</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -114,11 +154,16 @@ export default function CampaignAnalyticsPage() {
                 <LineChart data={trends}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                   <XAxis dataKey="period" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip />
+                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `${v}%`} />
+                  <Tooltip
+                    formatter={(value: number, name: string, item: any) => {
+                      const raw = name === 'เปิด' ? item.payload.opens : item.payload.clicks;
+                      return [`${value}% (${raw.toLocaleString()} คน จากส่ง ${item.payload.sent.toLocaleString()})`, name];
+                    }}
+                  />
                   <Legend />
-                  <Line type="monotone" dataKey="opens" name="เปิด" stroke="#6366f1" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="clicks" name="คลิก" stroke="#22c55e" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="open_rate" name="เปิด" stroke="#6366f1" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="click_rate" name="คลิก" stroke="#22c55e" strokeWidth={2} dot={false} />
                 </LineChart>
               </ResponsiveContainer>
             )}
@@ -127,8 +172,18 @@ export default function CampaignAnalyticsPage() {
 
         {/* Top campaigns - Bar chart */}
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0">
             <CardTitle className="text-base">5 แคมเปญยอดนิยม</CardTitle>
+            <Select value={topSort} onValueChange={setTopSort}>
+              <SelectTrigger className="w-36 h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {TOP_SORT_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </CardHeader>
           <CardContent>
             {top_campaigns.length === 0 ? (
@@ -210,6 +265,7 @@ export default function CampaignAnalyticsPage() {
                     <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground">
                       <span>ผู้รับ: <strong className="text-foreground">{c.total_recipients.toLocaleString()}</strong></span>
                       <span>ส่งแล้ว: <strong className="text-foreground">{c.total_sent.toLocaleString()}</strong></span>
+                      <span>ส่งไม่สำเร็จ: <strong className="text-red-600">{c.total_failed.toLocaleString()}</strong></span>
                       <span>เปิด: <strong className="text-foreground">{c.total_opens.toLocaleString()}</strong></span>
                       <span>คลิก: <strong className="text-foreground">{c.total_clicks.toLocaleString()}</strong></span>
                       <span>อัตราเปิด: <strong className="text-green-600">{c.open_rate}%</strong></span>
@@ -228,6 +284,7 @@ export default function CampaignAnalyticsPage() {
                       <TableHead className="text-xs">สถานะ</TableHead>
                       <TableHead className="text-xs text-right">ผู้รับ</TableHead>
                       <TableHead className="text-xs text-right">ส่งแล้ว</TableHead>
+                      <TableHead className="text-xs text-right">ส่งไม่สำเร็จ</TableHead>
                       <TableHead className="text-xs text-right">เปิด</TableHead>
                       <TableHead className="text-xs text-right">คลิก</TableHead>
                       <TableHead className="text-xs text-right">อัตราเปิด</TableHead>
@@ -245,6 +302,7 @@ export default function CampaignAnalyticsPage() {
                         </TableCell>
                         <TableCell className="text-sm text-right">{c.total_recipients.toLocaleString()}</TableCell>
                         <TableCell className="text-sm text-right">{c.total_sent.toLocaleString()}</TableCell>
+                        <TableCell className="text-sm text-right text-red-600">{c.total_failed.toLocaleString()}</TableCell>
                         <TableCell className="text-sm text-right">{c.total_opens.toLocaleString()}</TableCell>
                         <TableCell className="text-sm text-right">{c.total_clicks.toLocaleString()}</TableCell>
                         <TableCell className="text-sm text-right">{c.open_rate}%</TableCell>

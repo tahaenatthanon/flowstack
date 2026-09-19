@@ -39,7 +39,10 @@ $stmt = $db->prepare("
             ELSE 0 END as avg_open_rate,
         CASE WHEN COALESCE(SUM(total_sent), 0) > 0
             THEN ROUND(COALESCE(SUM(total_clicks), 0) / SUM(total_sent) * 100, 1)
-            ELSE 0 END as avg_click_rate
+            ELSE 0 END as avg_click_rate,
+        CASE WHEN COALESCE(SUM(total_opens), 0) > 0
+            THEN ROUND(COALESCE(SUM(total_clicks), 0) / SUM(total_opens) * 100, 1)
+            ELSE 0 END as ctor
     FROM email_campaigns
     WHERE tenant_id = ? AND status IN ('sent', 'sending')
       AND sent_at >= {$cutoff}
@@ -86,6 +89,14 @@ foreach ($trends as &$t) {
 unset($t);
 
 // ─── Top 5 campaigns ────────────────────────────────────────────────
+$topSortMap = [
+    'opens'      => 'total_opens',
+    'clicks'     => 'total_clicks',
+    'open_rate'  => 'open_rate',
+    'click_rate' => 'click_rate',
+];
+$topSort = $topSortMap[$_GET['top_sort'] ?? 'opens'] ?? 'total_opens';
+
 $stmt = $db->prepare("
     SELECT id, name, subject, status,
            total_sent, total_opens, total_clicks,
@@ -95,7 +106,7 @@ $stmt = $db->prepare("
     FROM email_campaigns
     WHERE tenant_id = ? AND status IN ('sent', 'sending') AND total_sent > 0
       AND sent_at >= {$cutoff}
-    ORDER BY total_opens DESC
+    ORDER BY {$topSort} DESC
     LIMIT 5
 ");
 $stmt->execute([$tenantId]);
@@ -116,14 +127,15 @@ $limit = min((int)($_GET['limit'] ?? 20), 100);
 $offset = max((int)($_GET['offset'] ?? 0), 0);
 
 $stmt = $db->prepare("
-    SELECT id, name, subject, status,
-           total_recipients, total_sent, total_opens, total_clicks,
-           CASE WHEN total_sent > 0 THEN ROUND(total_opens / total_sent * 100, 1) ELSE 0 END as open_rate,
-           CASE WHEN total_sent > 0 THEN ROUND(total_clicks / total_sent * 100, 1) ELSE 0 END as click_rate,
-           created_at, sent_at
-    FROM email_campaigns
-    WHERE tenant_id = ?
-    ORDER BY created_at DESC
+    SELECT ec.id, ec.name, ec.subject, ec.status,
+           ec.total_recipients, ec.total_sent, ec.total_opens, ec.total_clicks,
+           CASE WHEN ec.total_sent > 0 THEN ROUND(ec.total_opens / ec.total_sent * 100, 1) ELSE 0 END as open_rate,
+           CASE WHEN ec.total_sent > 0 THEN ROUND(ec.total_clicks / ec.total_sent * 100, 1) ELSE 0 END as click_rate,
+           (SELECT COUNT(*) FROM email_tracking et WHERE et.campaign_id = ec.id AND et.status = 'failed') as total_failed,
+           ec.created_at, ec.sent_at
+    FROM email_campaigns ec
+    WHERE ec.tenant_id = ?
+    ORDER BY ec.created_at DESC
     LIMIT {$limit} OFFSET {$offset}
 ");
 $stmt->execute([$tenantId]);
@@ -139,6 +151,7 @@ foreach ($allCampaigns as &$c) {
     $c['total_sent'] = (int)$c['total_sent'];
     $c['total_opens'] = (int)$c['total_opens'];
     $c['total_clicks'] = (int)$c['total_clicks'];
+    $c['total_failed'] = (int)$c['total_failed'];
     $c['open_rate'] = (float)$c['open_rate'];
     $c['click_rate'] = (float)$c['click_rate'];
 }
@@ -152,6 +165,7 @@ jsonSuccess([
         'total_clicks' => (int)$summary['total_clicks'],
         'avg_open_rate' => (float)$summary['avg_open_rate'],
         'avg_click_rate' => (float)$summary['avg_click_rate'],
+        'ctor' => (float)$summary['ctor'],
     ],
     'status_breakdown' => $statusBreakdown,
     'trends' => $trends,
