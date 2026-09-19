@@ -26,6 +26,7 @@ export interface EmailCampaign {
   cta_url?: string | null;
   discount_percent?: string | null;
   countdown_text?: string | null;
+  segment_filters?: string | null;
   sender_name?: string;
   sender_email?: string;
   total_recipients: number;
@@ -143,17 +144,20 @@ export function useRecipientLog(campaignId: string | null) {
 }
 
 /**
- * Live dedup'd recipient count for the group checkboxes currently ticked on the
- * campaign form — debounced 300ms so rapid ticking doesn't spam the API.
- * Dedup rule (by email, not customer_id) lives entirely server-side; see
- * resolveCampaignRecipients() in api/email-campaigns.php.
+ * Live dedup'd recipient count for the group checkboxes + segment filters
+ * currently set on the campaign form — debounced 300ms so rapid
+ * ticking/typing doesn't spam the API. Dedup rule (by email, not
+ * customer_id) and segment matching both live entirely server-side; see
+ * resolveCampaignRecipients() in api/lib/email-campaign-sender.php.
  */
-export function useCampaignRecipientCount(groupIds: string[]) {
+export function useCampaignRecipientCount(groupIds: string[], segmentFilters?: Record<string, string> | null) {
   const debouncedIds = useDebounced(groupIds, 300);
+  const debouncedFilters = useDebounced(segmentFilters ?? null, 300);
+  const filtersQs = debouncedFilters ? `&segment_filters=${encodeURIComponent(JSON.stringify(debouncedFilters))}` : '';
   return useQuery<{ count: number }>({
-    queryKey: marketingKeys.recipientCount(debouncedIds),
-    queryFn: () => apiFetch(`/email-campaigns.php?action=recipient_count&group_ids=${debouncedIds.join(',')}`),
-    enabled: debouncedIds.length > 0,
+    queryKey: [...marketingKeys.recipientCount(debouncedIds), debouncedFilters],
+    queryFn: () => apiFetch(`/email-campaigns.php?action=recipient_count&group_ids=${debouncedIds.join(',')}${filtersQs}`),
+    enabled: debouncedIds.length > 0 || !!debouncedFilters,
     staleTime: 10_000,
   });
 }

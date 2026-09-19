@@ -111,7 +111,7 @@ export default function CampaignAnalyticsPage() {
       {/* Summary funnel: ส่ง → เปิด → คลิก */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">ภาพรวมขั้นตอนแคมเปญ</CardTitle>
+          <CardTitle className="text-base">ภาพรวมแคมเปญ</CardTitle>
         </CardHeader>
         <CardContent>
           {summary.total_sent === 0 ? (

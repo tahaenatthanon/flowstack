@@ -14,7 +14,7 @@ import ArticleEditor from '@/components/content/ArticleEditor';
 import type { SeoFields } from '@/components/content/types';
 import { emailTemplates, type EmailTemplate } from '@/data/emailTemplates';
 import { composeCampaignHtml } from '@/lib/campaignTemplateCompose';
-import { Loader2, Plus, Send, Eye, MousePointer, X, Search, Mail, Users, Pencil, Trash2, UserMinus, Copy, Building2, FileText, LayoutTemplate, Palette, Route } from 'lucide-react';
+import { Loader2, Plus, Send, Eye, MousePointer, X, Search, Mail, Users, Pencil, Trash2, UserMinus, Copy, Building2, FileText, LayoutTemplate, Palette, Route, Clock } from 'lucide-react';
 import AttributionTab from '@/components/marketing/AttributionTab';
 import PullFromContentDialog from '@/components/content/dialogs/PullFromContentDialog';
 import { MultiSelectCombobox } from '@/components/MultiSelectCombobox';
@@ -37,6 +37,7 @@ import {
   useDeleteEmailCampaign,
   useCopyEmailCampaign,
   useSendEmailCampaign,
+  useScheduleEmailCampaign,
   useCampaignRecipientCount,
 
   useCreateEmailGroup,
@@ -316,8 +317,20 @@ export default function CampaignsPage() {
   const [senderName, setSenderName] = useState('');
   const [senderEmail, setSenderEmail] = useState('');
   const [selectedCampaignGroups, setSelectedCampaignGroups] = useState<string[]>([]);
-  // Live dedup'd count (by email, across every ticked group) — debounced in the hook itself
-  const { data: recipientCountData, isFetching: recipientCountLoading } = useCampaignRecipientCount(selectedCampaignGroups);
+  // Segment แบบไดนามิก — เพิ่มเติมจากกลุ่ม static ด้านบน, resolve สดที่ backend ทุกครั้ง
+  const [segmentBusinessType, setSegmentBusinessType] = useState('');
+  const [segmentEngagement, setSegmentEngagement] = useState(false);
+  const segmentFilters = useMemo(() => {
+    const f: Record<string, string> = {};
+    if (segmentBusinessType.trim()) f.business_type = segmentBusinessType.trim();
+    if (segmentEngagement) f.engagement = 'has_opened_or_clicked_any';
+    return Object.keys(f).length > 0 ? f : null;
+  }, [segmentBusinessType, segmentEngagement]);
+  // ตั้งเวลาส่งล่วงหน้า
+  const [scheduleAt, setScheduleAt] = useState('');
+  const scheduleCampaign = useScheduleEmailCampaign();
+  // Live dedup'd count (by email, across every ticked group + segment) — debounced in the hook itself
+  const { data: recipientCountData, isFetching: recipientCountLoading } = useCampaignRecipientCount(selectedCampaignGroups, segmentFilters);
   const [enableTrackOpens, setEnableTrackOpens]   = useState(true);
   const [enableTrackClicks, setEnableTrackClicks] = useState(true);
   const pullFromDialogRef = useRef<boolean>(false);
@@ -372,6 +385,7 @@ export default function CampaignsPage() {
     setEditingCampaignId(null);
     setCampaignName(''); setCampaignSubject(''); setCampaignBody('');
     setSenderName(smtpRef.current.name); setSenderEmail(smtpRef.current.email); setSelectedCampaignGroups([]);
+    setSegmentBusinessType(''); setSegmentEngagement(false); setScheduleAt('');
     setEnableTrackOpens(true); setEnableTrackClicks(true);
     setSelectedTemplate('');
     setEditableContent(''); setCtaText(''); setCtaUrl(''); setDiscountPercent(''); setCountdown(''); setForceLegacyEditor(false);
@@ -405,6 +419,10 @@ export default function CampaignsPage() {
       setForceLegacyEditor(!c.editable_content);
       const groupIds = (full?.groups ?? []).map((g: any) => g.id);
       setSelectedCampaignGroups(groupIds);
+      const sf = c.segment_filters ? JSON.parse(c.segment_filters) : null;
+      setSegmentBusinessType(sf?.business_type ?? '');
+      setSegmentEngagement(sf?.engagement === 'has_opened_or_clicked_any');
+      setScheduleAt(c.scheduled_at ? c.scheduled_at.slice(0, 16).replace(' ', 'T') : '');
     } catch {
       setCampaignName(campaign.name);
       setCampaignSubject(campaign.subject);
@@ -421,6 +439,8 @@ export default function CampaignsPage() {
       setCountdown(campaign.countdown_text ?? '');
       setForceLegacyEditor(!campaign.editable_content);
       setSelectedCampaignGroups([]);
+      setSegmentBusinessType(''); setSegmentEngagement(false);
+      setScheduleAt(campaign.scheduled_at ? campaign.scheduled_at.slice(0, 16).replace(' ', 'T') : '');
     }
     setIsCampaignDialogOpen(true);
   };
@@ -447,6 +467,7 @@ export default function CampaignsPage() {
       name: campaignName, subject: campaignSubject,
       body_html: makeUploadsAbsolute(buildFinalBodyHtml()), sender_name: senderName,
       sender_email: senderEmail, group_ids: selectedCampaignGroups,
+      segment_filters: segmentFilters,
       enable_track_opens: enableTrackOpens ? 1 : 0,
       enable_track_clicks: enableTrackClicks ? 1 : 0,
       template_id: selectedTemplate || null,
@@ -479,14 +500,15 @@ export default function CampaignsPage() {
       toast({ title: 'กรุณากรอกเนื้อหาอีเมล', variant: 'destructive' });
       return;
     }
-    if (!selectedCampaignGroups.length) {
-      toast({ title: 'กรุณาเลือกกลุ่มผู้รับ', variant: 'destructive' });
+    if (!selectedCampaignGroups.length && !segmentFilters) {
+      toast({ title: 'กรุณาเลือกกลุ่มผู้รับหรือเงื่อนไข Segment', variant: 'destructive' });
       return;
     }
     const payload = {
       name: campaignName, subject: campaignSubject,
       body_html: makeUploadsAbsolute(buildFinalBodyHtml()), sender_name: senderName,
       sender_email: senderEmail, group_ids: selectedCampaignGroups,
+      segment_filters: segmentFilters,
       enable_track_opens: enableTrackOpens ? 1 : 0,
       enable_track_clicks: enableTrackClicks ? 1 : 0,
       template_id: selectedTemplate || null,
@@ -518,6 +540,55 @@ export default function CampaignsPage() {
       } finally {
         setSendingId(null);
       }
+    } catch (e: any) {
+      toast({ title: 'เกิดข้อผิดพลาด', description: e.message, variant: 'destructive' });
+    }
+  };
+
+  const handleSubmitAndSchedule = async () => {
+    if (!campaignName || !campaignSubject) {
+      toast({ title: 'กรุณากรอกชื่อแคมเปญและหัวข้ออีเมล', variant: 'destructive' });
+      return;
+    }
+    if (!(isChromeLocked ? editableContent : campaignBody).trim()) {
+      toast({ title: 'กรุณากรอกเนื้อหาอีเมล', variant: 'destructive' });
+      return;
+    }
+    if (!selectedCampaignGroups.length && !segmentFilters) {
+      toast({ title: 'กรุณาเลือกกลุ่มผู้รับหรือเงื่อนไข Segment', variant: 'destructive' });
+      return;
+    }
+    if (!scheduleAt) {
+      toast({ title: 'กรุณาเลือกวันเวลาที่จะส่ง', variant: 'destructive' });
+      return;
+    }
+    const payload = {
+      name: campaignName, subject: campaignSubject,
+      body_html: makeUploadsAbsolute(buildFinalBodyHtml()), sender_name: senderName,
+      sender_email: senderEmail, group_ids: selectedCampaignGroups,
+      segment_filters: segmentFilters,
+      enable_track_opens: enableTrackOpens ? 1 : 0,
+      enable_track_clicks: enableTrackClicks ? 1 : 0,
+      template_id: selectedTemplate || null,
+      editable_content: isChromeLocked ? editableContent : null,
+      cta_text: isChromeLocked && selectedTemplateObj?.hasCta ? ctaText : null,
+      cta_url: isChromeLocked && selectedTemplateObj?.hasCta ? ctaUrl : null,
+      discount_percent: isChromeLocked && selectedTemplateObj?.hasDiscountPromo ? discountPercent : null,
+      countdown_text: isChromeLocked && selectedTemplateObj?.hasDiscountPromo ? countdown : null,
+    };
+    try {
+      let id: string;
+      if (editingCampaignId) {
+        await updateCampaign.mutateAsync({ ...payload, id: editingCampaignId });
+        id = editingCampaignId;
+      } else {
+        const res = await createCampaign.mutateAsync(payload);
+        id = res?.id ?? res?.campaign?.id;
+      }
+      // ส่งเป็นเวลาท้องถิ่นตรงตามที่เลือก (ไม่แปลง UTC) ให้ตรงกับ NOW() ของ MySQL ที่ใช้ timezone เดียวกับแอป
+      await scheduleCampaign.mutateAsync({ id, scheduled_at: `${scheduleAt.replace('T', ' ')}:00` });
+      toast({ title: 'ตั้งเวลาส่งสำเร็จ' });
+      setIsCampaignDialogOpen(false);
     } catch (e: any) {
       toast({ title: 'เกิดข้อผิดพลาด', description: e.message, variant: 'destructive' });
     }
@@ -858,6 +929,9 @@ export default function CampaignsPage() {
                         <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-xs text-muted-foreground">
                           <span>{campaign.total_recipients} ผู้รับ</span>
                           {campaign.sent_at && <span>ส่งเมื่อ {new Date(campaign.sent_at).toLocaleDateString('th-TH')}</span>}
+                          {campaign.status === 'scheduled' && campaign.scheduled_at && (
+                            <span>กำหนดส่ง {new Date(campaign.scheduled_at).toLocaleString('th-TH')}</span>
+                          )}
                         </div>
                       </div>
 
@@ -1289,12 +1363,32 @@ export default function CampaignsPage() {
                     searchPlaceholder="ค้นหากลุ่ม..."
                     emptyText="ไม่พบกลุ่มผู้รับ"
                   />
-                  {/* นับจาก recipient_count endpoint (dedupe ตามอีเมลข้ามกลุ่ม/บริษัทแล้ว) ไม่ใช่บวก member_count ดิบๆ */}
-                  {selectedCampaignGroups.length > 0 && (
+                  {/* นับจาก recipient_count endpoint (dedupe ตามอีเมลข้ามกลุ่ม/บริษัทแล้ว รวม segment ด้วย) ไม่ใช่บวก member_count ดิบๆ */}
+                  {(selectedCampaignGroups.length > 0 || segmentFilters) && (
                     <p className="text-[11px] text-muted-foreground">
                       {recipientCountLoading ? 'กำลังคำนวณ...' : `จะส่งถึง ${recipientCountData?.count ?? 0} คน`}
                     </p>
                   )}
+                </div>
+                <div className="grid gap-1.5 pt-1 border-t">
+                  <Label className="text-xs text-muted-foreground">เงื่อนไข Segment เพิ่มเติม (ไม่บังคับ)</Label>
+                  <Input
+                    value={segmentBusinessType}
+                    onChange={(e) => setSegmentBusinessType(e.target.value)}
+                    placeholder="ประเภทธุรกิจ เช่น IT"
+                    className="h-8 text-xs"
+                  />
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="segment-engagement"
+                      checked={segmentEngagement}
+                      onCheckedChange={(v) => setSegmentEngagement(!!v)}
+                    />
+                    <label htmlFor="segment-engagement" className="text-xs text-muted-foreground cursor-pointer select-none">
+                      เคยเปิดหรือคลิกอีเมลแคมเปญมาก่อน
+                    </label>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">คำนวณสดทุกครั้งที่บันทึก/ส่ง รวมกับกลุ่มผู้รับด้านบน (ถ้าตรงทั้งกลุ่มและ segment นับครั้งเดียว)</p>
                 </div>
               </div>
             </div>
@@ -1431,6 +1525,23 @@ export default function CampaignsPage() {
               {(createCampaign.isPending || updateCampaign.isPending) && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
               {editingCampaignId ? 'บันทึกการแก้ไข' : 'บันทึกร่าง'}
             </Button>
+            <div className="flex items-center gap-1.5">
+              <Input
+                type="datetime-local"
+                value={scheduleAt}
+                onChange={(e) => setScheduleAt(e.target.value)}
+                className="h-9 w-[170px] text-xs"
+              />
+              <Button
+                variant="outline"
+                onClick={handleSubmitAndSchedule}
+                disabled={createCampaign.isPending || updateCampaign.isPending || scheduleCampaign.isPending}
+              >
+                {scheduleCampaign.isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+                <Clock className="w-4 h-4 mr-1.5" />
+                ตั้งเวลาส่ง
+              </Button>
+            </div>
             {!editingCampaignId && (
               <Button
                 onClick={handleSubmitAndSend}

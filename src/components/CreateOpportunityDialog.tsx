@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useCreateOpportunity, useCustomers, useUsers, useAddOpportunityMember } from '@/hooks/useProjectData';
 import { useEmailCampaigns } from '@/hooks/useMarketing';
+import { apiFetch } from '@/lib/api';
 import CompanyCombobox from '@/components/CompanyCombobox';
 import LeadSourceCombobox from '@/components/LeadSourceCombobox';
 import { useAuth } from '@/hooks/useAuth';
@@ -53,7 +54,27 @@ export function CreateOpportunityDialog() {
 
   const [customerId, setCustomerId] = useState('none');
   const [campaignId, setCampaignId] = useState('__none__');
+  // แคมเปญที่ระบบแนะนำให้เอง (จากประวัติคลิกของผู้ติดต่อ) แยกจากที่ผู้ใช้เลือกเอง —
+  // ใช้ตัดสินว่าเปลี่ยนผู้ติดต่อแล้วควรแทนที่คำแนะนำเดิมไหม (แทนที่ได้ถ้ายังไม่เคยเลือกเอง)
+  const [suggestedCampaignId, setSuggestedCampaignId] = useState<string | null>(null);
   const { data: campaigns = [] } = useEmailCampaigns();
+
+  // แนะนำแคมเปญต้นทางจากประวัติคลิกของผู้ติดต่อที่เลือก — ไม่เขียนทับถ้าผู้ใช้เลือก Campaign เอง
+  useEffect(() => {
+    if (customerId === 'none') return;
+    if (campaignId !== '__none__' && campaignId !== suggestedCampaignId) return; // ผู้ใช้เลือกเองไว้แล้ว
+    let cancelled = false;
+    apiFetch(`/email-campaigns.php?action=suggest_campaign&customer_id=${customerId}`)
+      .then((res: any) => {
+        if (cancelled || !res?.campaign_id) return;
+        setCampaignId(res.campaign_id);
+        setSuggestedCampaignId(res.campaign_id);
+        setAdvancedOpen(true);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customerId]);
 
   const { register, handleSubmit, setValue, watch, reset, formState: { errors } } =
     useForm<OpportunityFormData>({
@@ -83,7 +104,7 @@ export function CreateOpportunityDialog() {
     try {
       const result = await createOpportunity.mutateAsync({
         ...data,
-        customer_id: customerId !== 'none' ? customerId : undefined,
+        contact_id: customerId !== 'none' ? customerId : undefined,
         campaign_id: campaignId !== '__none__' ? campaignId : undefined,
       });
       const opportunityId = result?.id;
@@ -101,7 +122,7 @@ export function CreateOpportunityDialog() {
 
   const resetForm = () => {
     reset(); setSelectedMembers([]); setNewMemberId(''); setNewMemberRole('member');
-    setCampaignId('__none__'); setCustomerId('none'); setAdvancedOpen(false);
+    setCampaignId('__none__'); setSuggestedCampaignId(null); setCustomerId('none'); setAdvancedOpen(false);
   };
 
   return (
@@ -276,7 +297,10 @@ export function CreateOpportunityDialog() {
                 </div>
                 <div>
                   <Label>Campaign</Label>
-                  <Select value={campaignId} onValueChange={setCampaignId}>
+                  <Select
+                    value={campaignId}
+                    onValueChange={(v) => { setCampaignId(v); setSuggestedCampaignId(null); }}
+                  >
                     <SelectTrigger><SelectValue placeholder="— ไม่ระบุ —" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__none__">— ไม่ระบุ —</SelectItem>
@@ -285,6 +309,11 @@ export function CreateOpportunityDialog() {
                       ))}
                     </SelectContent>
                   </Select>
+                  {campaignId !== '__none__' && campaignId === suggestedCampaignId && (
+                    <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                      แนะนำอัตโนมัติจากประวัติคลิกแคมเปญของผู้ติดต่อ — ตรวจสอบก่อนบันทึก
+                    </p>
+                  )}
                 </div>
               </div>
               <div>

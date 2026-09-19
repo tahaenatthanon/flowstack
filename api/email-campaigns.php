@@ -12,6 +12,7 @@
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/email-utils.php';
+require_once __DIR__ . '/lib/email-campaign-sender.php';
 require_once __DIR__ . '/../vendor/autoload.php';
 
 use PHPMailer\PHPMailer\PHPMailer;
@@ -34,6 +35,8 @@ if ($method === 'GET' && $action === 'recipients') {
     getRecipientCount($db, $tenantId);
 } elseif ($method === 'GET' && $action === 'stats') {
     getCampaignStats($db, $tenantId);
+} elseif ($method === 'GET' && $action === 'suggest_campaign') {
+    suggestCampaignForCustomer($db, $tenantId);
 } elseif ($method === 'POST' && $action === 'send') {
     sendCampaign($db, $userId, $tenantId);
 } elseif ($method === 'POST' && $action === 'schedule') {
@@ -245,24 +248,60 @@ function getCampaignRecipients($db, string $tenantId) {
  */
 function getRecipientCount($db, string $tenantId) {
     $raw = trim($_GET['group_ids'] ?? '');
-    if ($raw === '') {
+    $segmentFiltersRaw = trim($_GET['segment_filters'] ?? '');
+    $segmentFilters = $segmentFiltersRaw !== '' ? json_decode($segmentFiltersRaw, true) : null;
+
+    $groupIds = $raw !== ''
+        ? array_values(array_filter(array_map('trim', explode(',', $raw)), fn($g) => $g !== ''))
+        : [];
+
+    if (empty($groupIds) && empty($segmentFilters)) {
         jsonSuccess(['count' => 0]);
     }
 
-    $groupIds = array_values(array_filter(array_map('trim', explode(',', $raw)), fn($g) => $g !== ''));
-    if (empty($groupIds)) {
-        jsonSuccess(['count' => 0]);
+    $ownedGroupIds = [];
+    if (!empty($groupIds)) {
+        // Only count groups that actually belong to this tenant — group_ids here
+        // come straight from the client (no campaign row to anchor tenant
+        // ownership to yet), so this must be checked explicitly.
+        $placeholders = implode(',', array_fill(0, count($groupIds), '?'));
+        $stmt = $db->prepare("SELECT id FROM email_groups WHERE id IN ($placeholders) AND tenant_id = ?");
+        $stmt->execute([...$groupIds, $tenantId]);
+        $ownedGroupIds = array_column($stmt->fetchAll(), 'id');
     }
 
-    // Only count groups that actually belong to this tenant — group_ids here
-    // come straight from the client (no campaign row to anchor tenant
-    // ownership to yet), so this must be checked explicitly.
-    $placeholders = implode(',', array_fill(0, count($groupIds), '?'));
-    $stmt = $db->prepare("SELECT id FROM email_groups WHERE id IN ($placeholders) AND tenant_id = ?");
-    $stmt->execute([...$groupIds, $tenantId]);
-    $ownedGroupIds = array_column($stmt->fetchAll(), 'id');
+    jsonSuccess(['count' => count(resolveCampaignRecipients($db, $ownedGroupIds, $tenantId, $segmentFilters))]);
+}
 
-    jsonSuccess(['count' => count(resolveCampaignRecipients($db, $ownedGroupIds))]);
+/**
+ * Suggest the campaign a customer most recently clicked — used by
+ * CreateOpportunityDialog.tsx to pre-fill the Campaign field when the sales
+ * rep picks a contact who arrived via a tracked email click.
+ * GET /api/email-campaigns.php?action=suggest_campaign&customer_id=xxx
+ */
+function suggestCampaignForCustomer($db, string $tenantId) {
+    $customerId = $_GET['customer_id'] ?? '';
+    if (empty($customerId)) {
+        jsonSuccess(['campaign_id' => null]);
+    }
+
+    // 180-day window: a click from over 6 months ago is unlikely to be the
+    // reason this lead exists today, and would be a confusing/stale suggestion.
+    $stmt = $db->prepare("
+        SELECT et.campaign_id, ec.name AS campaign_name, et.clicked_at
+        FROM email_tracking et
+        JOIN email_campaigns ec ON ec.id = et.campaign_id
+        JOIN customers c ON c.id = et.customer_id
+        WHERE et.customer_id = ? AND c.tenant_id = ?
+          AND et.clicked_at IS NOT NULL
+          AND et.clicked_at >= NOW() - INTERVAL 180 DAY
+        ORDER BY et.clicked_at DESC
+        LIMIT 1
+    ");
+    $stmt->execute([$customerId, $tenantId]);
+    $row = $stmt->fetch();
+
+    jsonSuccess($row ?: ['campaign_id' => null]);
 }
 
 /**
@@ -284,6 +323,7 @@ function createEmailCampaign($db, $userId, string $tenantId = '') {
     $senderName = trim($body['sender_name'] ?? '');
     $senderEmail = trim($body['sender_email'] ?? '');
     $groupIds = $body['group_ids'] ?? [];
+    $segmentFilters = !empty($body['segment_filters']) ? $body['segment_filters'] : null;
     $enableTrackOpens  = isset($body['enable_track_opens'])  ? (int)(bool)$body['enable_track_opens']  : 1;
     $enableTrackClicks = isset($body['enable_track_clicks']) ? (int)(bool)$body['enable_track_clicks'] : 1;
 
@@ -304,16 +344,17 @@ function createEmailCampaign($db, $userId, string $tenantId = '') {
         INSERT INTO email_campaigns (
             id, tenant_id, name, subject, body_html, body_text, template_id,
             editable_content, cta_text, cta_url, discount_percent, countdown_text,
-            sender_name, sender_email, enable_track_opens, enable_track_clicks,
+            sender_name, sender_email, enable_track_opens, enable_track_clicks, segment_filters,
             status, created_by, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, NOW())
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, NOW())
     ");
     $stmt->execute([
         $id, $tenantId, $name, $subject, $bodyHtml, $bodyText, $templateId,
         $editableContent, $ctaText, $ctaUrl, $discountPercent, $countdown,
-        $senderName, $senderEmail, $enableTrackOpens, $enableTrackClicks, $userId
+        $senderName, $senderEmail, $enableTrackOpens, $enableTrackClicks,
+        $segmentFilters ? json_encode($segmentFilters) : null, $userId
     ]);
-    
+
     // Save recipient groups
     if (!empty($groupIds) && is_array($groupIds)) {
         $stmt = $db->prepare("
@@ -323,12 +364,14 @@ function createEmailCampaign($db, $userId, string $tenantId = '') {
         foreach ($groupIds as $groupId) {
             $stmt->execute([generateUUID(), $id, $groupId]);
         }
+    }
 
-        // Count total recipients — deduplicated by email (not raw group
-        // membership count), same rule sendCampaign() uses at send time.
-        $totalRecipients = count(resolveCampaignRecipients($db, $groupIds));
-
-        // Update total recipients
+    // Count total recipients — deduplicated by email (not raw group
+    // membership count) and inclusive of segment filter matches, same rule
+    // sendCampaignCore() uses at send time. Runs whenever either source of
+    // recipients is set, not just when static groups are picked.
+    if ((!empty($groupIds) && is_array($groupIds)) || !empty($segmentFilters)) {
+        $totalRecipients = count(resolveCampaignRecipients($db, $groupIds, $tenantId, $segmentFilters));
         $stmt = $db->prepare("UPDATE email_campaigns SET total_recipients = ? WHERE id = ?");
         $stmt->execute([$totalRecipients, $id]);
     }
@@ -431,6 +474,10 @@ function updateEmailCampaign($db, string $tenantId) {
         $updates[] = 'countdown_text = ?';
         $params[] = $body['countdown_text'];
     }
+    if (array_key_exists('segment_filters', $body)) {
+        $updates[] = 'segment_filters = ?';
+        $params[] = !empty($body['segment_filters']) ? json_encode($body['segment_filters']) : null;
+    }
 
     if (!empty($updates)) {
         $params[] = $id;
@@ -441,11 +488,12 @@ function updateEmailCampaign($db, string $tenantId) {
     }
     
     // Update recipient groups if provided
-    if ($groupIds !== null && is_array($groupIds)) {
+    $groupsChanged = $groupIds !== null && is_array($groupIds);
+    if ($groupsChanged) {
         // Delete existing recipients
         $stmt = $db->prepare("DELETE FROM email_campaign_recipients WHERE campaign_id = ?");
         $stmt->execute([$id]);
-        
+
         // Insert new recipients
         if (!empty($groupIds)) {
             $stmt = $db->prepare("
@@ -455,15 +503,29 @@ function updateEmailCampaign($db, string $tenantId) {
             foreach ($groupIds as $groupId) {
                 $stmt->execute([generateUUID(), $id, $groupId]);
             }
-
-            // Count total recipients — deduplicated by email, same rule as createEmailCampaign()/sendCampaign()
-            $totalRecipients = count(resolveCampaignRecipients($db, $groupIds));
-
-            $stmt = $db->prepare("UPDATE email_campaigns SET total_recipients = ? WHERE id = ?");
-            $stmt->execute([$totalRecipients, $id]);
         }
     }
-    
+
+    // Recompute total_recipients whenever groups or segment filters changed —
+    // reads back the definitive current state of BOTH (not just what this
+    // request touched), so a request that only changes segment_filters still
+    // counts against the groups saved earlier, and vice versa.
+    if ($groupsChanged || array_key_exists('segment_filters', $body)) {
+        $groupsStmt = $db->prepare("SELECT group_id FROM email_campaign_recipients WHERE campaign_id = ?");
+        $groupsStmt->execute([$id]);
+        $currentGroupIds = array_column($groupsStmt->fetchAll(), 'group_id');
+
+        $sfStmt = $db->prepare("SELECT segment_filters FROM email_campaigns WHERE id = ?");
+        $sfStmt->execute([$id]);
+        $rawSegmentFilters = $sfStmt->fetchColumn();
+        $currentSegmentFilters = $rawSegmentFilters ? json_decode($rawSegmentFilters, true) : null;
+
+        $totalRecipients = count(resolveCampaignRecipients($db, $currentGroupIds, $tenantId, $currentSegmentFilters));
+        $stmt = $db->prepare("UPDATE email_campaigns SET total_recipients = ? WHERE id = ?");
+        $stmt->execute([$totalRecipients, $id]);
+    }
+
+
     $stmt = $db->prepare("SELECT * FROM email_campaigns WHERE id = ?");
     $stmt->execute([$id]);
     $campaign = $stmt->fetch();
@@ -505,74 +567,16 @@ function deleteEmailCampaign($db, string $tenantId) {
     jsonSuccess(['message' => 'Campaign deleted successfully']);
 }
 
-/**
- * Resolve the deduplicated recipient list for a set of email group IDs.
- *
- * Shared by createEmailCampaign(), updateEmailCampaign(), sendCampaign(), and
- * the recipient_count preview action — a single source of truth so the
- * "how many people will this reach" number can never disagree between the
- * three call sites again (that mismatch was the original bug).
- *
- * Dedup key is the EMAIL, not customer_id: `customers` has a UNIQUE KEY of
- * (company_id, email), not email alone, so the same person's email can
- * legitimately appear as multiple customer rows when they're a contact for
- * more than one company. DISTINCT on customer_id (the old approach) does not
- * catch that — this function does, so the same inbox is never emailed twice.
- *
- * When one email maps to multiple customer rows, the "winning" row (used for
- * personalisation) is chosen by: is_primary_contact=1 first, otherwise the
- * most recently updated row. Done in PHP rather than a SQL window function to
- * avoid depending on a MariaDB version (see the percentile() comment in
- * content-analytics.php for the same reasoning elsewhere in this codebase).
- *
- * @return array Deduplicated customer rows (email normalised via
- *               strtolower(trim())), one per unique email, with company_name joined in.
- */
-function resolveCampaignRecipients(PDO $db, array $groupIds): array {
-    $groupIds = array_values(array_filter($groupIds, static fn($g) => $g !== null && $g !== ''));
-    if (empty($groupIds)) return [];
-
-    $placeholders = implode(',', array_fill(0, count($groupIds), '?'));
-    $stmt = $db->prepare("
-        SELECT DISTINCT c.*, co.name AS company_name
-        FROM customers c
-        JOIN email_group_members egm ON c.id = egm.customer_id
-        LEFT JOIN companies co ON c.company_id = co.id
-        WHERE egm.group_id IN ($placeholders)
-          AND c.is_active = 1
-          AND c.email != ''
-    ");
-    $stmt->execute($groupIds);
-    $rows = $stmt->fetchAll();
-
-    $byEmail = [];
-    foreach ($rows as $row) {
-        $key = strtolower(trim($row['email']));
-        if ($key === '') continue;
-
-        if (!isset($byEmail[$key])) {
-            $byEmail[$key] = $row;
-            continue;
-        }
-
-        $current        = $byEmail[$key];
-        $rowIsPrimary   = (int)($row['is_primary_contact'] ?? 0) === 1;
-        $curIsPrimary   = (int)($current['is_primary_contact'] ?? 0) === 1;
-
-        if ($rowIsPrimary && !$curIsPrimary) {
-            $byEmail[$key] = $row; // row wins: it's the primary contact, current isn't
-        } elseif ($rowIsPrimary === $curIsPrimary
-            && strtotime($row['updated_at']) > strtotime($current['updated_at'])) {
-            $byEmail[$key] = $row; // tie on primary-ness: most recently updated wins
-        }
-        // else: current stays (it's primary and row isn't, or current is newer)
-    }
-
-    return array_values($byEmail);
-}
+// resolveCampaignRecipients() and sendCampaignCore() now live in
+// api/lib/email-campaign-sender.php (required near the top of this file) so
+// that api/cron/send-scheduled-campaigns.php can reuse them without pulling
+// in this file's top-level requireAuth()/action-dispatch side effects.
 
 /**
- * Send campaign immediately via PHPMailer (SMTP)
+ * HTTP wrapper for action=send — reads the campaign id from the request and
+ * translates sendCampaignCore()'s result array into the usual jsonSuccess()/
+ * jsonError() response. Behavior of this endpoint is unchanged from before
+ * the sendCampaignCore() extraction.
  */
 function sendCampaign($db, $userId, string $tenantId) {
     $body = getRequestBody();
@@ -582,179 +586,11 @@ function sendCampaign($db, $userId, string $tenantId) {
         jsonError('Campaign ID required', 400);
     }
 
-    // Load SMTP config from DB settings (falls back to .env constants)
-    $smtpStmt = $db->query("SELECT `key`, `value` FROM settings WHERE `key` LIKE 'mail_%'");
-    $smtpRows = $smtpStmt->fetchAll(PDO::FETCH_KEY_PAIR);
-    $cfg = [
-        'host'         => $smtpRows['mail_host']         ?? MAIL_HOST,
-        'port'         => (int)($smtpRows['mail_port']   ?? MAIL_PORT),
-        'encryption'   => $smtpRows['mail_encryption']   ?? MAIL_ENCRYPTION,
-        'smtp_auth'    => ($smtpRows['mail_smtp_auth']   ?? '1') !== '0',
-        'username'     => $smtpRows['mail_username']     ?? MAIL_USERNAME,
-        'password'     => $smtpRows['mail_password']     ?? MAIL_PASSWORD,
-        'from_address' => $smtpRows['mail_from_address'] ?? MAIL_FROM_ADDRESS,
-        'from_name'    => $smtpRows['mail_from_name']    ?? MAIL_FROM_NAME,
-    ];
-
-    if (empty($cfg['host'])) {
-        jsonError('SMTP ยังไม่ได้ตั้งค่า กรุณาไปที่ Admin → ตั้งค่า SMTP', 500);
+    $result = sendCampaignCore($db, $id, $userId, $tenantId);
+    if (!$result['ok']) {
+        jsonError($result['error'], $result['code']);
     }
-    if ($cfg['smtp_auth'] && (empty($cfg['username']) || empty($cfg['password']))) {
-        jsonError('กรุณากรอก Username และ Password หรือปิด Authentication สำหรับ internal relay', 500);
-    }
-
-    // Load campaign (verify tenant ownership)
-    $stmt = $db->prepare("SELECT * FROM email_campaigns WHERE id = ? AND tenant_id = ?");
-    $stmt->execute([$id, $tenantId]);
-    $campaign = $stmt->fetch();
-
-    if (!$campaign) {
-        jsonError('Campaign not found', 404);
-    }
-    if (!in_array($campaign['status'], ['draft', 'scheduled'])) {
-        jsonError('Campaign cannot be sent', 400);
-    }
-
-    // Load recipients — deduplicated by email across every group this
-    // campaign is linked to (resolveCampaignRecipients() also collapses
-    // the same person appearing under multiple companies).
-    $groupsStmt = $db->prepare("SELECT group_id FROM email_campaign_recipients WHERE campaign_id = ?");
-    $groupsStmt->execute([$id]);
-    $campaignGroupIds = array_column($groupsStmt->fetchAll(), 'group_id');
-    $recipients = resolveCampaignRecipients($db, $campaignGroupIds);
-
-    if (empty($recipients)) {
-        jsonError('ไม่พบผู้รับอีเมลในกลุ่มที่เลือก', 400);
-    }
-
-    // Allow up to 5 minutes for large campaigns
-    set_time_limit(300);
-
-    // Mark campaign as sending
-    $db->prepare("UPDATE email_campaigns SET status = 'sending' WHERE id = ?")->execute([$id]);
-
-    // Use base URL from settings (should include /flowstack path if needed)
-    $baseUrl = getBaseUrl();
-    $sent = 0;
-    $failed = 0;
-    $errors = [];
-
-    // Reusable SMTP connection
-    $mail = new PHPMailer(true);
-    $mail->isSMTP();
-    $mail->Host     = $cfg['host'];
-    $mail->Username = $cfg['username'];
-    $mail->Password = $cfg['password'];
-    $mail->Port     = (int) $cfg['port'];
-    $mail->CharSet  = 'UTF-8';
-    $mail->SMTPKeepAlive = true;
-
-    // Encryption
-    if ($cfg['encryption'] === 'ssl') {
-        $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;
-    } elseif ($cfg['encryption'] === 'tls') {
-        $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
-    } else {
-        $mail->SMTPSecure  = '';
-        $mail->SMTPAutoTLS = false;
-    }
-
-    // Authentication
-    $mail->SMTPAuth = $cfg['smtp_auth'];
-    if ($cfg['smtp_auth']) {
-        $mail->Username = $cfg['username'];
-        $mail->Password = $cfg['password'];
-    }
-
-    // Only disable SSL verification when explicitly configured (e.g., self-signed local SMTP)
-    $allowSelfSigned = ($smtpRows['mail_allow_self_signed'] ?? '0') === '1';
-    if ($allowSelfSigned) {
-        $mail->SMTPOptions = [
-            'ssl' => [
-                'verify_peer'       => false,
-                'verify_peer_name'  => false,
-                'allow_self_signed' => true,
-            ],
-        ];
-    }
-
-    // Load company settings for merge tags
-    $companySettings = getCompanySettings($db);
-    
-    foreach ($recipients as $recipient) {
-        $trackingId = generateUUID();
-        $messageId  = generateUUID() . '@flowstack.local';
-
-        // Insert tracking record (queued)
-        $db->prepare("
-            INSERT INTO email_tracking (id, campaign_id, customer_id, message_id, to_email, status, sent_at)
-            VALUES (?, ?, ?, ?, ?, 'queued', NOW())
-        ")->execute([$trackingId, $id, $recipient['id'], $messageId, $recipient['email']]);
-
-        // Build personalised content
-        $company    = ['name' => $recipient['company_name'] ?? ''];
-        $subject    = processMergeTags($campaign['subject'],   $recipient, $company, $companySettings);
-        $rawHtml    = $campaign['body_html'] ?? '';
-        if (empty(trim($rawHtml))) {
-            $rawHtml = '<p>' . htmlspecialchars($subject) . '</p>';
-        }
-        $htmlBody   = processMergeTags($rawHtml, $recipient, $company, $companySettings, $subject);
-        if (empty($campaign['template_id'])) {
-            $htmlBody = wrapEmailHtml($htmlBody, $subject, $companySettings);
-        }
-        $htmlBody   = processEmailHtml(
-            $htmlBody, $trackingId, $baseUrl,
-            (bool)($campaign['enable_track_opens']  ?? 1),
-            (bool)($campaign['enable_track_clicks'] ?? 1)
-        );
-        $textBody   = processMergeTags($campaign['body_text'] ?? '', $recipient, $company, $companySettings, $subject);
-
-        try {
-            $mail->clearAddresses();
-            $mail->clearReplyTos();
-            $mail->clearCustomHeaders();
-
-            $fromName    = $campaign['sender_name']  ?: $cfg['from_name']    ?: 'Flowstack';
-            $fromAddress = $campaign['sender_email'] ?: $cfg['from_address'] ?: $cfg['username'];
-            $mail->setFrom($fromAddress, $fromName);
-            $mail->addAddress($recipient['email'], trim($recipient['first_name'] . ' ' . $recipient['last_name']));
-            $mail->Subject   = $subject;
-            $mail->isHTML(true);
-            $mail->Body      = $htmlBody;
-            $mail->AltBody   = $textBody ?: strip_tags($htmlBody);
-            $mail->MessageID = '<' . $messageId . '>';
-
-            $mail->send();
-
-            // Mark as sent
-            $db->prepare("UPDATE email_tracking SET status = 'sent', sent_at = NOW() WHERE id = ?")->execute([$trackingId]);
-            logCustomerActivity($db, $recipient['id'], 'email_sent', $trackingId, [
-                'campaign_id' => $id, 'campaign_name' => $campaign['name']
-            ]);
-            $sent++;
-        } catch (MailException $e) {
-            $err = $mail->ErrorInfo;
-            $db->prepare("UPDATE email_tracking SET status = 'failed', bounce_reason = ? WHERE id = ?")
-               ->execute([$err, $trackingId]);
-            $errors[] = $recipient['email'] . ': ' . $err;
-            $failed++;
-        }
-    }
-
-    $mail->smtpClose();
-
-    // Finalise campaign status
-    $finalStatus = ($sent > 0) ? 'sent' : 'draft';
-    $db->prepare("
-        UPDATE email_campaigns SET status = ?, sent_at = NOW(), total_sent = ? WHERE id = ?
-    ")->execute([$finalStatus, $sent, $id]);
-
-    jsonSuccess([
-        'message'    => "ส่งสำเร็จ {$sent} ฉบับ" . ($failed > 0 ? ", ล้มเหลว {$failed} ฉบับ" : ''),
-        'recipients' => $sent,
-        'failed'     => $failed,
-        'errors'     => $errors,
-    ]);
+    jsonSuccess($result['data']);
 }
 
 /**
@@ -794,16 +630,7 @@ function scheduleCampaign($db, string $tenantId) {
     jsonSuccess(['message' => 'Campaign scheduled', 'scheduled_at' => $scheduledAt]);
 }
 
-/**
- * Log customer activity
- */
-function logCustomerActivity($db, $customerId, $activityType, $referenceId, $details = []) {
-    $id = generateUUID();
-    $detailsJson = json_encode($details);
-    
-    $stmt = $db->prepare("
-        INSERT INTO customer_activities (id, customer_id, activity_type, reference_id, details, created_at)
-        VALUES (?, ?, ?, ?, ?, NOW())
-    ");
-    $stmt->execute([$id, $customerId, $activityType, $referenceId, $detailsJson]);
-}
+// logCustomerActivity() moved to api/lib/email-campaign-sender.php — its only
+// caller (sendCampaignCore()) lives there now, and that file must be
+// self-contained since api/cron/send-scheduled-campaigns.php requires it
+// directly without loading this file (see that file's own header comment).
