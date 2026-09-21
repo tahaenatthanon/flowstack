@@ -2,6 +2,7 @@ import PageShell from '@/components/PageShell';
 import BrandContextTab from '@/components/content/tabs/BrandContextTab';
 import BrandInstructionForm from '@/components/brand/BrandInstructionForm';
 import BrandProductRefsForm from '@/components/brand/BrandProductRefsForm';
+import ProductCatalogForm from '@/components/brand/ProductCatalogForm';
 import ContentGoalForm from '@/components/brand/ContentGoalForm';
 import ResearchProviderForm from '@/components/brand/ResearchProviderForm';
 
@@ -16,6 +17,7 @@ export default function BrandSettingPage() {
         <BrandContextTab />
         <BrandInstructionForm />
         <ContentGoalForm />
+        <ProductCatalogForm />
         <BrandProductRefsForm />
         <ResearchProviderForm />
       </div>

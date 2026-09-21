@@ -13,6 +13,8 @@ require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/email-utils.php';
 require_once __DIR__ . '/lib/email-campaign-sender.php';
+require_once __DIR__ . '/lib/ai-creds.php';
+require_once __DIR__ . '/lib/campaign-ai-prompt.php';
 require_once __DIR__ . '/../vendor/autoload.php';
 
 use PHPMailer\PHPMailer\PHPMailer;
@@ -41,6 +43,10 @@ if ($method === 'GET' && $action === 'recipients') {
     sendCampaign($db, $userId, $tenantId);
 } elseif ($method === 'POST' && $action === 'schedule') {
     scheduleCampaign($db, $tenantId);
+} elseif ($method === 'POST' && $action === 'generate-content') {
+    generateCampaignContent($db, $tenantId);
+} elseif ($method === 'POST' && $action === 'ai-plan') {
+    aiPlanCampaigns($db, $userId, $tenantId);
 } elseif ($method === 'GET') {
     if (isset($_GET['id'])) {
         getEmailCampaign($db, $tenantId);
@@ -628,6 +634,202 @@ function scheduleCampaign($db, string $tenantId) {
     $stmt->execute([$scheduledAt, $id, $tenantId]);
     
     jsonSuccess(['message' => 'Campaign scheduled', 'scheduled_at' => $scheduledAt]);
+}
+
+/**
+ * โหลด products ตาม id ที่ระบุ (สำหรับ inject เข้า prompt) — กรองตาม tenant เสมอ
+ */
+function _loadCampaignProducts(PDO $db, array $productIds, string $tenantId): array
+{
+    $productIds = array_values(array_unique(array_filter(array_map('strval', $productIds))));
+    if (!$productIds) return [];
+    $ph = implode(',', array_fill(0, count($productIds), '?'));
+    $stmt = $db->prepare("SELECT id, name, description, usp, price FROM products WHERE id IN ($ph) AND tenant_id = ?");
+    $stmt->execute([...$productIds, $tenantId]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * ค่า sender เริ่มต้นของ tenant — ใช้ `settings` (mail_from_name/mail_from_address)
+ * ก่อน แล้วค่อย fallback ไปที่ constant จาก .env (เหมือน api/mail-settings.php)
+ */
+function _defaultCampaignSender(PDO $db): array
+{
+    $stmt = $db->query("SELECT `key`, `value` FROM settings WHERE `key` IN ('mail_from_name','mail_from_address')");
+    $rows = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
+    return [
+        'name'  => $rows['mail_from_name']    ?: MAIL_FROM_NAME,
+        'email' => $rows['mail_from_address'] ?: MAIL_FROM_ADDRESS,
+    ];
+}
+
+/**
+ * เรียก AI ครั้งเดียวด้วย system+user prompt ที่ส่งเข้ามา คืน ['subject','name','body_html']
+ * โยน Exception message เป็นข้อความ error ที่ safe จะโชว์ผู้ใช้ได้เลย (jsonError โดย caller)
+ */
+function _callCampaignAI(PDO $db, string $tenantId, string $systemPrompt, string $userMessage): array
+{
+    $creds = resolveAICreds($db, 'ai_content_text_model_id', $tenantId);
+    if (empty($creds['api_key']))  throw new RuntimeException('AI API key not configured — ตั้งค่าใน Admin > AI Settings ก่อน');
+    if (empty($creds['base_url'])) throw new RuntimeException('AI API base URL not configured — ตั้งค่าใน Admin > AI Settings');
+
+    $stmt = $db->prepare('SELECT ai_content_text_model_id, ai_default_model_id FROM company_settings WHERE tenant_id=?');
+    $stmt->execute([$tenantId]);
+    $ais = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    $modelName = 'kilo-auto/balanced';
+    $modelId = $ais['ai_content_text_model_id'] ?? $ais['ai_default_model_id'] ?? null;
+    if ($modelId) {
+        $mStmt = $db->prepare('SELECT model_id FROM ai_models WHERE id=?');
+        $mStmt->execute([$modelId]);
+        $mm = $mStmt->fetch(PDO::FETCH_ASSOC);
+        if ($mm) $modelName = $mm['model_id'];
+    }
+
+    $apiUrl = rtrim($creds['base_url'], '/') . '/chat/completions';
+    $sslVerify = !empty(AI_SSL_VERIFY);
+    $payload = json_encode([
+        'model'    => $modelName,
+        'messages' => [
+            ['role' => 'system', 'content' => $systemPrompt],
+            ['role' => 'user',   'content' => $userMessage],
+        ],
+        'max_tokens' => (int)($creds['max_tokens'] ?? 4096) ?: 4096,
+        'stream'     => false,
+    ]);
+
+    $ch = curl_init($apiUrl);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST           => true,
+        CURLOPT_POSTFIELDS     => $payload,
+        CURLOPT_HTTPHEADER     => ['Authorization: Bearer ' . $creds['api_key'], 'Content-Type: application/json'],
+        CURLOPT_SSL_VERIFYPEER => $sslVerify,
+        CURLOPT_SSL_VERIFYHOST => $sslVerify ? 2 : 0,
+        CURLOPT_TIMEOUT        => (int)($creds['timeout'] ?? 60) ?: 60,
+        CURLOPT_CONNECTTIMEOUT => 10,
+    ]);
+    $raw = curl_exec($ch);
+    $curlErr = curl_error($ch);
+    curl_close($ch);
+
+    if ($raw === false) throw new RuntimeException('ไม่สามารถเชื่อมต่อ AI API: ' . $curlErr);
+
+    $dec = json_decode($raw, true);
+    if (!empty($dec['error'])) throw new RuntimeException('AI API error: ' . ($dec['error']['message'] ?? json_encode($dec['error'])));
+
+    $content = (string)($dec['choices'][0]['message']['content'] ?? '');
+    if ($content === '') throw new RuntimeException('AI ไม่ได้คืนเนื้อหากลับมา (empty_content)');
+
+    $obj = campaign_ai_extract_json($content);
+    if (!$obj || empty($obj['body_html'])) throw new RuntimeException('แปลงผลลัพธ์ AI เป็น JSON ไม่สำเร็จ');
+
+    array_walk_recursive($obj, function (&$val) {
+        if (is_string($val)) $val = campaign_ai_sanitize_output($val);
+    });
+
+    return [
+        'subject'   => trim((string)($obj['subject'] ?? '')),
+        'name'      => trim((string)($obj['name'] ?? '')),
+        'body_html' => (string)($obj['body_html'] ?? ''),
+    ];
+}
+
+/**
+ * POST ?action=generate-content — generate เนื้อหาแคมเปญ 1 ฉบับ ให้ผู้ใช้เอาไปใส่
+ * ในไดอะล็อกสร้าง/แก้ไขแคมเปญเอง (ไม่ insert อะไรลง DB ในนี้)
+ */
+function generateCampaignContent(PDO $db, string $tenantId): void
+{
+    $body = getRequestBody();
+    $productIds  = is_array($body['product_ids'] ?? null) ? $body['product_ids'] : [];
+    $sourceTopic = trim((string)($body['source_topic'] ?? ''));
+    $tone        = (string)($body['tone'] ?? 'friendly');
+
+    $products = _loadCampaignProducts($db, $productIds, $tenantId);
+
+    $systemPrompt = campaign_ai_system_prompt(['products' => $products, 'tone' => $tone]);
+    $userMessage  = campaign_ai_user_message($sourceTopic);
+
+    try {
+        $result = _callCampaignAI($db, $tenantId, $systemPrompt, $userMessage);
+    } catch (Throwable $e) {
+        jsonError($e->getMessage(), 500);
+    }
+
+    // Topic เป็น source of truth ถ้าผู้ใช้กรอกไว้แล้ว — ไม่คืน subject ที่ AI คิดเอง
+    // มาทับ (ฝั่ง frontend ก็ไม่ควร overwrite อยู่แล้ว แต่กันไว้สองชั้นที่ backend ด้วย)
+    if ($sourceTopic !== '') {
+        $result['subject'] = $sourceTopic;
+        if (empty($result['name'])) $result['name'] = $sourceTopic;
+    }
+
+    jsonResponse($result);
+}
+
+/**
+ * POST ?action=ai-plan — AI วางแผนแคมเปญเป็นชุด (drip) รอบสินค้าเดียว
+ * สร้าง email_campaigns หลายแถว status='draft' เท่านั้น — ไม่ตั้ง 'scheduled'
+ * และไม่เรียก sendCampaignCore() เด็ดขาด (ต้องให้ผู้ใช้อนุมัติ/ตั้งเวลาเองทีละฉบับ)
+ */
+function aiPlanCampaigns(PDO $db, string $userId, string $tenantId): void
+{
+    $body = getRequestBody();
+    $productId    = trim((string)($body['product_id'] ?? ''));
+    $count        = (int)($body['count'] ?? 0);
+    $intervalDays = (int)($body['interval_days'] ?? 0);
+    $startDate    = trim((string)($body['start_date'] ?? ''));
+    $tone         = (string)($body['tone'] ?? 'friendly');
+
+    if ($productId === '') jsonError('กรุณาเลือกสินค้า', 400);
+    if ($count < 1 || $count > 10) jsonError('จำนวนฉบับต้องอยู่ระหว่าง 1-10', 400);
+    if ($intervalDays < 0) jsonError('ระยะห่างวันต้องไม่ติดลบ', 400);
+    if (!$startDate || !strtotime($startDate)) jsonError('กรุณาระบุวันเริ่มต้นที่ถูกต้อง', 400);
+
+    $products = _loadCampaignProducts($db, [$productId], $tenantId);
+    if (!$products) jsonError('ไม่พบสินค้าที่เลือก', 404);
+
+    $sender = _defaultCampaignSender($db);
+    $planBatchId = generateUUID();
+    $angleInstructions = [
+        'เน้นแนะนำสินค้าครั้งแรก — ปูพื้นว่าสินค้านี้คืออะไร แก้ปัญหาอะไร',
+        'เน้นจุดขาย/ผลลัพธ์ที่ลูกค้าจะได้รับ พร้อมเหตุผลว่าทำไมต้องตัดสินใจตอนนี้',
+        'เน้นความเร่งด่วน/ข้อเสนอปิดการขาย ชวนติดต่อกลับหรือปรึกษาฟรี',
+    ];
+
+    $created = [];
+    for ($i = 0; $i < $count; $i++) {
+        $angle = $angleInstructions[$i % count($angleInstructions)] . " (ฉบับที่ " . ($i + 1) . " จาก {$count})";
+        $systemPrompt = campaign_ai_system_prompt(['products' => $products, 'tone' => $tone, 'angle_instruction' => $angle]);
+        $userMessage  = campaign_ai_user_message(null);
+
+        try {
+            $result = _callCampaignAI($db, $tenantId, $systemPrompt, $userMessage);
+        } catch (Throwable $e) {
+            // ฉบับก่อนหน้าที่ generate สำเร็จแล้วยังอยู่เป็น draft ตามปกติ — คืน error
+            // พร้อมจำนวนที่ทำสำเร็จไปแล้ว ให้ frontend แจ้งผู้ใช้แทนที่จะเงียบหาย
+            jsonError('Generate ฉบับที่ ' . ($i + 1) . ' ล้มเหลว: ' . $e->getMessage() . " (สร้างสำเร็จไปแล้ว " . count($created) . " ฉบับ)", 500);
+        }
+
+        $scheduledAt = date('Y-m-d H:i:s', strtotime($startDate . ' + ' . ($i * $intervalDays) . ' days'));
+        $id = generateUUID();
+        $db->prepare("
+            INSERT INTO email_campaigns (
+                id, tenant_id, name, subject, body_html, body_text, product_id,
+                plan_batch_id, plan_sequence, sender_name, sender_email,
+                status, scheduled_at, created_by, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, NOW())
+        ")->execute([
+            $id, $tenantId,
+            $result['name'] ?: $result['subject'],
+            $result['subject'], $result['body_html'], strip_tags($result['body_html']),
+            $productId, $planBatchId, $i + 1,
+            $sender['name'], $sender['email'],
+            $scheduledAt, $userId,
+        ]);
+        $created[] = ['id' => $id, 'subject' => $result['subject'], 'scheduled_at' => $scheduledAt, 'sequence' => $i + 1];
+    }
+
+    jsonResponse(['plan_batch_id' => $planBatchId, 'campaigns' => $created], 201);
 }
 
 // logCustomerActivity() moved to api/lib/email-campaign-sender.php — its only

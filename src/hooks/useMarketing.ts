@@ -27,6 +27,9 @@ export interface EmailCampaign {
   discount_percent?: string | null;
   countdown_text?: string | null;
   segment_filters?: string | null;
+  product_id?: string | null;
+  plan_batch_id?: string | null;
+  plan_sequence?: number | null;
   sender_name?: string;
   sender_email?: string;
   total_recipients: number;

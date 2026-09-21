@@ -1,0 +1,155 @@
+import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { Loader2, Sparkles, CheckCircle2 } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
+import { apiFetch } from '@/lib/api';
+import { useToast } from '@/hooks/use-toast';
+import { useConfirm } from '@/hooks/useConfirm';
+import { marketingKeys } from '@/hooks/useMarketing';
+import ProductPicker from './ProductPicker';
+
+interface AICampaignPlanDialogProps {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+}
+
+const todayLocalISO = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+export default function AICampaignPlanDialog({ open, onOpenChange }: AICampaignPlanDialogProps) {
+  const { toast } = useToast();
+  const { confirm } = useConfirm();
+  const qc = useQueryClient();
+
+  const [productIds, setProductIds] = useState<string[]>([]);
+  const [count, setCount] = useState(3);
+  const [intervalDays, setIntervalDays] = useState(3);
+  const [startDate, setStartDate] = useState(todayLocalISO());
+  const [tone, setTone] = useState<'friendly' | 'formal' | 'educational' | 'storytelling'>('friendly');
+  const [step, setStep] = useState<'form' | 'progress' | 'done'>('form');
+  const [createdCount, setCreatedCount] = useState(0);
+
+  const reset = () => {
+    setProductIds([]); setCount(3); setIntervalDays(3); setStartDate(todayLocalISO());
+    setTone('friendly'); setStep('form'); setCreatedCount(0);
+  };
+
+  const handleClose = (v: boolean) => {
+    if (!v) reset();
+    onOpenChange(v);
+  };
+
+  const handleGenerate = async () => {
+    const ok = await confirm({
+      title: 'ยืนยันวางแผนแคมเปญ',
+      description: `AI จะสร้างแคมเปญ ${count} ฉบับ ห่างกัน ${intervalDays} วัน เริ่มจาก ${startDate} — ทุกฉบับจะถูกบันทึกเป็น "ฉบับร่าง" เท่านั้น จะไม่ถูกส่งจนกว่าคุณจะอนุมัติ/ตั้งเวลาส่งเองทีละฉบับ`,
+      confirmLabel: 'ยืนยันและสร้าง',
+    });
+    if (!ok) return;
+
+    setStep('progress');
+    try {
+      const result: any = await apiFetch('/email-campaigns.php?action=ai-plan', {
+        method: 'POST',
+        body: JSON.stringify({
+          product_id: productIds[0],
+          count,
+          interval_days: intervalDays,
+          start_date: startDate,
+          tone,
+        }),
+      });
+      setCreatedCount(result?.campaigns?.length ?? count);
+      qc.invalidateQueries({ queryKey: marketingKeys.campaigns() });
+      setStep('done');
+    } catch (e: any) {
+      toast({ title: 'วางแผนแคมเปญไม่สำเร็จ', description: e.message, variant: 'destructive' });
+      setStep('form');
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleClose}>
+      <DialogContent className="w-full sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-primary" />AI วางแผนแคมเปญ
+          </DialogTitle>
+          <DialogDescription>
+            AI จะเขียนแคมเปญหลายฉบับให้ล่วงหน้า ทุกฉบับเป็นฉบับร่างที่ต้องอนุมัติเองก่อนส่ง
+          </DialogDescription>
+        </DialogHeader>
+
+        {step === 'form' && (
+          <div className="space-y-4">
+            <div className="grid gap-1.5">
+              <Label>เลือกสินค้า <span className="text-destructive">*</span></Label>
+              <ProductPicker value={productIds} onChange={setProductIds} max={1} />
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="grid gap-1.5">
+                <Label className="text-xs">จำนวนฉบับ</Label>
+                <Input type="number" min={1} max={10} value={count} onChange={e => setCount(Math.max(1, Math.min(10, Number(e.target.value) || 1)))} />
+              </div>
+              <div className="grid gap-1.5">
+                <Label className="text-xs">ห่างกัน (วัน)</Label>
+                <Input type="number" min={0} value={intervalDays} onChange={e => setIntervalDays(Math.max(0, Number(e.target.value) || 0))} />
+              </div>
+              <div className="grid gap-1.5">
+                <Label className="text-xs">วันเริ่มต้น</Label>
+                <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
+              </div>
+            </div>
+            <div className="grid gap-1.5">
+              <Label className="text-xs">โทนการเขียน</Label>
+              <div className="flex flex-wrap gap-1.5">
+                {([
+                  { value: 'friendly', label: 'เป็นกันเอง' },
+                  { value: 'formal', label: 'เป็นทางการ' },
+                  { value: 'educational', label: 'ให้ความรู้' },
+                  { value: 'storytelling', label: 'เล่าเรื่อง' },
+                ] as const).map(opt => (
+                  <button key={opt.value} type="button" onClick={() => setTone(opt.value)}
+                    className={cn('text-[11px] px-2 py-1 rounded border transition-colors',
+                      tone === opt.value ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-muted')}>
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => handleClose(false)}>ยกเลิก</Button>
+              <Button disabled={productIds.length === 0} onClick={handleGenerate} className="gap-2">
+                <Sparkles className="h-4 w-4" />สร้างแผน
+              </Button>
+            </DialogFooter>
+          </div>
+        )}
+
+        {step === 'progress' && (
+          <div className="py-12 flex flex-col items-center gap-3">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="text-sm font-medium">AI กำลังเขียนแคมเปญ {count} ฉบับ... (อาจใช้เวลาสักครู่)</p>
+          </div>
+        )}
+
+        {step === 'done' && (
+          <div className="py-8 flex flex-col items-center gap-4">
+            <CheckCircle2 className="h-10 w-10 text-green-500" />
+            <div className="text-center">
+              <p className="font-semibold text-lg">สร้างแผนสำเร็จ! 🎉</p>
+              <p className="text-sm text-muted-foreground mt-1">สร้างแคมเปญร่างไว้ {createdCount} ฉบับ — ตรวจสอบและอนุมัติทีละฉบับได้จากรายการแคมเปญ</p>
+            </div>
+            <Button onClick={() => handleClose(false)}>ปิด</Button>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}

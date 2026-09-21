@@ -14,9 +14,11 @@ import ArticleEditor from '@/components/content/ArticleEditor';
 import type { SeoFields } from '@/components/content/types';
 import { emailTemplates, type EmailTemplate } from '@/data/emailTemplates';
 import { composeCampaignHtml } from '@/lib/campaignTemplateCompose';
-import { Loader2, Plus, Send, Eye, MousePointer, X, Search, Mail, Users, Pencil, Trash2, UserMinus, Copy, Building2, FileText, LayoutTemplate, Palette, Route, Clock } from 'lucide-react';
+import { Loader2, Plus, Send, Eye, MousePointer, X, Search, Mail, Users, Pencil, Trash2, UserMinus, Copy, Building2, FileText, LayoutTemplate, Palette, Route, Clock, Sparkles, Wand2, Layers } from 'lucide-react';
 import AttributionTab from '@/components/marketing/AttributionTab';
 import PullFromContentDialog from '@/components/content/dialogs/PullFromContentDialog';
+import ProductPicker from '@/components/campaigns/ProductPicker';
+import AICampaignPlanDialog from '@/components/campaigns/AICampaignPlanDialog';
 import { MultiSelectCombobox } from '@/components/MultiSelectCombobox';
 import PageShell from '@/components/PageShell';
 import { useToast } from '@/hooks/use-toast';
@@ -334,6 +336,13 @@ export default function CampaignsPage() {
   const [enableTrackOpens, setEnableTrackOpens]   = useState(true);
   const [enableTrackClicks, setEnableTrackClicks] = useState(true);
   const pullFromDialogRef = useRef<boolean>(false);
+  // AI generate เนื้อหาแคมเปญ (เดี่ยว) — panel ใน section เนื้อหาอีเมล
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [aiProductIds, setAiProductIds] = useState<string[]>([]);
+  const [aiTone, setAiTone] = useState<'friendly' | 'formal' | 'educational' | 'storytelling'>('friendly');
+  const [aiGenerating, setAiGenerating] = useState(false);
+  // AI วางแผนแคมเปญเป็นชุด
+  const [aiPlanDialogOpen, setAiPlanDialogOpen] = useState(false);
   // Group form (create / edit)
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
   const [isEditGroupOpen, setIsEditGroupOpen] = useState(false);
@@ -453,6 +462,40 @@ export default function CampaignsPage() {
     isChromeLocked && selectedTemplateObj
       ? composeCampaignHtml(selectedTemplateObj, editableContent, ctaText, ctaUrl, discountPercent, countdown)
       : campaignBody;
+
+  // ให้ AI generate เนื้อหาแคมเปญ 1 ฉบับ — หัวข้ออีเมลที่มีอยู่แล้วถูกใช้เป็น
+  // topic อ้างอิงและไม่ถูกทับ (ทั้ง frontend และ backend กันซ้ำสองชั้น) ถ้าว่าง
+  // ให้ AI เติมทั้งชื่อแคมเปญ/หัวข้ออีเมลให้เอง — body ถูกเติมเข้า editor เสมอ
+  const handleGenerateWithAI = async () => {
+    setAiGenerating(true);
+    try {
+      const result: any = await apiFetch('/email-campaigns.php?action=generate-content', {
+        method: 'POST',
+        body: JSON.stringify({
+          product_ids: aiProductIds,
+          source_topic: campaignSubject.trim(),
+          tone: aiTone,
+        }),
+      });
+      if (!campaignSubject.trim()) {
+        setCampaignSubject(result.subject || '');
+      }
+      if (!campaignName.trim()) {
+        setCampaignName(result.name || result.subject || '');
+      }
+      if (isChromeLocked) {
+        setEditableContent(result.body_html || '');
+      } else {
+        setCampaignBody(result.body_html || '');
+      }
+      setAiPanelOpen(false);
+      toast({ title: 'สร้างเนื้อหาด้วย AI สำเร็จ' });
+    } catch (e: any) {
+      toast({ title: 'สร้างเนื้อหาไม่สำเร็จ', description: e.message, variant: 'destructive' });
+    } finally {
+      setAiGenerating(false);
+    }
+  };
 
   const handleSubmitCampaign = async () => {
     if (!campaignName || !campaignSubject) {
@@ -781,6 +824,20 @@ export default function CampaignsPage() {
       c.subject.toLowerCase().includes(search.toLowerCase())
     ), [campaigns, search]);
 
+  // สรุปความคืบหน้าของชุดแผน (plan_batch_id) — ใช้แสดง badge "ชุดแผน (X/N)"
+  // นับ "คืบหน้าแล้ว" คือฉบับที่หลุดจาก draft ไปแล้ว (scheduled/sending/sent/cancelled)
+  const batchProgress = useMemo(() => {
+    const map = new Map<string, { total: number; progressed: number }>();
+    for (const c of campaigns) {
+      if (!c.plan_batch_id) continue;
+      const entry = map.get(c.plan_batch_id) ?? { total: 0, progressed: 0 };
+      entry.total++;
+      if (c.status !== 'draft') entry.progressed++;
+      map.set(c.plan_batch_id, entry);
+    }
+    return map;
+  }, [campaigns]);
+
   const filteredGroups = useMemo(() =>
     groups.filter(g =>
       g.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -847,6 +904,9 @@ export default function CampaignsPage() {
 <div className="flex gap-2">
   <Button variant="outline" className="gap-2" onClick={() => setPullContentOpen(true)}>
     <FileText className="w-4 h-4" /><span className="hidden sm:inline">ดึงคอนเทนท์</span>
+  </Button>
+  <Button variant="outline" className="gap-2" onClick={() => setAiPlanDialogOpen(true)}>
+    <Wand2 className="w-4 h-4" /><span className="hidden sm:inline">AI วางแผนแคมเปญ</span>
   </Button>
   <Button className="gap-2" onClick={() => openCreateCampaign()}>
     <Plus className="w-4 h-4" /><span className="hidden sm:inline">สร้างแคมเปญ</span>
@@ -924,6 +984,12 @@ export default function CampaignsPage() {
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_CONFIG[campaign.status].color}`}>
                             {STATUS_CONFIG[campaign.status].label}
                           </span>
+                          {campaign.plan_batch_id && batchProgress.has(campaign.plan_batch_id) && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-violet-100 dark:bg-violet-950 text-violet-700 dark:text-violet-300">
+                              <Layers className="w-3 h-3" />
+                              ชุดแผน ({batchProgress.get(campaign.plan_batch_id)!.progressed}/{batchProgress.get(campaign.plan_batch_id)!.total})
+                            </span>
+                          )}
                         </div>
                         <p className="text-sm text-muted-foreground truncate">{campaign.subject}</p>
                         <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-xs text-muted-foreground">
@@ -1242,6 +1308,8 @@ export default function CampaignsPage() {
         }}
       />
 
+      <AICampaignPlanDialog open={aiPlanDialogOpen} onOpenChange={setAiPlanDialogOpen} />
+
       {/* ── Template Preview Dialog ── */}
       {templatePreviewId && (() => {
         const tpl = emailTemplates.find(t => t.id === templatePreviewId);
@@ -1471,8 +1539,51 @@ export default function CampaignsPage() {
                     <FileText className="h-3.5 w-3.5" />
                     <span className="hidden sm:inline">ดึงคอนเทนท์</span>
                   </Button>
+                  <Button
+                    variant="outline" size="sm" className="h-7 gap-1.5 text-xs"
+                    onClick={() => setAiPanelOpen(v => !v)}
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">สร้างด้วย AI</span>
+                  </Button>
                 </div>
               </div>
+
+              {aiPanelOpen && (
+                <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2.5">
+                  <div className="grid gap-1.5">
+                    <Label className="text-xs">เลือกสินค้า</Label>
+                    <ProductPicker value={aiProductIds} onChange={setAiProductIds} />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label className="text-xs">โทนการเขียน</Label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {([
+                        { value: 'friendly', label: 'เป็นกันเอง' },
+                        { value: 'formal', label: 'เป็นทางการ' },
+                        { value: 'educational', label: 'ให้ความรู้' },
+                        { value: 'storytelling', label: 'เล่าเรื่อง' },
+                      ] as const).map(opt => (
+                        <button key={opt.value} type="button" onClick={() => setAiTone(opt.value)}
+                          className={cn('text-[11px] px-2 py-1 rounded border transition-colors',
+                            aiTone === opt.value ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-muted')}>
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    {campaignSubject.trim()
+                      ? 'มีหัวข้ออีเมลอยู่แล้ว — AI จะเขียนเนื้อหาให้ตรงกับหัวข้อนี้ (ไม่แก้หัวข้อ/ชื่อแคมเปญ)'
+                      : 'ยังไม่มีหัวข้ออีเมล — AI จะคิดหัวข้อและชื่อแคมเปญให้ด้วย'}
+                  </p>
+                  <Button size="sm" className="gap-1.5" disabled={aiGenerating} onClick={handleGenerateWithAI}>
+                    {aiGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                    {aiGenerating ? 'กำลังสร้าง...' : 'สร้าง'}
+                  </Button>
+                </div>
+              )}
+
               <Tabs defaultValue="edit">
                 <TabsList className="h-8 w-full sm:w-auto">
                   <TabsTrigger value="edit" className="text-xs flex-1 sm:flex-none">✏️ แก้ไข</TabsTrigger>
