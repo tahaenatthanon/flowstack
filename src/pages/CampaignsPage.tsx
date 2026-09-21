@@ -339,7 +339,7 @@ export default function CampaignsPage() {
   // AI generate เนื้อหาแคมเปญ (เดี่ยว) — panel ใน section เนื้อหาอีเมล
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [aiProductIds, setAiProductIds] = useState<string[]>([]);
-  const [aiTone, setAiTone] = useState<'friendly' | 'formal' | 'educational' | 'storytelling'>('friendly');
+  const [aiTone, setAiTone] = useState<'auto' | 'friendly' | 'formal' | 'educational' | 'storytelling'>('auto');
   const [aiGenerating, setAiGenerating] = useState(false);
   // AI วางแผนแคมเปญเป็นชุด
   const [aiPlanDialogOpen, setAiPlanDialogOpen] = useState(false);
@@ -475,6 +475,8 @@ export default function CampaignsPage() {
           product_ids: aiProductIds,
           source_topic: campaignSubject.trim(),
           tone: aiTone,
+          templates: emailTemplates.map(t => ({ id: t.id, nameTH: t.nameTH })),
+          current_template_id: selectedTemplate || null,
         }),
       });
       if (!campaignSubject.trim()) {
@@ -483,11 +485,31 @@ export default function CampaignsPage() {
       if (!campaignName.trim()) {
         setCampaignName(result.name || result.subject || '');
       }
-      if (isChromeLocked) {
+
+      // ถ้ายังไม่มี template ที่เลือกไว้ก่อน ให้ apply template ที่ AI เลือกมา —
+      // ต้องคำนวณ chrome-lock จาก template ที่ "จะใช้จริง" เอง ไม่ใช้ isChromeLocked
+      // เดิมที่ derive จาก selectedTemplate state เพราะ setSelectedTemplate ที่
+      // applyTemplateSelection() เรียกยัง async ไม่ re-render ทันในฟังก์ชันนี้
+      let effectiveTemplate = selectedTemplateObj;
+      if (!selectedTemplate && result.template_id) {
+        const aiTemplate = emailTemplates.find(t => t.id === result.template_id);
+        if (aiTemplate) {
+          applyTemplateSelection(aiTemplate);
+          effectiveTemplate = aiTemplate;
+        }
+      }
+      const effectiveChromeLocked = !forceLegacyEditor && !!effectiveTemplate?.defaultContent;
+
+      if (effectiveChromeLocked) {
         setEditableContent(result.body_html || '');
       } else {
         setCampaignBody(result.body_html || '');
       }
+
+      if (!scheduleAt.trim() && result.suggested_scheduled_at) {
+        setScheduleAt(String(result.suggested_scheduled_at).slice(0, 16).replace(' ', 'T'));
+      }
+
       setAiPanelOpen(false);
       toast({ title: 'สร้างเนื้อหาด้วย AI สำเร็จ' });
     } catch (e: any) {
@@ -987,16 +1009,19 @@ export default function CampaignsPage() {
                           {campaign.plan_batch_id && batchProgress.has(campaign.plan_batch_id) && (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-violet-100 dark:bg-violet-950 text-violet-700 dark:text-violet-300">
                               <Layers className="w-3 h-3" />
-                              ชุดแผน ({batchProgress.get(campaign.plan_batch_id)!.progressed}/{batchProgress.get(campaign.plan_batch_id)!.total})
+                              ชุดแคมเปญ ({batchProgress.get(campaign.plan_batch_id)!.progressed}/{batchProgress.get(campaign.plan_batch_id)!.total})
                             </span>
                           )}
                         </div>
                         <p className="text-sm text-muted-foreground truncate">{campaign.subject}</p>
                         <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-xs text-muted-foreground">
                           <span>{campaign.total_recipients} ผู้รับ</span>
-                          {campaign.sent_at && <span>ส่งเมื่อ {new Date(campaign.sent_at).toLocaleDateString('th-TH')}</span>}
+                          {campaign.sent_at && <span>ส่งเมื่อ {new Date(campaign.sent_at).toLocaleString('th-TH')}</span>}
                           {campaign.status === 'scheduled' && campaign.scheduled_at && (
                             <span>กำหนดส่ง {new Date(campaign.scheduled_at).toLocaleString('th-TH')}</span>
+                          )}
+                          {campaign.status === 'draft' && campaign.scheduled_at && (
+                            <span className="text-amber-600 dark:text-amber-400">🕐 วันที่เสนอ (รอตั้งเวลาส่ง) {new Date(campaign.scheduled_at).toLocaleString('th-TH')}</span>
                           )}
                         </div>
                       </div>
@@ -1559,6 +1584,7 @@ export default function CampaignsPage() {
                     <Label className="text-xs">โทนการเขียน</Label>
                     <div className="flex flex-wrap gap-1.5">
                       {([
+                        { value: 'auto', label: '✨ ให้ AI เลือกเอง' },
                         { value: 'friendly', label: 'เป็นกันเอง' },
                         { value: 'formal', label: 'เป็นทางการ' },
                         { value: 'educational', label: 'ให้ความรู้' },

@@ -1,28 +1,4 @@
-# campaign-ai-batch-planning Specification
-
-## Purpose
-
-TBD - ให้ผู้ใช้วางแผนและสร้างชุดแคมเปญอีเมลหลายฉบับพร้อมกันด้วย AI (กำหนดจำนวน, ระยะห่างวัน, วันเริ่มต้น) โดยแคมเปญทั้งหมดที่สร้างจะเป็นสถานะ draft และต้องได้รับการอนุมัติ/ตั้งเวลาด้วยตนเองก่อนส่งจริงเสมอ
-
-## Requirements
-
-### Requirement: Batch Plan Trigger
-The Campaigns page toolbar SHALL offer an "AI วางแผนแคมเปญ" action that opens a dialog for configuring a multi-campaign AI-generated batch.
-
-#### Scenario: User opens the batch planning dialog
-- **WHEN** a user clicks "AI วางแผนแคมเปญ" in the Campaigns page toolbar
-- **THEN** a dialog opens for configuring a batch of campaigns
-
-### Requirement: Batch Configuration Inputs
-The batch planning dialog SHALL require the user to select at least one product, and SHALL collect the number of emails to generate, the interval in days between each email's proposed send date, and a start date.
-
-#### Scenario: Configuring a 3-email batch
-- **WHEN** a user selects one product, sets count to 3, interval to 3 days, and a start date
-- **THEN** the dialog accepts the configuration and allows the user to proceed with generation
-
-#### Scenario: Product selection is required
-- **WHEN** a user attempts to generate a batch without selecting any product
-- **THEN** the system prevents generation and indicates a product must be selected
+## MODIFIED Requirements
 
 ### Requirement: Batch Generation Creates Draft Campaigns Only
 WHEN a batch is generated, the system SHALL create one `email_campaigns` row per planned email with `status='draft'`. Each row's proposed `scheduled_at` SHALL combine a date derived from the start date and interval with a send time decided by the AI for that specific email. The system SHALL NOT set any created campaign to `scheduled` or send it.
@@ -35,26 +11,7 @@ WHEN a batch is generated, the system SHALL create one `email_campaigns` row per
 - **WHEN** a batch of more than one email is generated
 - **THEN** the proposed `scheduled_at` values are not required to share the same time-of-day, and the dates still follow the start date and interval configured by the user
 
-### Requirement: Batch Grouping And Ordering
-All campaigns created within one batch generation SHALL share the same batch identifier and SHALL each record their position within the batch.
-
-#### Scenario: Batch campaigns share an identifier
-- **WHEN** a batch of 3 campaigns is generated
-- **THEN** all 3 campaigns store the same batch identifier and are ordered 1 through 3
-
-### Requirement: Batch Indicator In Campaign List
-The campaign list SHALL display an indicator on cards belonging to a batch, showing the batch's overall progress (how many of the batch have moved past draft status).
-
-#### Scenario: Card shows batch progress
-- **WHEN** a batch of 3 campaigns has 1 campaign already scheduled and 2 still in draft
-- **THEN** each of the 3 campaign cards shows an indicator reflecting that 1 of 3 has progressed
-
-### Requirement: Manual Approval Required Before Send
-A batch-created draft campaign SHALL require the same explicit user action as a manually created campaign (editing and scheduling, or sending) before it can be sent. No automated process triggered by batch generation SHALL transition a batch-created campaign out of `draft` status.
-
-#### Scenario: Batch draft is not sent automatically
-- **WHEN** a batch of campaigns has just been generated
-- **THEN** none of the generated campaigns are picked up by the scheduled-send cron until a user explicitly schedules or sends them
+## ADDED Requirements
 
 ### Requirement: Batch Topics Are Planned Holistically For Diversity
 Before writing any individual email, the system SHALL plan the full set of topics (and their proposed send times) for the batch in a single step that has visibility into all planned emails at once, rather than deciding each email's topic independently and in isolation.

@@ -10,7 +10,15 @@ import { apiFetch } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import { useConfirm } from '@/hooks/useConfirm';
 import { marketingKeys } from '@/hooks/useMarketing';
+import { emailTemplates } from '@/data/emailTemplates';
 import ProductPicker from './ProductPicker';
+
+interface PlannedCampaign {
+  id: string;
+  subject: string;
+  scheduled_at: string;
+  sequence: number;
+}
 
 interface AICampaignPlanDialogProps {
   open: boolean;
@@ -31,13 +39,13 @@ export default function AICampaignPlanDialog({ open, onOpenChange }: AICampaignP
   const [count, setCount] = useState(3);
   const [intervalDays, setIntervalDays] = useState(3);
   const [startDate, setStartDate] = useState(todayLocalISO());
-  const [tone, setTone] = useState<'friendly' | 'formal' | 'educational' | 'storytelling'>('friendly');
+  const [tone, setTone] = useState<'auto' | 'friendly' | 'formal' | 'educational' | 'storytelling'>('auto');
   const [step, setStep] = useState<'form' | 'progress' | 'done'>('form');
-  const [createdCount, setCreatedCount] = useState(0);
+  const [createdCampaigns, setCreatedCampaigns] = useState<PlannedCampaign[]>([]);
 
   const reset = () => {
     setProductIds([]); setCount(3); setIntervalDays(3); setStartDate(todayLocalISO());
-    setTone('friendly'); setStep('form'); setCreatedCount(0);
+    setTone('auto'); setStep('form'); setCreatedCampaigns([]);
   };
 
   const handleClose = (v: boolean) => {
@@ -63,9 +71,10 @@ export default function AICampaignPlanDialog({ open, onOpenChange }: AICampaignP
           interval_days: intervalDays,
           start_date: startDate,
           tone,
+          templates: emailTemplates.map(t => ({ id: t.id, nameTH: t.nameTH })),
         }),
       });
-      setCreatedCount(result?.campaigns?.length ?? count);
+      setCreatedCampaigns(result?.campaigns ?? []);
       qc.invalidateQueries({ queryKey: marketingKeys.campaigns() });
       setStep('done');
     } catch (e: any) {
@@ -110,6 +119,7 @@ export default function AICampaignPlanDialog({ open, onOpenChange }: AICampaignP
               <Label className="text-xs">โทนการเขียน</Label>
               <div className="flex flex-wrap gap-1.5">
                 {([
+                  { value: 'auto', label: '✨ ให้ AI เลือกเอง' },
                   { value: 'friendly', label: 'เป็นกันเอง' },
                   { value: 'formal', label: 'เป็นทางการ' },
                   { value: 'educational', label: 'ให้ความรู้' },
@@ -140,12 +150,22 @@ export default function AICampaignPlanDialog({ open, onOpenChange }: AICampaignP
         )}
 
         {step === 'done' && (
-          <div className="py-8 flex flex-col items-center gap-4">
+          <div className="py-6 flex flex-col items-center gap-4">
             <CheckCircle2 className="h-10 w-10 text-green-500" />
             <div className="text-center">
               <p className="font-semibold text-lg">สร้างแผนสำเร็จ! 🎉</p>
-              <p className="text-sm text-muted-foreground mt-1">สร้างแคมเปญร่างไว้ {createdCount} ฉบับ — ตรวจสอบและอนุมัติทีละฉบับได้จากรายการแคมเปญ</p>
+              <p className="text-sm text-muted-foreground mt-1">สร้างแคมเปญร่างไว้ {createdCampaigns.length} ฉบับ — ตรวจสอบและอนุมัติทีละฉบับได้จากรายการแคมเปญ</p>
             </div>
+            {createdCampaigns.length > 0 && (
+              <div className="w-full space-y-1.5">
+                {createdCampaigns.map(c => (
+                  <div key={c.id} className="flex items-center justify-between gap-2 text-xs p-2 rounded-md border bg-muted/30">
+                    <span className="truncate flex-1">✓ ฉบับ {c.sequence} — {c.subject}</span>
+                    <span className="text-muted-foreground shrink-0">{new Date(c.scheduled_at).toLocaleString('th-TH')}</span>
+                  </div>
+                ))}
+              </div>
+            )}
             <Button onClick={() => handleClose(false)}>ปิด</Button>
           </div>
         )}

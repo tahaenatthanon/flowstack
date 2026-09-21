@@ -1,4 +1,5 @@
 <?php
+set_time_limit(0); // AI batch planning can call the AI model up to ~11 times in a row
 // GET /api/email-campaigns.php - List all campaigns
 // POST /api/email-campaigns.php - Create new campaign
 // GET /api/email-campaigns.php?id=xxx - Get single campaign
@@ -332,6 +333,10 @@ function createEmailCampaign($db, $userId, string $tenantId = '') {
     $segmentFilters = !empty($body['segment_filters']) ? $body['segment_filters'] : null;
     $enableTrackOpens  = isset($body['enable_track_opens'])  ? (int)(bool)$body['enable_track_opens']  : 1;
     $enableTrackClicks = isset($body['enable_track_clicks']) ? (int)(bool)$body['enable_track_clicks'] : 1;
+    // "วันที่เสนอ" ของฉบับร่าง (เช่น ที่ AI แนะนำไว้) — เก็บไว้ให้เห็นในรายการแม้ยัง
+    // เป็น draft, ไม่ใช่การยืนยันส่ง: status ยังคง 'draft' เสมอไม่ว่าค่านี้จะมีหรือไม่
+    // (source of truth ว่าพร้อมส่งจริงคือ status='scheduled' เท่านั้น — ดู design.md decision 5)
+    $scheduledAt = trim((string)($body['scheduled_at'] ?? '')) ?: null;
 
     if (empty($name)) {
         jsonError('Campaign name is required', 400);
@@ -351,14 +356,14 @@ function createEmailCampaign($db, $userId, string $tenantId = '') {
             id, tenant_id, name, subject, body_html, body_text, template_id,
             editable_content, cta_text, cta_url, discount_percent, countdown_text,
             sender_name, sender_email, enable_track_opens, enable_track_clicks, segment_filters,
-            status, created_by, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, NOW())
+            status, scheduled_at, created_by, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, NOW())
     ");
     $stmt->execute([
         $id, $tenantId, $name, $subject, $bodyHtml, $bodyText, $templateId,
         $editableContent, $ctaText, $ctaUrl, $discountPercent, $countdown,
         $senderName, $senderEmail, $enableTrackOpens, $enableTrackClicks,
-        $segmentFilters ? json_encode($segmentFilters) : null, $userId
+        $segmentFilters ? json_encode($segmentFilters) : null, $scheduledAt, $userId
     ]);
 
     // Save recipient groups
@@ -483,6 +488,12 @@ function updateEmailCampaign($db, string $tenantId) {
     if (array_key_exists('segment_filters', $body)) {
         $updates[] = 'segment_filters = ?';
         $params[] = !empty($body['segment_filters']) ? json_encode($body['segment_filters']) : null;
+    }
+    if (array_key_exists('scheduled_at', $body)) {
+        // แค่เก็บ "วันที่เสนอ" ไว้ให้เห็นในรายการ — ไม่เปลี่ยน status เป็น 'scheduled'
+        // เด็ดขาด (guard ด้านบนบังคับว่าแก้ไขได้เฉพาะตอน status='draft' อยู่แล้ว)
+        $updates[] = 'scheduled_at = ?';
+        $params[] = trim((string)($body['scheduled_at'] ?? '')) ?: null;
     }
 
     if (!empty($updates)) {
@@ -664,10 +675,12 @@ function _defaultCampaignSender(PDO $db): array
 }
 
 /**
- * เรียก AI ครั้งเดียวด้วย system+user prompt ที่ส่งเข้ามา คืน ['subject','name','body_html']
+ * เรียก AI ครั้งเดียวด้วย system+user prompt คืน decoded JSON object ที่ผ่าน
+ * sanitize แล้วตรงๆ (ไม่ตัด field ใดๆ) — ใช้ร่วมกันทั้ง generate เนื้อหา 1 ฉบับ
+ * (ต้องการ key 'body_html') และ Phase 1 batch planning (ต้องการ key 'items')
  * โยน Exception message เป็นข้อความ error ที่ safe จะโชว์ผู้ใช้ได้เลย (jsonError โดย caller)
  */
-function _callCampaignAI(PDO $db, string $tenantId, string $systemPrompt, string $userMessage): array
+function _callCampaignAIRaw(PDO $db, string $tenantId, string $systemPrompt, string $userMessage, string $requiredKey): array
 {
     $creds = resolveAICreds($db, 'ai_content_text_model_id', $tenantId);
     if (empty($creds['api_key']))  throw new RuntimeException('AI API key not configured — ตั้งค่าใน Admin > AI Settings ก่อน');
@@ -720,17 +733,26 @@ function _callCampaignAI(PDO $db, string $tenantId, string $systemPrompt, string
     $content = (string)($dec['choices'][0]['message']['content'] ?? '');
     if ($content === '') throw new RuntimeException('AI ไม่ได้คืนเนื้อหากลับมา (empty_content)');
 
-    $obj = campaign_ai_extract_json($content);
-    if (!$obj || empty($obj['body_html'])) throw new RuntimeException('แปลงผลลัพธ์ AI เป็น JSON ไม่สำเร็จ');
+    $obj = campaign_ai_extract_json($content, $requiredKey);
+    if (!$obj || !isset($obj[$requiredKey])) throw new RuntimeException('แปลงผลลัพธ์ AI เป็น JSON ไม่สำเร็จ');
 
     array_walk_recursive($obj, function (&$val) {
         if (is_string($val)) $val = campaign_ai_sanitize_output($val);
     });
 
+    return $obj;
+}
+
+/** เรียก AI ให้เขียนเนื้อหาแคมเปญ 1 ฉบับ คืน ['subject','name','body_html','template_id','suggested_scheduled_at'] */
+function _callCampaignAI(PDO $db, string $tenantId, string $systemPrompt, string $userMessage): array
+{
+    $obj = _callCampaignAIRaw($db, $tenantId, $systemPrompt, $userMessage, 'body_html');
     return [
-        'subject'   => trim((string)($obj['subject'] ?? '')),
-        'name'      => trim((string)($obj['name'] ?? '')),
-        'body_html' => (string)($obj['body_html'] ?? ''),
+        'subject'                => trim((string)($obj['subject'] ?? '')),
+        'name'                   => trim((string)($obj['name'] ?? '')),
+        'body_html'              => (string)($obj['body_html'] ?? ''),
+        'template_id'            => $obj['template_id'] ?? null,
+        'suggested_scheduled_at' => $obj['suggested_scheduled_at'] ?? null,
     ];
 }
 
@@ -741,13 +763,23 @@ function _callCampaignAI(PDO $db, string $tenantId, string $systemPrompt, string
 function generateCampaignContent(PDO $db, string $tenantId): void
 {
     $body = getRequestBody();
-    $productIds  = is_array($body['product_ids'] ?? null) ? $body['product_ids'] : [];
-    $sourceTopic = trim((string)($body['source_topic'] ?? ''));
-    $tone        = (string)($body['tone'] ?? 'friendly');
+    $productIds       = is_array($body['product_ids'] ?? null) ? $body['product_ids'] : [];
+    $sourceTopic      = trim((string)($body['source_topic'] ?? ''));
+    $tone             = (string)($body['tone'] ?? 'friendly');
+    // Templates ไม่มี PHP-side source of truth — frontend เป็นเจ้าของลิสต์นี้
+    // (src/data/emailTemplates.ts) และส่งมาให้ทุกครั้ง กัน 2 แหล่งข้อมูล drift กัน
+    $templates        = is_array($body['templates'] ?? null) ? $body['templates'] : [];
+    $currentTemplateId = trim((string)($body['current_template_id'] ?? '')) ?: null;
 
     $products = _loadCampaignProducts($db, $productIds, $tenantId);
 
-    $systemPrompt = campaign_ai_system_prompt(['products' => $products, 'tone' => $tone]);
+    $systemPrompt = campaign_ai_system_prompt([
+        'products'                    => $products,
+        'tone'                        => $tone,
+        'templates'                   => $templates,
+        'current_template_id'         => $currentTemplateId,
+        'include_schedule_suggestion' => true,
+    ]);
     $userMessage  = campaign_ai_user_message($sourceTopic);
 
     try {
@@ -763,6 +795,13 @@ function generateCampaignContent(PDO $db, string $tenantId): void
         if (empty($result['name'])) $result['name'] = $sourceTopic;
     }
 
+    $result['template_id'] = $currentTemplateId
+        ?? campaign_ai_validate_template_id($result['template_id'] ?? null, $templates);
+
+    if (!campaign_ai_is_future_datetime($result['suggested_scheduled_at'] ?? null)) {
+        unset($result['suggested_scheduled_at']);
+    }
+
     jsonResponse($result);
 }
 
@@ -771,6 +810,30 @@ function generateCampaignContent(PDO $db, string $tenantId): void
  * สร้าง email_campaigns หลายแถว status='draft' เท่านั้น — ไม่ตั้ง 'scheduled'
  * และไม่เรียก sendCampaignCore() เด็ดขาด (ต้องให้ผู้ใช้อนุมัติ/ตั้งเวลาเองทีละฉบับ)
  */
+/**
+ * Fallback เมื่อ Phase 1 ตอบจำนวน item ไม่ครบ (AI ตอบไม่ตรงจำนวนที่ขอ) — เติม
+ * ให้ครบ $count ด้วยหัวข้อ/เวลา generic แทนที่จะ error ทั้ง batch (ดู tasks.md 4.2)
+ */
+function _fillMissingBatchPlanItems(array $items, int $count): array
+{
+    $fallbackHours = ['09:00', '13:00', '16:00', '10:30', '14:30'];
+    for ($i = count($items); $i < $count; $i++) {
+        $items[] = [
+            'topic'     => "อัปเดตเพิ่มเติม (ฉบับที่ " . ($i + 1) . ")",
+            'send_time' => $fallbackHours[$i % count($fallbackHours)],
+        ];
+    }
+    return array_slice($items, 0, $count);
+}
+
+/** รวมวันที่ (จาก start_date+interval) กับเวลา (HH:MM จาก Phase 1) เป็น scheduled_at */
+function _combineBatchDateTime(string $startDate, int $sequenceIndex, int $intervalDays, string $sendTime): string
+{
+    $date = date('Y-m-d', strtotime($startDate . ' + ' . ($sequenceIndex * $intervalDays) . ' days'));
+    if (!preg_match('/^\d{2}:\d{2}$/', trim($sendTime))) $sendTime = '09:00';
+    return "{$date} " . trim($sendTime) . ':00';
+}
+
 function aiPlanCampaigns(PDO $db, string $userId, string $tenantId): void
 {
     $body = getRequestBody();
@@ -779,6 +842,7 @@ function aiPlanCampaigns(PDO $db, string $userId, string $tenantId): void
     $intervalDays = (int)($body['interval_days'] ?? 0);
     $startDate    = trim((string)($body['start_date'] ?? ''));
     $tone         = (string)($body['tone'] ?? 'friendly');
+    $templates    = is_array($body['templates'] ?? null) ? $body['templates'] : [];
 
     if ($productId === '') jsonError('กรุณาเลือกสินค้า', 400);
     if ($count < 1 || $count > 10) jsonError('จำนวนฉบับต้องอยู่ระหว่าง 1-10', 400);
@@ -790,17 +854,32 @@ function aiPlanCampaigns(PDO $db, string $userId, string $tenantId): void
 
     $sender = _defaultCampaignSender($db);
     $planBatchId = generateUUID();
-    $angleInstructions = [
-        'เน้นแนะนำสินค้าครั้งแรก — ปูพื้นว่าสินค้านี้คืออะไร แก้ปัญหาอะไร',
-        'เน้นจุดขาย/ผลลัพธ์ที่ลูกค้าจะได้รับ พร้อมเหตุผลว่าทำไมต้องตัดสินใจตอนนี้',
-        'เน้นความเร่งด่วน/ข้อเสนอปิดการขาย ชวนติดต่อกลับหรือปรึกษาฟรี',
-    ];
 
+    // ── Phase 1: วางแผนหัวข้อ + เวลาส่งทั้งชุดพร้อมกัน (เห็นภาพรวม กันซ้ำ) ──
+    $planPrompt  = campaign_ai_batch_plan_prompt(['products' => $products, 'count' => $count]);
+    $planMessage = campaign_ai_batch_plan_user_message($count);
+    try {
+        $planResult = _callCampaignAIRaw($db, $tenantId, $planPrompt, $planMessage, 'items');
+    } catch (Throwable $e) {
+        jsonError('วางแผนหัวข้อไม่สำเร็จ: ' . $e->getMessage(), 500);
+    }
+    $items = is_array($planResult['items'] ?? null) ? $planResult['items'] : [];
+    if (count($items) !== $count) {
+        $items = _fillMissingBatchPlanItems($items, $count);
+    }
+
+    // ── Phase 2: เขียนเนื้อหาเต็ม + เลือก template ต่อฉบับ ตามหัวข้อจาก Phase 1 ──
     $created = [];
     for ($i = 0; $i < $count; $i++) {
-        $angle = $angleInstructions[$i % count($angleInstructions)] . " (ฉบับที่ " . ($i + 1) . " จาก {$count})";
-        $systemPrompt = campaign_ai_system_prompt(['products' => $products, 'tone' => $tone, 'angle_instruction' => $angle]);
-        $userMessage  = campaign_ai_user_message(null);
+        $topic    = trim((string)($items[$i]['topic'] ?? ''));
+        $sendTime = trim((string)($items[$i]['send_time'] ?? '09:00'));
+
+        $systemPrompt = campaign_ai_system_prompt([
+            'products'  => $products,
+            'tone'      => $tone,
+            'templates' => $templates,
+        ]);
+        $userMessage = campaign_ai_user_message($topic !== '' ? $topic : null);
 
         try {
             $result = _callCampaignAI($db, $tenantId, $systemPrompt, $userMessage);
@@ -809,20 +888,23 @@ function aiPlanCampaigns(PDO $db, string $userId, string $tenantId): void
             // พร้อมจำนวนที่ทำสำเร็จไปแล้ว ให้ frontend แจ้งผู้ใช้แทนที่จะเงียบหาย
             jsonError('Generate ฉบับที่ ' . ($i + 1) . ' ล้มเหลว: ' . $e->getMessage() . " (สร้างสำเร็จไปแล้ว " . count($created) . " ฉบับ)", 500);
         }
+        if ($topic !== '') $result['subject'] = $result['subject'] ?: $topic;
 
-        $scheduledAt = date('Y-m-d H:i:s', strtotime($startDate . ' + ' . ($i * $intervalDays) . ' days'));
+        $templateId = campaign_ai_validate_template_id($result['template_id'] ?? null, $templates);
+        $scheduledAt = _combineBatchDateTime($startDate, $i, $intervalDays, $sendTime);
+
         $id = generateUUID();
         $db->prepare("
             INSERT INTO email_campaigns (
                 id, tenant_id, name, subject, body_html, body_text, product_id,
-                plan_batch_id, plan_sequence, sender_name, sender_email,
+                plan_batch_id, plan_sequence, template_id, sender_name, sender_email,
                 status, scheduled_at, created_by, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, NOW())
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, NOW())
         ")->execute([
             $id, $tenantId,
             $result['name'] ?: $result['subject'],
             $result['subject'], $result['body_html'], strip_tags($result['body_html']),
-            $productId, $planBatchId, $i + 1,
+            $productId, $planBatchId, $i + 1, $templateId,
             $sender['name'], $sender['email'],
             $scheduledAt, $userId,
         ]);
