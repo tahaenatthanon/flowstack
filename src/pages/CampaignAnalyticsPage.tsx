@@ -100,7 +100,7 @@ export default function CampaignAnalyticsPage() {
     >
 
       {/* Summary stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <Stat label="แคมเปญทั้งหมด" value={summary.total_campaigns} icon={Megaphone} color="text-violet-500" />
         <Stat label="ส่งสำเร็จทั้งหมด" value={summary.total_sent.toLocaleString()} icon={Send} color="text-blue-500" />
         <Stat label="อัตราเปิดรวม" value={`${summary.avg_open_rate}%`} icon={Eye} color="text-green-500" />
@@ -270,6 +270,7 @@ export default function CampaignAnalyticsPage() {
                       <span>คลิก: <strong className="text-foreground">{c.total_clicks.toLocaleString()}</strong></span>
                       <span>อัตราเปิด: <strong className="text-green-600">{c.open_rate}%</strong></span>
                       <span>อัตราคลิก: <strong className="text-orange-600">{c.click_rate}%</strong></span>
+                      <span>CTOR: <strong className="text-violet-600">{c.ctor}%</strong></span>
                     </div>
                   </div>
                 ))}
@@ -289,6 +290,7 @@ export default function CampaignAnalyticsPage() {
                       <TableHead className="text-xs text-right">คลิก</TableHead>
                       <TableHead className="text-xs text-right">อัตราเปิด</TableHead>
                       <TableHead className="text-xs text-right">อัตราคลิก</TableHead>
+                      <TableHead className="text-xs text-right">CTOR</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -307,6 +309,7 @@ export default function CampaignAnalyticsPage() {
                         <TableCell className="text-sm text-right">{c.total_clicks.toLocaleString()}</TableCell>
                         <TableCell className="text-sm text-right">{c.open_rate}%</TableCell>
                         <TableCell className="text-sm text-right">{c.click_rate}%</TableCell>
+                        <TableCell className="text-sm text-right text-violet-600">{c.ctor}%</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

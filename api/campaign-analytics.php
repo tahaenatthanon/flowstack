@@ -131,6 +131,7 @@ $stmt = $db->prepare("
            ec.total_recipients, ec.total_sent, ec.total_opens, ec.total_clicks,
            CASE WHEN ec.total_sent > 0 THEN ROUND(ec.total_opens / ec.total_sent * 100, 1) ELSE 0 END as open_rate,
            CASE WHEN ec.total_sent > 0 THEN ROUND(ec.total_clicks / ec.total_sent * 100, 1) ELSE 0 END as click_rate,
+           CASE WHEN ec.total_opens > 0 THEN ROUND(ec.total_clicks / ec.total_opens * 100, 1) ELSE 0 END as ctor,
            (SELECT COUNT(*) FROM email_tracking et WHERE et.campaign_id = ec.id AND et.status = 'failed') as total_failed,
            ec.created_at, ec.sent_at
     FROM email_campaigns ec
@@ -154,6 +155,7 @@ foreach ($allCampaigns as &$c) {
     $c['total_failed'] = (int)$c['total_failed'];
     $c['open_rate'] = (float)$c['open_rate'];
     $c['click_rate'] = (float)$c['click_rate'];
+    $c['ctor'] = (float)$c['ctor'];
 }
 unset($c);
 

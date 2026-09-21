@@ -1041,12 +1041,13 @@ export default function CampaignsPage() {
                       {campaign.status === 'sent' && (() => {
                         const openRate = campaign.total_sent > 0 ? Math.round(campaign.total_opens / campaign.total_sent * 100) : 0;
                         const clickRate = campaign.total_sent > 0 ? Math.round(campaign.total_clicks / campaign.total_sent * 100) : 0;
+                        const ctor = campaign.total_opens > 0 ? Math.round(campaign.total_clicks / campaign.total_opens * 100) : 0;
                         const openColor = openRate >= 30 ? 'text-green-600' : openRate >= 15 ? 'text-yellow-600' : 'text-red-600';
                         const openBar = openRate >= 30 ? 'bg-green-500' : openRate >= 15 ? 'bg-yellow-500' : 'bg-red-500';
                         const clickColor = clickRate >= 10 ? 'text-green-600' : clickRate >= 5 ? 'text-yellow-600' : 'text-red-600';
                         const clickBar = clickRate >= 10 ? 'bg-green-500' : clickRate >= 5 ? 'bg-yellow-500' : 'bg-red-500';
                         return (
-                          <div className="grid grid-cols-2 gap-2 text-sm">
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm">
                             <div className="min-w-0 rounded-lg bg-muted/40 px-3 py-2.5 overflow-hidden">
                               <div className="flex items-center justify-between gap-1.5">
                                 <span className="flex items-center gap-1.5 text-muted-foreground text-xs shrink-0">
@@ -1070,6 +1071,18 @@ export default function CampaignsPage() {
                                 <div className={`h-full rounded-full ${clickBar}`} style={{ width: `${clickRate}%` }} />
                               </div>
                               <div className="text-[11px] text-muted-foreground mt-1">{campaign.total_clicks} จาก {campaign.total_sent} คน</div>
+                            </div>
+                            <div className="min-w-0 rounded-lg bg-muted/40 px-3 py-2.5 overflow-hidden">
+                              <div className="flex items-center justify-between gap-1.5">
+                                <span className="flex items-center gap-1.5 text-muted-foreground text-xs shrink-0">
+                                  <MousePointer className="w-3.5 h-3.5 shrink-0" />CTOR
+                                </span>
+                                <span className="font-semibold text-sm shrink-0 text-violet-600">{ctor}%</span>
+                              </div>
+                              <div className="h-1.5 rounded-full bg-muted overflow-hidden mt-1.5">
+                                <div className="h-full rounded-full bg-violet-500" style={{ width: `${Math.min(ctor, 100)}%` }} />
+                              </div>
+                              <div className="text-[11px] text-muted-foreground mt-1">{campaign.total_clicks} คลิก จาก {campaign.total_opens} เปิด</div>
                             </div>
                           </div>
                         );
