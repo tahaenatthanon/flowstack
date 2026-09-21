@@ -24,6 +24,14 @@ export interface EmailTemplate {
   hasDiscountPromo?: boolean;
   defaultDiscountPercent?: string;
   defaultCountdown?: string;
+  /**
+   * Style metadata สำหรับ compose เนื้อหาที่มาจาก input แบบโครงสร้าง (heading/blocks
+   * เช่น จาก AI generation) ให้ตรงกับธรรมเนียมสี/การจัดวางที่ template นี้ใช้ใน
+   * `defaultContent` อยู่แล้ว — ไม่ใช้กับเนื้อหาที่ผู้ใช้พิมพ์เองผ่าน editor โดยตรง
+   */
+  heading_color: string;
+  body_color: string;
+  text_align: 'left' | 'center';
 }
 
 export const emailTemplates: EmailTemplate[] = [
@@ -79,6 +87,9 @@ export const emailTemplates: EmailTemplate[] = [
                 ด้วยความนับถือ<br>
                 {{company_name}}
               </p>`,
+    heading_color: '#1f2937',
+    body_color: '#4b5563',
+    text_align: 'left',
   },
   {
     id: 'template-2',
@@ -133,6 +144,9 @@ export const emailTemplates: EmailTemplate[] = [
                 ด้วยความนับถือ,<br>
                 <strong>{{company_name}}</strong>
               </p>`,
+    heading_color: '#374151',
+    body_color: '#6b7280',
+    text_align: 'left',
   },
   {
     id: 'template-3',
@@ -182,6 +196,9 @@ export const emailTemplates: EmailTemplate[] = [
                   📞 <a href="tel:{{company_phone}}" style="color:#b45309;text-decoration:none;">{{company_phone}}</a> | ✉️ <a href="mailto:{{company_email}}" style="color:#b45309;text-decoration:none;">{{company_email}}</a>
                 </p>
               </div>`,
+    heading_color: '#92400e',
+    body_color: '#451a03',
+    text_align: 'left',
   },
   {
     id: 'template-4',
@@ -248,6 +265,9 @@ export const emailTemplates: EmailTemplate[] = [
                     {{company_name}}
                   </p>
                 </div>`,
+    heading_color: '#1e293b',
+    body_color: '#475569',
+    text_align: 'left',
   },
   {
     id: 'template-5',
@@ -307,6 +327,9 @@ export const emailTemplates: EmailTemplate[] = [
     hasCta: true,
     defaultCtaText: 'Visit Our Website',
     defaultCtaUrl: '{{company_website}}',
+    heading_color: '#1f2937',
+    body_color: '#4b5563',
+    text_align: 'center',
   },
   {
     id: 'template-6',
@@ -361,6 +384,9 @@ export const emailTemplates: EmailTemplate[] = [
               <p style="color:#047857;margin:0 0 25px 0;line-height:1.7;font-size:15px;">
                 Feel free to reach out anytime - we're just a call or email away!
               </p>`,
+    heading_color: '#065f46',
+    body_color: '#047857',
+    text_align: 'left',
   },
   {
     id: 'template-7',
@@ -419,6 +445,9 @@ export const emailTemplates: EmailTemplate[] = [
               </p>`,
     hasCta: true,
     defaultCtaText: '📩 Contact Us',
+    heading_color: '#1f2937',
+    body_color: '#4b5563',
+    text_align: 'left',
   },
   {
     id: 'template-8',
@@ -490,6 +519,9 @@ export const emailTemplates: EmailTemplate[] = [
                       {{company_name}}<br>
                       <a href="tel:{{company_phone}}" style="color:#1e1b4b;text-decoration:none;">{{company_phone}}</a>
                     </p>`,
+    heading_color: '#1f2937',
+    body_color: '#4b5563',
+    text_align: 'left',
   },
   {
     id: 'template-9',
@@ -550,6 +582,9 @@ export const emailTemplates: EmailTemplate[] = [
               <p style="color:#831843;margin:0 0 20px 0;line-height:1.7;font-size:15px;text-align:center;">
                 ทีมงานของเราพร้อมดูแลคุณอย่างดีที่สุดแล้วค่ะ/ครับ
               </p>`,
+    heading_color: '#be185d',
+    body_color: '#831843',
+    text_align: 'center',
   },
   {
     id: 'template-10',
@@ -626,6 +661,9 @@ export const emailTemplates: EmailTemplate[] = [
               <p style="color:#475569;margin:0;line-height:1.8;font-size:15px;">
                 Don't hesitate to reach out if you have any questions. We're here to help!
               </p>`,
+    heading_color: '#1e293b',
+    body_color: '#475569',
+    text_align: 'left',
   },
   {
     id: 'template-11',
@@ -697,6 +735,9 @@ export const emailTemplates: EmailTemplate[] = [
     hasCta: true,
     defaultCtaText: 'Explore Now →',
     defaultCtaUrl: '{{company_website}}',
+    heading_color: '#ffffff',
+    body_color: '#d1d5db',
+    text_align: 'left',
   },
   {
     id: 'template-12',
@@ -763,6 +804,9 @@ export const emailTemplates: EmailTemplate[] = [
                   Members enjoy priority service and special privileges
                 </p>
               </div>`,
+    heading_color: '#ffffff',
+    body_color: '#9ca3af',
+    text_align: 'center',
   },
   {
     id: 'template-13',
@@ -824,6 +868,9 @@ export const emailTemplates: EmailTemplate[] = [
                 <p style="color:#92400e;margin:0;font-size:15px;font-weight:600;">🎁 Special Offer for You!</p>
                 <p style="color:#b45309;margin:10px 0 0 0;font-size:13px;">Contact us to learn more</p>
               </div>`,
+    heading_color: '#166534',
+    body_color: '#374151',
+    text_align: 'center',
   },
   {
     id: 'template-14',
@@ -904,6 +951,9 @@ export const emailTemplates: EmailTemplate[] = [
     hasCta: true,
     defaultCtaText: 'Learn More',
     defaultCtaUrl: '{{company_website}}',
+    heading_color: '#1f2937',
+    body_color: '#4b5563',
+    text_align: 'center',
   },
   {
     id: 'template-15',
@@ -974,6 +1024,9 @@ export const emailTemplates: EmailTemplate[] = [
                 หากมีข้อสงสัยใดๆ กรุณาติดต่อเราได้ตลอดเวลา<br>
                 Feel free to reach out anytime!
               </p>`,
+    heading_color: '#92400e',
+    body_color: '#451a03',
+    text_align: 'center',
   },
   {
     id: 'template-16',
@@ -1050,6 +1103,9 @@ export const emailTemplates: EmailTemplate[] = [
     hasCta: true,
     defaultCtaText: 'Explore Now →',
     defaultCtaUrl: '{{company_website}}',
+    heading_color: '#ffffff',
+    body_color: '#d1d5db',
+    text_align: 'center',
   },
   {
     id: 'template-17',
@@ -1120,6 +1176,9 @@ export const emailTemplates: EmailTemplate[] = [
               </p>`,
     hasCta: true,
     defaultCtaText: 'RSVP Now',
+    heading_color: '#1f2937',
+    body_color: '#4b5563',
+    text_align: 'center',
   },
   {
     id: 'template-18',
@@ -1193,6 +1252,9 @@ export const emailTemplates: EmailTemplate[] = [
     hasCta: true,
     defaultCtaText: 'Take Survey →',
     defaultCtaUrl: '{{company_website}}',
+    heading_color: '#166534',
+    body_color: '#14532d',
+    text_align: 'center',
   },
   {
     id: 'template-19',
@@ -1267,6 +1329,9 @@ export const emailTemplates: EmailTemplate[] = [
               <p style="color:#451a03;margin:0;line-height:1.8;font-size:14px;text-align:center;">
                 หากมีคำถามใดๆ ติดต่อเราได้ตลอดเวลานะคะ/ครับ
               </p>`,
+    heading_color: '#713f12',
+    body_color: '#451a03',
+    text_align: 'center',
   },
   {
     id: 'template-20',
@@ -1345,6 +1410,9 @@ export const emailTemplates: EmailTemplate[] = [
     hasDiscountPromo: true,
     defaultDiscountPercent: '50',
     defaultCountdown: '24:00:00',
+    heading_color: '#ffffff',
+    body_color: '#d1d5db',
+    text_align: 'center',
   }
 ];
 

@@ -63,9 +63,9 @@ interface Customer {
 
 const STATUS_CONFIG = {
   draft:     { label: 'ฉบับร่าง',   color: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200' },
-  scheduled: { label: 'กำหนดเวลา', color: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' },
+  scheduled: { label: 'ตั้งเวลาส่ง', color: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' },
   sending:   { label: 'กำลังส่ง',   color: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' },
-  sent:      { label: 'ส่งแล้ว',    color: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' },
+  sent:      { label: 'ส่งสำเร็จ',    color: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' },
   cancelled: { label: 'ยกเลิก',     color: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' },
 };
 
@@ -475,7 +475,10 @@ export default function CampaignsPage() {
           product_ids: aiProductIds,
           source_topic: campaignSubject.trim(),
           tone: aiTone,
-          templates: emailTemplates.map(t => ({ id: t.id, nameTH: t.nameTH })),
+          // ส่ง template เต็มก้อน (ไม่ใช่แค่ id/nameTH) เพราะ backend ต้องใช้
+          // heading_color/body_color/text_align ประกอบ editable_content เอง —
+          // frontend เป็นเจ้าของลิสต์นี้ (src/data/emailTemplates.ts) กัน 2 แหล่งข้อมูล drift กัน
+          templates: emailTemplates,
           current_template_id: selectedTemplate || null,
         }),
       });
@@ -501,9 +504,12 @@ export default function CampaignsPage() {
       const effectiveChromeLocked = !forceLegacyEditor && !!effectiveTemplate?.defaultContent;
 
       if (effectiveChromeLocked) {
-        setEditableContent(result.body_html || '');
+        setEditableContent(result.editable_content || '');
+        // cta_text ของ AI (ถ้ามี) ไหลเข้า field CTA ที่มีอยู่แล้ว — ไม่มีทางที่ AI จะ
+        // กำหนด URL ได้ เพราะ backend schema ไม่มี field ให้ใส่เลย (ดู campaign-ai-template-fidelity)
+        if (result.cta_text) setCtaText(result.cta_text);
       } else {
-        setCampaignBody(result.body_html || '');
+        setCampaignBody(result.editable_content || '');
       }
 
       if (!scheduleAt.trim() && result.suggested_scheduled_at) {
@@ -925,7 +931,7 @@ export default function CampaignsPage() {
       actions={<>{(activeTab === 'campaigns' || activeTab === 'templates') ? (
 <div className="flex gap-2">
   <Button variant="outline" className="gap-2" onClick={() => setPullContentOpen(true)}>
-    <FileText className="w-4 h-4" /><span className="hidden sm:inline">ดึงคอนเทนท์</span>
+    <FileText className="w-4 h-4" /><span className="hidden sm:inline">ดึงคอนเทนต์</span>
   </Button>
   <Button variant="outline" className="gap-2" onClick={() => setAiPlanDialogOpen(true)}>
     <Wand2 className="w-4 h-4" /><span className="hidden sm:inline">AI วางแผนแคมเปญ</span>
@@ -973,7 +979,7 @@ export default function CampaignsPage() {
           {/* Summary stats */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Card><CardContent className="p-3 sm:p-4"><p className="text-xs text-muted-foreground">แคมเปญทั้งหมด</p><p className="text-2xl font-bold text-primary">{campaigns.length}</p></CardContent></Card>
-            <Card><CardContent className="p-3 sm:p-4"><p className="text-xs text-muted-foreground">ส่งทั้งหมด</p><p className="text-2xl font-bold text-blue-500">{totalSent.toLocaleString()}</p></CardContent></Card>
+            <Card><CardContent className="p-3 sm:p-4"><p className="text-xs text-muted-foreground">ส่งสำเร็จทั้งหมด</p><p className="text-2xl font-bold text-blue-500">{totalSent.toLocaleString()}</p></CardContent></Card>
             <Card><CardContent className="p-3 sm:p-4"><p className="text-xs text-muted-foreground">เปิดอ่าน</p><p className="text-2xl font-bold text-green-500">{totalOpens.toLocaleString()}</p></CardContent></Card>
             <Card><CardContent className="p-3 sm:p-4"><p className="text-xs text-muted-foreground">คลิกทั้งหมด</p><p className="text-2xl font-bold text-amber-500">{totalClicks.toLocaleString()}</p></CardContent></Card>
           </div>
@@ -1018,7 +1024,7 @@ export default function CampaignsPage() {
                           <span>{campaign.total_recipients} ผู้รับ</span>
                           {campaign.sent_at && <span>ส่งเมื่อ {new Date(campaign.sent_at).toLocaleString('th-TH')}</span>}
                           {campaign.status === 'scheduled' && campaign.scheduled_at && (
-                            <span>กำหนดส่ง {new Date(campaign.scheduled_at).toLocaleString('th-TH')}</span>
+                            <span>ตั้งเวลาส่ง {new Date(campaign.scheduled_at).toLocaleString('th-TH')}</span>
                           )}
                           {campaign.status === 'draft' && campaign.scheduled_at && (
                             <span className="text-amber-600 dark:text-amber-400">🕐 วันที่เสนอ (รอตั้งเวลาส่ง) {new Date(campaign.scheduled_at).toLocaleString('th-TH')}</span>
@@ -1252,8 +1258,8 @@ export default function CampaignsPage() {
                           <th className="text-right py-3 px-2 font-medium text-sm text-muted-foreground">ส่งอีเมลแล้ว</th>
                           <th className="text-right py-3 px-2 font-medium text-sm text-muted-foreground">เปิด</th>
                           <th className="text-right py-3 px-2 font-medium text-sm text-muted-foreground">คลิก</th>
-                          <th className="text-right py-3 px-2 font-medium text-sm text-muted-foreground">%เปิด</th>
-                          <th className="text-right py-3 px-2 font-medium text-sm text-muted-foreground">%คลิก</th>
+                          <th className="text-right py-3 px-2 font-medium text-sm text-muted-foreground">อัตราเปิด (%)</th>
+                          <th className="text-right py-3 px-2 font-medium text-sm text-muted-foreground">อัตราคลิก (%)</th>
                           <th className="text-right py-3 px-2 font-medium text-sm text-muted-foreground">ล่าสุด</th>
                         </tr>
                       </thead>
@@ -1348,7 +1354,7 @@ export default function CampaignsPage() {
                   {tpl.nameTH}
                   <span className="text-xs text-muted-foreground font-normal ml-1">({tpl.name})</span>
                 </DialogTitle>
-                <DialogDescription>ตัวอย่าง template — merge tags จะถูกแทนที่ด้วยข้อมูลจริงเมื่อส่งอีเมล</DialogDescription>
+                <DialogDescription>ตัวอย่างเทมเพลต — merge tags จะถูกแทนที่ด้วยข้อมูลจริงเมื่อส่งอีเมล</DialogDescription>
               </DialogHeader>
               <div className="flex-1 min-h-0 overflow-auto border rounded-md">
                 <iframe
@@ -1388,7 +1394,7 @@ export default function CampaignsPage() {
               {editingCampaignId ? 'แก้ไขแคมเปญ' : 'สร้างแคมเปญใหม่'}
             </DialogTitle>
             <DialogDescription>
-              {editingCampaignId ? 'แก้ไขข้อมูลแคมเปญ (เฉพาะสถานะ ฉบับร่าง)' : 'สร้างแคมเปญอีเมลเพื่อส่งให้กลุ่มลูกค้า'}
+              {editingCampaignId ? 'แก้ไขข้อมูลแคมเปญ (เฉพาะฉบับร่าง)' : 'สร้างแคมเปญอีเมลเพื่อส่งให้กลุ่มลูกค้า'}
             </DialogDescription>
           </DialogHeader>
 
@@ -1405,7 +1411,7 @@ export default function CampaignsPage() {
                 <Input value={campaignName} onChange={(e) => setCampaignName(e.target.value)} placeholder="เช่น แคมเปญส่งท้ายปี 2567" />
               </div>
               <div className="grid gap-1.5">
-                <Label>หัวข้ออีเมล (Subject Line) <span className="text-destructive">*</span></Label>
+                <Label>หัวข้ออีเมล<span className="text-destructive">*</span></Label>
                 <Input value={campaignSubject} onChange={(e) => setCampaignSubject(e.target.value)} placeholder="เช่น สิทธิพิเศษสำหรับคุณ {{first_name}} 🎁" />
                 <div className="flex items-center justify-between">
                   <p className="text-[11px] text-muted-foreground">
@@ -1464,7 +1470,7 @@ export default function CampaignsPage() {
                   )}
                 </div>
                 <div className="grid gap-1.5 pt-1 border-t">
-                  <Label className="text-xs text-muted-foreground">เงื่อนไข Segment เพิ่มเติม (ไม่บังคับ)</Label>
+                  <Label className="text-xs text-muted-foreground">เงื่อนไขกลุ่มเป้าหมายเพิ่มเติม (ไม่บังคับ)</Label>
                   <Input
                     value={segmentBusinessType}
                     onChange={(e) => setSegmentBusinessType(e.target.value)}
@@ -1490,7 +1496,7 @@ export default function CampaignsPage() {
             <div className="rounded-lg border bg-muted/20 p-4 space-y-3">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
                 <span className="w-5 h-5 rounded-full bg-primary text-primary-foreground text-[10px] flex items-center justify-center shrink-0">4</span>
-                Template เริ่มต้น
+                เทมเพลตเริ่มต้น
               </p>
               <div className="grid gap-1.5">
                 <div className="flex flex-wrap gap-2">
@@ -1511,7 +1517,7 @@ export default function CampaignsPage() {
             {/* ── ปุ่ม CTA ของ template (chrome ที่ล็อกไว้ — แก้ผ่าน field นี้เท่านั้น ไม่ผ่านตัวแก้ไขเนื้อหา) ── */}
             {isChromeLocked && selectedTemplateObj?.hasCta && (
               <div className="rounded-lg border bg-muted/20 p-4 space-y-3">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">ปุ่ม CTA ของ Template</p>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">ปุ่ม CTA ของเทมเพลต</p>
                 {/* URL ปลายทางแสดงเฉพาะ template ที่ปล่อยให้แก้ได้ — บาง template (เช่น mailto:{{company_email}})
                     ล็อกปลายทางไว้ใน chrome ตายตัว ไม่มี defaultCtaUrl จึงไม่มี field ให้แก้ */}
                 <div className={`grid gap-3 ${selectedTemplateObj?.defaultCtaUrl !== undefined ? 'sm:grid-cols-2' : ''}`}>
@@ -1529,10 +1535,10 @@ export default function CampaignsPage() {
               </div>
             )}
 
-            {/* ── ตัวเลขโปรโมชั่นของ template (template-20 เท่านั้น — chrome ล็อกโครงสร้าง/สี/ขนาด แก้ได้แค่ค่าตัวเลข) ── */}
+            {/* ── ข้อมูลโปรโมชั่นของเทมเพลต (template-20 เท่านั้น — chrome ล็อกโครงสร้าง/สี/ขนาด แก้ได้แค่ค่าตัวเลข) ── */}
             {isChromeLocked && selectedTemplateObj?.hasDiscountPromo && (
               <div className="rounded-lg border bg-muted/20 p-4 space-y-3">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">ตัวเลขโปรโมชั่นของ Template</p>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">ข้อมูลโปรโมชั่นของเทมเพลต</p>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="grid gap-1.5">
                     <Label className="text-xs">เปอร์เซ็นต์ส่วนลด</Label>
@@ -1562,7 +1568,7 @@ export default function CampaignsPage() {
                     onClick={() => { pullFromDialogRef.current = true; setPullContentOpen(true); }}
                   >
                     <FileText className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">ดึงคอนเทนท์</span>
+                    <span className="hidden sm:inline">ดึงคอนเทนต์</span>
                   </Button>
                   <Button
                     variant="outline" size="sm" className="h-7 gap-1.5 text-xs"
@@ -1981,7 +1987,7 @@ export default function CampaignsPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base sm:text-lg pr-6">
               <Mail className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
-              <span className="truncate">Log การส่งอีเมล — {recipientLogData?.campaign?.name}</span>
+              <span className="truncate">ประวัติการส่งอีเมล — {recipientLogData?.campaign?.name}</span>
             </DialogTitle>
             <DialogDescription className="text-xs sm:text-sm">
               {recipientLogData?.campaign?.subject}
@@ -2021,8 +2027,8 @@ export default function CampaignsPage() {
                   <div className="sm:hidden space-y-2">
                     {recipientLogData.recipients.map((r) => {
                       const statusMap: Record<string, { label: string; cls: string }> = {
-                        sent:      { label: 'ส่งแล้ว',  cls: 'bg-blue-100 text-blue-700' },
-                        delivered: { label: 'ถึงแล้ว',  cls: 'bg-green-100 text-green-700' },
+                        sent:      { label: 'ส่งสำเร็จ',  cls: 'bg-blue-100 text-blue-700' },
+                        delivered: { label: 'ส่งถึงแล้ว',  cls: 'bg-green-100 text-green-700' },
                         bounced:   { label: 'ตีกลับ',   cls: 'bg-red-100 text-red-700' },
                         failed:    { label: 'ล้มเหลว',  cls: 'bg-red-100 text-red-700' },
                         queued:    { label: 'รอส่ง',    cls: 'bg-yellow-100 text-yellow-700' },
@@ -2077,8 +2083,8 @@ export default function CampaignsPage() {
                       <tbody>
                         {recipientLogData.recipients.map((r) => {
                           const statusMap: Record<string, { label: string; cls: string }> = {
-                            sent:      { label: 'ส่งแล้ว',    cls: 'bg-blue-100 text-blue-700' },
-                            delivered: { label: 'ถึงแล้ว',    cls: 'bg-green-100 text-green-700' },
+                            sent:      { label: 'ส่งสำเร็จ',    cls: 'bg-blue-100 text-blue-700' },
+                            delivered: { label: 'ส่งถึงแล้ว',    cls: 'bg-green-100 text-green-700' },
                             bounced:   { label: 'ตีกลับ',     cls: 'bg-red-100 text-red-700' },
                             failed:    { label: 'ล้มเหลว',    cls: 'bg-red-100 text-red-700' },
                             queued:    { label: 'รอส่ง',      cls: 'bg-yellow-100 text-yellow-700' },

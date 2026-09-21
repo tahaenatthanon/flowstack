@@ -70,7 +70,7 @@ const PreserveInlineStyle = Extension.create({
   addGlobalAttributes() {
     return [
       {
-        types: ['table', 'tableRow', 'tableCell', 'tableHeader', 'heading'],
+        types: ['table', 'tableRow', 'tableCell', 'tableHeader', 'heading', 'bulletList', 'listItem'],
         attributes: keepStyleAttribute,
       },
     ];

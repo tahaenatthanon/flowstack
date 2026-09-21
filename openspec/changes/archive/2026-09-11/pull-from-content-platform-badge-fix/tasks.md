@@ -12,4 +12,4 @@
 - [x] 3.1 `pnpm exec tsc --noEmit` และ `pnpm lint` ผ่านไม่มี error
 - [x] 3.2 `pnpm test` ผ่านทั้งหมด ไม่มี regression — ผลจริง: 37 test files, 249 tests, ผ่านทั้งหมด
 - [x] 3.3 `pnpm build` ผ่านไม่มี error
-- [x] 3.4 ทดสอบด้วยมือใน browser: เปิดหน้าที่ใช้ `PullFromContentDialog` (MarketingPage หรือ CampaignsPage) ยืนยันว่า content item ที่มีหลายแพลตฟอร์มแสดง badge ครบถูกต้อง ไม่มี badge ว่างเปล่า — ทดสอบกับข้อมูลจริงใน DB ผ่าน `/marketing` → "ดึงคอนเทนท์": item 3 แพลตฟอร์ม (facebook,lineoa,lotusdomino) แสดง badge ครบ 3 อัน, item 4 แพลตฟอร์ม แสดงครบ 4 อัน ไม่มี badge ว่างเปล่า ไม่มี console error
+- [x] 3.4 ทดสอบด้วยมือใน browser: เปิดหน้าที่ใช้ `PullFromContentDialog` (MarketingPage หรือ CampaignsPage) ยืนยันว่า content item ที่มีหลายแพลตฟอร์มแสดง badge ครบถูกต้อง ไม่มี badge ว่างเปล่า — ทดสอบกับข้อมูลจริงใน DB ผ่าน `/marketing` → "ดึงคอนเทนต์": item 3 แพลตฟอร์ม (facebook,lineoa,lotusdomino) แสดง badge ครบ 3 อัน, item 4 แพลตฟอร์ม แสดงครบ 4 อัน ไม่มี badge ว่างเปล่า ไม่มี console error

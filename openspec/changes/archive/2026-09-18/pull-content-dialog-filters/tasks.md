@@ -16,10 +16,10 @@
 
 ## 3. ทดสอบ
 
-- [x] 3.1 เปิดหน้าต่าง "ดึงคอนเทนท์" ครั้งแรก — ยืนยันผ่านเบราว์เซอร์: pill "เผยแพร่แล้ว"+"อนุมัติแล้ว" active ตั้งแต่เปิด, network request เป็น `?status=approved,published`, รายการที่ render จริงมี 18 รายการ ตรงกับ 6 approved + 12 published เป๊ะ
+- [x] 3.1 เปิดหน้าต่าง "ดึงคอนเทนต์" ครั้งแรก — ยืนยันผ่านเบราว์เซอร์: pill "เผยแพร่แล้ว"+"อนุมัติแล้ว" active ตั้งแต่เปิด, network request เป็น `?status=approved,published`, รายการที่ render จริงมี 18 รายการ ตรงกับ 6 approved + 12 published เป๊ะ
 - [x] 3.2 เปลี่ยนตัวกรองสถานะเป็น "ฉบับร่าง" (ปิด 2 pill default แล้วเปิด draft) — network request ไล่เปลี่ยนตามจริงทุกจังหวะ (`?status=approved` → `?status=` → `?status=draft`), รายการที่ render เหลือ 17 รายการ ตรงกับจำนวน draft จริงในระบบ
 - [x] 3.3 ทดสอบตัวกรองประเภท/แพลตฟอร์ม: สลับสถานะกลับเป็น "ทั้งหมด" แล้วกรองแพลตฟอร์มเป็น "Line OA" — ทุกการ์ดที่แสดงมี badge "Line OA" ครบ รวมถึงรายการที่ฟิลด์ platform ดิบเป็น `"facebook,lineoa,lotusdomino"` (หลายค่าคั่นจุลภาค) ก็กรองเจอถูกต้องด้วย `parsePlatforms()`
-- [x] 3.4 ทดสอบ regression: เปิด "ดึงคอนเทนท์" (เห็นแค่ approved+published) แล้วไปหน้า Content Planner — เห็น "แผนทั้งหมด 50" (ครบทุกสถานะ รวม badge "ร่าง" ที่ปรากฏจริง) ยืนยันไม่มี cache ปนกันระหว่าง query key `['content','items',{status}]` ของ dialog กับ `['content','items']` ของ `useContent.ts`
+- [x] 3.4 ทดสอบ regression: เปิด "ดึงคอนเทนต์" (เห็นแค่ approved+published) แล้วไปหน้า Content Planner — เห็น "แผนทั้งหมด 50" (ครบทุกสถานะ รวม badge "ร่าง" ที่ปรากฏจริง) ยืนยันไม่มี cache ปนกันระหว่าง query key `['content','items',{status}]` ของ dialog กับ `['content','items']` ของ `useContent.ts`
 - [x] 3.5 ทดสอบ regression ผ่านเบราว์เซอร์จริง: เปลี่ยน platform filter เป็น "Line OA" → ปิด dialog ด้วยปุ่ม Close (X) → เปิดใหม่ — ยืนยันตัวกรองทั้งหมด (ประเภท/สถานะ/แพลตฟอร์ม) กลับเป็นค่าเริ่มต้นครบ (พบระหว่างทดสอบว่าปิดด้วยปุ่ม Escape ไม่ trigger `onOpenChange` ในสภาพแวดล้อมทดสอบนี้ — ไม่ใช่บั๊กของโค้ด แค่วิธีทดสอบที่ไม่ตรง ยืนยันซ้ำด้วยปุ่ม Close จริงแล้วทำงานถูกต้อง)
 
 ## 4. Verification

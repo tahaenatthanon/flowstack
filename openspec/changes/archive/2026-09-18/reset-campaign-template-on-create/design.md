@@ -1,6 +1,6 @@
 ## Context
 
-State ของ dialog สร้าง/แก้ไขแคมเปญใน `CampaignsPage.tsx` ถูก reset จากหลายจุด: `openCreateCampaign()` (ปุ่ม "สร้างแคมเปญ"), `openEditCampaign()` (แก้ไขแคมเปญเดิม), fromContent flow (ดึงคอนเทนท์จากบทความ), และ `onOpenChange` ของ Dialog เอง (ตอนปิด)
+State ของ dialog สร้าง/แก้ไขแคมเปญใน `CampaignsPage.tsx` ถูก reset จากหลายจุด: `openCreateCampaign()` (ปุ่ม "สร้างแคมเปญ"), `openEditCampaign()` (แก้ไขแคมเปญเดิม), fromContent flow (ดึงคอนเทนต์จากบทความ), และ `onOpenChange` ของ Dialog เอง (ตอนปิด)
 
 Root cause ที่ยืนยันจากโค้ด: `openCreateCampaign()` ([CampaignsPage.tsx:347-353](../../../src/pages/CampaignsPage.tsx:347)) reset ตัวแปรเกือบทั้งหมด (`campaignName`, `campaignSubject`, `campaignBody`, `senderName`, `senderEmail`, `selectedCampaignGroups`, `enableTrackOpens`, `enableTrackClicks`) แต่ **ไม่ reset `selectedTemplate`**
 

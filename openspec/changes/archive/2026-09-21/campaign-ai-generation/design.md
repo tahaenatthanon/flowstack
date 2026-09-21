@@ -1,6 +1,6 @@
 ## Context
 
-ระบบตอนนี้มี Content module (`brand-content.php`, `content_items`, `brand_contexts`) ที่ generate ข้อความ/รูปด้วย AI แยกขาดจาก Campaign module (`CampaignsPage.tsx`, `email_campaigns`) ที่สร้างอีเมลด้วยมือหรือ "ดึงคอนเทนท์" ที่มีอยู่แล้วมาใส่เท่านั้น
+ระบบตอนนี้มี Content module (`brand-content.php`, `content_items`, `brand_contexts`) ที่ generate ข้อความ/รูปด้วย AI แยกขาดจาก Campaign module (`CampaignsPage.tsx`, `email_campaigns`) ที่สร้างอีเมลด้วยมือหรือ "ดึงคอนเทนต์" ที่มีอยู่แล้วมาใส่เท่านั้น
 
 ข้อมูลสินค้ากระจัดกระจาย 2 ที่ ไม่เชื่อมกัน:
 - `product_refs` (JSON ใน `content_global_settings`) — มีรูป + ชื่อ + metadata ทางภาพ (สี/ทรง/mood) ใช้แค่ตอน generate รูป ไม่มีคำอธิบาย/USP

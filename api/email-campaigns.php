@@ -743,14 +743,21 @@ function _callCampaignAIRaw(PDO $db, string $tenantId, string $systemPrompt, str
     return $obj;
 }
 
-/** เรียก AI ให้เขียนเนื้อหาแคมเปญ 1 ฉบับ คืน ['subject','name','body_html','template_id','suggested_scheduled_at'] */
+/**
+ * เรียก AI ให้เขียนเนื้อหาแคมเปญ 1 ฉบับ คืนเนื้อหาแบบโครงสร้างล้วน (ไม่มี HTML/ลิงก์
+ * จาก AI เลย) — ['subject','name','heading','blocks','cta_text','template_id','suggested_scheduled_at']
+ */
 function _callCampaignAI(PDO $db, string $tenantId, string $systemPrompt, string $userMessage): array
 {
-    $obj = _callCampaignAIRaw($db, $tenantId, $systemPrompt, $userMessage, 'body_html');
+    $obj = _callCampaignAIRaw($db, $tenantId, $systemPrompt, $userMessage, 'blocks');
     return [
         'subject'                => trim((string)($obj['subject'] ?? '')),
         'name'                   => trim((string)($obj['name'] ?? '')),
-        'body_html'              => (string)($obj['body_html'] ?? ''),
+        'heading'                => (string)($obj['heading'] ?? ''),
+        'blocks'                 => is_array($obj['blocks'] ?? null) ? $obj['blocks'] : [],
+        'cta_text'               => isset($obj['cta_text']) && trim((string)$obj['cta_text']) !== ''
+            ? trim((string)$obj['cta_text'])
+            : null,
         'template_id'            => $obj['template_id'] ?? null,
         'suggested_scheduled_at' => $obj['suggested_scheduled_at'] ?? null,
     ];
@@ -801,6 +808,23 @@ function generateCampaignContent(PDO $db, string $tenantId): void
     if (!campaign_ai_is_future_datetime($result['suggested_scheduled_at'] ?? null)) {
         unset($result['suggested_scheduled_at']);
     }
+
+    if (stripos($result['heading'], '{{first_name}}') === false) {
+        error_log('[campaign-ai] AI heading missing {{first_name}} merge tag: ' . $result['heading']);
+    }
+
+    // Render เนื้อหาโซนแก้ไขได้จาก heading/blocks ด้วยสไตล์ของ template ที่เลือก —
+    // ไม่ compose chrome เต็มก้อนที่นี่ เพราะ frontend เป็นคน compose chrome+CTA
+    // สดๆ ตอนกดบันทึกอยู่แล้ว (buildFinalBodyHtml() ใน CampaignsPage.tsx) ให้
+    // editable_content คืนแค่เนื้อหาที่จะแทนที่ {{EMAIL_CONTENT}} เท่านั้น
+    $templateMeta = null;
+    foreach ($templates as $t) {
+        if (($t['id'] ?? null) === $result['template_id']) { $templateMeta = $t; break; }
+    }
+    $result['editable_content'] = $templateMeta
+        ? campaign_ai_render_structured_content($templateMeta, $result)
+        : '';
+    unset($result['blocks'], $result['heading']);
 
     jsonResponse($result);
 }
@@ -890,21 +914,37 @@ function aiPlanCampaigns(PDO $db, string $userId, string $tenantId): void
         }
         if ($topic !== '') $result['subject'] = $result['subject'] ?: $topic;
 
+        if (stripos($result['heading'], '{{first_name}}') === false) {
+            error_log('[campaign-ai] batch AI heading missing {{first_name}} merge tag: ' . $result['heading']);
+        }
+
         $templateId = campaign_ai_validate_template_id($result['template_id'] ?? null, $templates);
         $scheduledAt = _combineBatchDateTime($startDate, $i, $intervalDays, $sendTime);
+
+        // Batch generate รันฝั่ง PHP ล้วน ไม่มี frontend คั่นกลางให้ compose ตอนบันทึก
+        // เหมือน single-generate จึงต้อง compose HTML เต็มก้อน (chrome + เนื้อหา + CTA)
+        // ที่นี่เลย และเก็บ editable_content ดิบไว้ด้วย ให้เปิดแก้ไขร่างซ้ำได้แบบ chrome-locked
+        $templateMeta = null;
+        foreach ($templates as $t) {
+            if (($t['id'] ?? null) === $templateId) { $templateMeta = $t; break; }
+        }
+        $editableContent = $templateMeta ? campaign_ai_render_structured_content($templateMeta, $result) : '';
+        $bodyHtml = $templateMeta
+            ? campaign_ai_compose_body_html($templateMeta, $editableContent, $result['cta_text'] ?? null)
+            : $editableContent;
 
         $id = generateUUID();
         $db->prepare("
             INSERT INTO email_campaigns (
                 id, tenant_id, name, subject, body_html, body_text, product_id,
-                plan_batch_id, plan_sequence, template_id, sender_name, sender_email,
-                status, scheduled_at, created_by, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, NOW())
+                plan_batch_id, plan_sequence, template_id, editable_content, cta_text,
+                sender_name, sender_email, status, scheduled_at, created_by, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, NOW())
         ")->execute([
             $id, $tenantId,
             $result['name'] ?: $result['subject'],
-            $result['subject'], $result['body_html'], strip_tags($result['body_html']),
-            $productId, $planBatchId, $i + 1, $templateId,
+            $result['subject'], $bodyHtml, strip_tags($bodyHtml),
+            $productId, $planBatchId, $i + 1, $templateId, $editableContent, $result['cta_text'] ?? null,
             $sender['name'], $sender['email'],
             $scheduledAt, $userId,
         ]);

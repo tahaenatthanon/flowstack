@@ -5,7 +5,7 @@
 ## What Changes
 
 - แก้ `openCreateCampaign()` ใน `CampaignsPage.tsx` ให้ reset `selectedTemplate` กลับเป็นค่าว่าง (`''`) ทุกครั้งที่เปิด dialog สำหรับสร้างแคมเปญใหม่ — เหมือนกับตัวแปรอื่น (`campaignName`, `campaignBody`, `senderName` ฯลฯ) ที่ reset อยู่แล้วในฟังก์ชันนี้ แค่ `selectedTemplate` ตัวเดียวที่ตกหล่น
-- แก้จุดเดียวกันที่ flow "ดึงคอนเทนท์จากบทความมาสร้างแคมเปญ" (fromContent navigation, `CampaignsPage.tsx` บรรทัด ~265-274) ซึ่งพบว่าตกหล่นการ reset `selectedTemplate` เช่นเดียวกัน
+- แก้จุดเดียวกันที่ flow "ดึงคอนเทนต์จากบทความมาสร้างแคมเปญ" (fromContent navigation, `CampaignsPage.tsx` บรรทัด ~265-274) ซึ่งพบว่าตกหล่นการ reset `selectedTemplate` เช่นเดียวกัน
 - ไม่แก้ dialog `onOpenChange` ที่มี reset ครบถ้วนอยู่แล้ว (ทำงานถูกต้องเวลาปิดด้วย X/Escape/คลิกนอกกรอบ) — ปัญหาอยู่ที่เส้นทางบันทึกสำเร็จ ซึ่งปิด dialog แบบ `setIsCampaignDialogOpen(false)` ตรงๆ ไม่ผ่าน `onOpenChange`
 
 ## Capabilities

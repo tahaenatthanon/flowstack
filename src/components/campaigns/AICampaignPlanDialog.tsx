@@ -71,7 +71,10 @@ export default function AICampaignPlanDialog({ open, onOpenChange }: AICampaignP
           interval_days: intervalDays,
           start_date: startDate,
           tone,
-          templates: emailTemplates.map(t => ({ id: t.id, nameTH: t.nameTH })),
+          // ส่ง template เต็มก้อน — batch generate compose HTML (chrome + เนื้อหา + CTA)
+          // ฝั่ง PHP ล้วน ไม่มี frontend คั่นกลาง จึงต้องใช้ html/hasCta/heading_color/
+          // body_color/text_align ของ template ด้วย ไม่ใช่แค่ id/nameTH เหมือนก่อนหน้า
+          templates: emailTemplates,
         }),
       });
       setCreatedCampaigns(result?.campaigns ?? []);

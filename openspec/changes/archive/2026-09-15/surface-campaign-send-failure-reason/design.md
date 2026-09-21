@@ -8,7 +8,7 @@
 
 **Goals:**
 - ข้อความ error จริงจาก PHPMailer ถูกบันทึกลง `bounce_reason` ทุกครั้งที่การส่งล้มเหลว
-- ผู้ใช้เปิดดู "Log การส่งอีเมล" ได้ทันทีที่มีการพยายามส่ง (`sent_at` มีค่า) ไม่ว่าผลจะสำเร็จหรือล้มเหลวทั้งหมด
+- ผู้ใช้เปิดดู "ประวัติการส่งอีเมล" ได้ทันทีที่มีการพยายามส่ง (`sent_at` มีค่า) ไม่ว่าผลจะสำเร็จหรือล้มเหลวทั้งหมด
 
 **Non-Goals:**
 - ไม่เพิ่ม status `'failed'` แยกจาก `'draft'` ใน `email_campaigns.status` — ENUM ปัจจุบันคือ `('draft','scheduled','sending','sent','cancelled')` การเพิ่มค่าใหม่ต้อง migration และต้องแก้ `STATUS_CONFIG` ฝั่ง frontend ด้วย (ไม่งั้น `STATUS_CONFIG[campaign.status]` จะเป็น `undefined` แล้ว crash) — ตัดสินใจแล้วว่าไม่คุ้มกับความซับซ้อนที่เพิ่มในรอบนี้ เพราะดีไซน์ retry-from-draft ที่มีอยู่แล้วก็ใช้งานได้

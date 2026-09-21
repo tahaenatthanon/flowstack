@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: AI Generate Action In Campaign Dialog
-The email campaign create/edit dialog SHALL offer a "สร้างด้วย AI" action, placed alongside the existing "ดึงคอนเทนท์" action, that opens a panel for AI-assisted content generation.
+The email campaign create/edit dialog SHALL offer a "สร้างด้วย AI" action, placed alongside the existing "ดึงคอนเทนต์" action, that opens a panel for AI-assisted content generation.
 
 #### Scenario: User opens the AI generation panel
 - **WHEN** a user clicks "สร้างด้วย AI" inside the campaign dialog's content section

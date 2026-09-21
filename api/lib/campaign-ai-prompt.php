@@ -94,6 +94,13 @@ function campaign_ai_system_prompt(array $args): string
         $scheduleField = ',"suggested_scheduled_at":"วันเวลาที่แนะนำให้ส่ง format YYYY-MM-DD HH:MM:SS เป็นเวลาในอนาคตที่เหมาะกับเนื้อหานี้ (เช่น เนื้อหาเร่งด่วนแนะนำเวลาใกล้ เนื้อหาทั่วไปแนะนำเช้าวันทำการถัดไป)"';
     }
 
+    $parts[] = <<<'PROMPT'
+## กฎการเขียนเนื้อหา — ห้ามเขียน HTML หรือลิงก์เอง
+- ห้ามเขียน HTML tag, markdown, หรือ `<a>` ใดๆ ในข้อความ (heading, blocks[].text, blocks[].items, cta_text) — ระบบเป็นคน render เป็น HTML เองตามสไตล์ของ template ที่เลือก ส่งมาเป็นข้อความธรรมดาเท่านั้น
+- ห้ามใส่ลิงก์ URL หรือที่อยู่เว็บใดๆ ในเนื้อหาเด็ดขาด ไม่ว่าจะอยู่ในรูปแบบใด
+- ฟิลด์ "heading" ต้องขึ้นต้นด้วย merge tag {{first_name}} เสมอ เป็นคำทักทายเปิดเรื่อง (เช่น 'สวัสดีคุณ {{first_name}} จาก {{customer_company_name}}')
+PROMPT;
+
     $parts[] = <<<PROMPT
 ## CRITICAL LANGUAGE RULE
 ตอบเป็นภาษาไทยเท่านั้น (Thai script only). ห้ามใช้ภาษาจีน เกาหลี ญี่ปุ่น (CJK) โดยเด็ดขาด.
@@ -103,7 +110,7 @@ function campaign_ai_system_prompt(array $args): string
 เริ่มด้วย { และจบด้วย }
 
 Required JSON schema:
-{"subject":"หัวข้ออีเมลภาษาไทย กระชับ ดึงดูดให้เปิดอ่าน (40-60 ตัวอักษร)","name":"ชื่อแคมเปญภายในสั้นๆ ภาษาไทย","body_html":"เนื้อหาอีเมลเต็ม เป็น HTML string (ใช้ <p>,<h2>,<strong>,<a> ได้) มี CTA ชัดเจน","template_id":"id ของ template ที่เลือก ตรงตามลิสต์ด้านบน"{$scheduleField}}
+{"subject":"หัวข้ออีเมลภาษาไทย กระชับ ดึงดูดให้เปิดอ่าน (40-60 ตัวอักษร)","name":"ชื่อแคมเปญภายในสั้นๆ ภาษาไทย","heading":"คำทักทายเปิดเรื่อง ภาษาไทย ขึ้นต้นด้วย {{first_name}} เสมอ","blocks":[{"type":"paragraph","text":"ข้อความย่อหน้า ห้ามมี HTML/ลิงก์"},{"type":"list","items":["รายการที่ 1","รายการที่ 2"]}],"cta_text":"ข้อความบนปุ่ม CTA สั้นๆ ไม่บังคับส่ง ถ้าไม่ระบุระบบใช้ค่าเริ่มต้นของ template เอง — ห้ามระบุ URL","template_id":"id ของ template ที่เลือก ตรงตามลิสต์ด้านบน"{$scheduleField}}
 PROMPT;
 
     return implode("\n\n", $parts);
@@ -210,10 +217,10 @@ function campaign_ai_sanitize_output(string $text): string
  * ข้อความอื่นแทรกหรือ code fence ติดมาด้วย) — คืน null ถ้าไม่พบเลย
  *
  * $requiredKey: key ที่ต้องมีเพื่อถือว่าเป็น candidate ที่ถูกต้อง (ต่างกันตามชนิด
- * คำตอบ — 'body_html' สำหรับ generate เนื้อหา 1 ฉบับ, 'items' สำหรับ Phase 1
+ * คำตอบ — 'blocks' สำหรับ generate เนื้อหา 1 ฉบับ, 'items' สำหรับ Phase 1
  * batch planning ที่ตอบกลับเป็น list)
  */
-function campaign_ai_extract_json(string $content, string $requiredKey = 'body_html'): ?array
+function campaign_ai_extract_json(string $content, string $requiredKey = 'blocks'): ?array
 {
     $j = trim(preg_replace(['/^```(?:json)?\s*/m', '/\s*```\s*$/m'], '', $content));
     $j = campaign_ai_sanitize_output($j);
@@ -241,4 +248,66 @@ function campaign_ai_extract_json(string $content, string $requiredKey = 'body_h
         $pos++;
     }
     return null;
+}
+
+/**
+ * Render เนื้อหาโซนแก้ไขได้ (`editable_content`) จาก heading/blocks แบบโครงสร้างที่
+ * AI ตอบกลับมา โดยใช้ style metadata (`heading_color`/`body_color`/`text_align`)
+ * ของ template ที่เลือก — mirror ของ `renderStructuredContent()` ใน
+ * src/lib/campaignTemplateCompose.ts (ต้อง sync กันด้วยมือถ้าแก้ฝั่งใดฝั่งหนึ่ง
+ * เพราะ batch generate รันฝั่ง PHP ล้วน ไม่มี frontend คั่นกลางให้เรียก TS ได้)
+ *
+ * $templateMeta: entry จาก emailTemplates.ts ที่ frontend ส่งมาให้ทุกครั้ง (ดูคอมเมนต์
+ * ที่จุดเรียกใน generateCampaignContent()/aiPlanCampaigns()) ต้องมี heading_color/
+ * body_color/text_align — $content: ['heading' => string, 'blocks' => array]
+ */
+function campaign_ai_render_structured_content(array $templateMeta, array $content): string
+{
+    $headingColor = (string)($templateMeta['heading_color'] ?? '#1f2937');
+    $bodyColor    = (string)($templateMeta['body_color'] ?? '#4b5563');
+    $align        = (string)($templateMeta['text_align'] ?? 'left');
+
+    $heading = htmlspecialchars((string)($content['heading'] ?? ''), ENT_NOQUOTES, 'UTF-8');
+    $html = "<h2 style=\"color:{$headingColor};margin:0 0 20px 0;font-size:24px;text-align:{$align};\">{$heading}</h2>\n";
+
+    $blocks = is_array($content['blocks'] ?? null) ? $content['blocks'] : [];
+    foreach ($blocks as $block) {
+        if (!is_array($block)) continue;
+        $type = (string)($block['type'] ?? 'paragraph');
+        if ($type === 'list') {
+            $items = is_array($block['items'] ?? null) ? $block['items'] : [];
+            $liHtml = '';
+            foreach ($items as $item) {
+                $liHtml .= '<li style="color:' . $bodyColor . ';margin:0 0 8px 0;">' .
+                    htmlspecialchars((string)$item, ENT_NOQUOTES, 'UTF-8') . "</li>\n";
+            }
+            $html .= "<ul style=\"color:{$bodyColor};margin:0 0 20px 0;line-height:1.6;font-size:16px;text-align:{$align};padding-left:20px;\">\n{$liHtml}</ul>\n";
+        } else {
+            $text = htmlspecialchars((string)($block['text'] ?? ''), ENT_NOQUOTES, 'UTF-8');
+            $html .= "<p style=\"color:{$bodyColor};margin:0 0 20px 0;line-height:1.6;font-size:16px;text-align:{$align};\">{$text}</p>\n";
+        }
+    }
+    return $html;
+}
+
+/**
+ * ประกอบ HTML เต็มก้อนจาก chrome ของ template (`html`, ตายตัว) + editable content
+ * ที่ compose แล้ว — mirror ของ `composeCampaignHtml()` ใน campaignTemplateCompose.ts
+ * ใช้เฉพาะ batch generate (`aiPlanCampaigns`) ที่ insert ตรงลง DB โดยไม่ผ่าน frontend
+ * ให้ compose ให้ (single-generate ให้ frontend เป็นคน compose ตอนกดบันทึกเหมือนเดิม)
+ */
+function campaign_ai_compose_body_html(array $templateMeta, string $editableContent, ?string $ctaText = null): string
+{
+    $html = str_replace('{{EMAIL_CONTENT}}', $editableContent, (string)($templateMeta['html'] ?? ''));
+    if (!empty($templateMeta['hasCta'])) {
+        $html = str_replace('{{CTA_TEXT}}', $ctaText !== null && $ctaText !== ''
+            ? $ctaText
+            : (string)($templateMeta['defaultCtaText'] ?? ''), $html);
+        $html = str_replace('{{CTA_URL}}', (string)($templateMeta['defaultCtaUrl'] ?? ''), $html);
+    }
+    if (!empty($templateMeta['hasDiscountPromo'])) {
+        $html = str_replace('{{DISCOUNT_PERCENT}}', (string)($templateMeta['defaultDiscountPercent'] ?? ''), $html);
+        $html = str_replace('{{COUNTDOWN}}', (string)($templateMeta['defaultCountdown'] ?? ''), $html);
+    }
+    return $html;
 }

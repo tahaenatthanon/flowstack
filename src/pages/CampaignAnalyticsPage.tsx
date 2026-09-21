@@ -23,8 +23,8 @@ const STATUS_COLORS: Record<string, string> = {
   sent: '#22c55e', cancelled: '#f87171',
 };
 const STATUS_TH: Record<string, string> = {
-  draft: 'ร่าง', scheduled: 'กำหนดเวลา', sending: 'กำลังส่ง',
-  sent: 'ส่งแล้ว', cancelled: 'ยกเลิก',
+  draft: 'ร่าง', scheduled: 'ตั้งเวลาส่ง', sending: 'กำลังส่ง',
+  sent: 'ส่งสำเร็จ', cancelled: 'ยกเลิก',
 };
 
 function Stat({ label, value, icon: Icon, color }: {
@@ -102,7 +102,7 @@ export default function CampaignAnalyticsPage() {
       {/* Summary stat cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <Stat label="แคมเปญทั้งหมด" value={summary.total_campaigns} icon={Megaphone} color="text-violet-500" />
-        <Stat label="ส่งทั้งหมด" value={summary.total_sent.toLocaleString()} icon={Send} color="text-blue-500" />
+        <Stat label="ส่งสำเร็จทั้งหมด" value={summary.total_sent.toLocaleString()} icon={Send} color="text-blue-500" />
         <Stat label="อัตราเปิดรวม" value={`${summary.avg_open_rate}%`} icon={Eye} color="text-green-500" />
         <Stat label="อัตราคลิกเฉลี่ย" value={`${summary.avg_click_rate}%`} icon={MousePointerClick} color="text-orange-500" />
         <Stat label="CTOR (คลิกต่อการเปิด)" value={`${summary.ctor}%`} icon={MousePointerClick} color="text-violet-500" />
@@ -264,7 +264,7 @@ export default function CampaignAnalyticsPage() {
                     </div>
                     <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground">
                       <span>ผู้รับ: <strong className="text-foreground">{c.total_recipients.toLocaleString()}</strong></span>
-                      <span>ส่งแล้ว: <strong className="text-foreground">{c.total_sent.toLocaleString()}</strong></span>
+                      <span>ส่งสำเร็จ: <strong className="text-foreground">{c.total_sent.toLocaleString()}</strong></span>
                       <span>ส่งไม่สำเร็จ: <strong className="text-red-600">{c.total_failed.toLocaleString()}</strong></span>
                       <span>เปิด: <strong className="text-foreground">{c.total_opens.toLocaleString()}</strong></span>
                       <span>คลิก: <strong className="text-foreground">{c.total_clicks.toLocaleString()}</strong></span>
@@ -283,7 +283,7 @@ export default function CampaignAnalyticsPage() {
                       <TableHead className="text-xs">ชื่อแคมเปญ</TableHead>
                       <TableHead className="text-xs">สถานะ</TableHead>
                       <TableHead className="text-xs text-right">ผู้รับ</TableHead>
-                      <TableHead className="text-xs text-right">ส่งแล้ว</TableHead>
+                      <TableHead className="text-xs text-right">ส่งสำเร็จ</TableHead>
                       <TableHead className="text-xs text-right">ส่งไม่สำเร็จ</TableHead>
                       <TableHead className="text-xs text-right">เปิด</TableHead>
                       <TableHead className="text-xs text-right">คลิก</TableHead>

@@ -39,7 +39,7 @@
 
 ## 7. Frontend — ปุ่ม "สร้างด้วย AI" ในไดอะล็อกแคมเปญ
 
-- [x] 7.1 เพิ่มปุ่ม "สร้างด้วย AI" ข้าง "ดึงคอนเทนท์" ใน `src/pages/CampaignsPage.tsx` (ใน section เนื้อหาอีเมลของ dialog สร้าง/แก้ไขแคมเปญ)
+- [x] 7.1 เพิ่มปุ่ม "สร้างด้วย AI" ข้าง "ดึงคอนเทนต์" ใน `src/pages/CampaignsPage.tsx` (ใน section เนื้อหาอีเมลของ dialog สร้าง/แก้ไขแคมเปญ)
 - [x] 7.2 เพิ่ม panel/popover: product chip picker (จากงาน 6.3) + ตัวเลือกโทนการเขียน + ปุ่ม "สร้าง"
 - [x] 7.3 Wire ปุ่ม "สร้าง" เรียก action จากงาน 4.1 โดยส่ง `source_topic = campaignSubject` ถ้ามีค่า มิเช่นนั้นส่งว่าง
 - [x] 7.4 Handle ผลลัพธ์: ถ้า `campaignSubject`/`campaignName` ว่างตอนกด ให้ `setCampaignSubject`/`setCampaignName` จากผลลัพธ์ AI, ถ้ามีค่าอยู่แล้วไม่ทับ — ทุกกรณี `setEditableContent`/`setCampaignBody` (ตาม `isChromeLocked`) ด้วยเนื้อหาที่ AI เขียน
