@@ -4,6 +4,8 @@ import { Loader2, Sparkles, CheckCircle2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { apiFetch } from '@/lib/api';
@@ -36,6 +38,8 @@ export default function AICampaignPlanDialog({ open, onOpenChange }: AICampaignP
   const qc = useQueryClient();
 
   const [productIds, setProductIds] = useState<string[]>([]);
+  const [topicIdea, setTopicIdea] = useState('');
+  const [useBrandContext, setUseBrandContext] = useState(false);
   const [count, setCount] = useState(3);
   const [intervalDays, setIntervalDays] = useState(3);
   const [startDate, setStartDate] = useState(todayLocalISO());
@@ -44,7 +48,8 @@ export default function AICampaignPlanDialog({ open, onOpenChange }: AICampaignP
   const [createdCampaigns, setCreatedCampaigns] = useState<PlannedCampaign[]>([]);
 
   const reset = () => {
-    setProductIds([]); setCount(3); setIntervalDays(3); setStartDate(todayLocalISO());
+    setProductIds([]); setTopicIdea(''); setUseBrandContext(false);
+    setCount(3); setIntervalDays(3); setStartDate(todayLocalISO());
     setTone('auto'); setStep('form'); setCreatedCampaigns([]);
   };
 
@@ -67,6 +72,8 @@ export default function AICampaignPlanDialog({ open, onOpenChange }: AICampaignP
         method: 'POST',
         body: JSON.stringify({
           product_id: productIds[0],
+          topic_idea: topicIdea.trim(),
+          use_brand_context: useBrandContext,
           count,
           interval_days: intervalDays,
           start_date: startDate,
@@ -80,6 +87,9 @@ export default function AICampaignPlanDialog({ open, onOpenChange }: AICampaignP
       setCreatedCampaigns(result?.campaigns ?? []);
       qc.invalidateQueries({ queryKey: marketingKeys.campaigns() });
       setStep('done');
+      if (result?.brand_context_found === false) {
+        toast({ title: 'ยังไม่มีข้อมูลแบรนด์ในระบบ', description: 'ข้ามการใช้บริบทนี้ — อัปโหลด brand.md ได้ที่หน้าตั้งค่าแบรนด์' });
+      }
     } catch (e: any) {
       toast({ title: 'วางแผนแคมเปญไม่สำเร็จ', description: e.message, variant: 'destructive' });
       setStep('form');
@@ -101,9 +111,24 @@ export default function AICampaignPlanDialog({ open, onOpenChange }: AICampaignP
         {step === 'form' && (
           <div className="space-y-4">
             <div className="grid gap-1.5">
-              <Label>เลือกสินค้า <span className="text-destructive">*</span></Label>
+              <Label className="text-xs">แนวคิด/ธีมของชุดแคมเปญ (ไม่บังคับ)</Label>
+              <Textarea rows={2} value={topicIdea} onChange={e => setTopicIdea(e.target.value)}
+                placeholder="เช่น ชุดอีเมลเกี่ยวกับโปรโมชั่นสงกรานต์ หรือประกาศเปิดสาขาใหม่" />
+            </div>
+            <div className="grid gap-1.5">
+              <Label>เลือกสินค้า (ไม่บังคับ)</Label>
               <ProductPicker value={productIds} onChange={setProductIds} max={1} />
             </div>
+            <div className="flex items-center gap-2">
+              <Checkbox id="batch-use-brand-context" checked={useBrandContext}
+                onCheckedChange={(v) => setUseBrandContext(v === true)} />
+              <Label htmlFor="batch-use-brand-context" className="text-xs font-normal cursor-pointer">
+                ใช้ข้อมูลแบรนด์ (brand.md) เป็นบริบทให้ AI
+              </Label>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              ต้องมีอย่างน้อยหนึ่งอย่าง: แนวคิด/ธีม, สินค้า, หรือใช้ข้อมูลแบรนด์ — ถ้ามีทั้งแนวคิดและสินค้า AI จะยึดแนวคิดเป็นทิศทางหลัก
+            </p>
             <div className="grid grid-cols-3 gap-3">
               <div className="grid gap-1.5">
                 <Label className="text-xs">จำนวนฉบับ</Label>
@@ -138,7 +163,7 @@ export default function AICampaignPlanDialog({ open, onOpenChange }: AICampaignP
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => handleClose(false)}>ยกเลิก</Button>
-              <Button disabled={productIds.length === 0} onClick={handleGenerate} className="gap-2">
+              <Button disabled={productIds.length === 0 && !topicIdea.trim() && !useBrandContext} onClick={handleGenerate} className="gap-2">
                 <Sparkles className="h-4 w-4" />สร้างแผน
               </Button>
             </DialogFooter>

@@ -28,6 +28,40 @@ function campaign_ai_products_section(array $products): string
 }
 
 /**
+ * โจทย์หลัก (idea) ที่ผู้ใช้พิมพ์เอง — วางเป็น section ท้ายสุดก่อน section กฎ/schema
+ * เสมอ (ตำแหน่งท้ายๆ มักมีน้ำหนักสูงกว่าใน context ยาว) เพื่อให้เป็นทิศทางหลักของ
+ * เนื้อหา ส่วนสินค้า (ถ้ามี) เป็นแค่ข้อมูลประกอบ ไม่ใช่หัวข้อหลักที่แข่งกัน
+ */
+function campaign_ai_idea_section(string $idea): string
+{
+    $idea = trim($idea);
+    if ($idea === '') return '';
+    return "## โจทย์หลัก (Idea)\n{$idea}\n\nให้ยึดโจทย์นี้เป็นทิศทางหลักของเนื้อหา — ข้อมูลสินค้า (ถ้ามี) ใช้เป็นรายละเอียดประกอบเท่านั้น ไม่ใช่หัวข้อหลัก";
+}
+
+/**
+ * ดึงบริบทแบรนด์ (เฉพาะ `file_type='brand_md'`) ของ tenant มาเป็น section
+ * สำหรับ system prompt — รูปแบบเดียวกับที่ `api/brand-content.php` ใช้อยู่แล้ว
+ * (`=== {name} (brand_md) ===\n{content}`) เพื่อให้พฤติกรรม AI สอดคล้องกันทั้ง
+ * สองโมดูล คืน '' ถ้าไม่พบแถวเลย (ไม่ error — caller เป็นคนตัดสินใจว่าจะแจ้งผู้ใช้ไหม)
+ *
+ * จงใจไม่ใช้ sop_md/custom — เป็นกฎภายในที่ไม่เหมาะให้ AI เอาไปเขียนอีเมลลูกค้า
+ */
+function campaign_ai_brand_context_section(PDO $db, string $tenantId): string
+{
+    $stmt = $db->prepare("SELECT name, content FROM brand_contexts WHERE tenant_id=? AND file_type='brand_md'");
+    $stmt->execute([$tenantId]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    if (!$rows) return '';
+
+    $blocks = array_map(
+        static fn(array $r): string => "=== {$r['name']} (brand_md) ===\n{$r['content']}",
+        $rows
+    );
+    return "## Brand Context\n" . implode("\n\n", $blocks);
+}
+
+/**
  * Section บอก AI ให้เลือก template — ถ้า $currentTemplateId มีค่า (ผู้ใช้เลือกไว้ก่อน
  * แล้ว) ต้องสั่งไม่ให้เปลี่ยน ให้ AI แค่เขียนเนื้อหาให้เข้ากับ template นั้น
  *
@@ -62,12 +96,21 @@ function campaign_ai_template_section(array $templates, ?string $currentTemplate
  *   - include_schedule_suggestion (bool, default false — true เฉพาะ generate เดี่ยว
  *     ที่ต้องการให้ AI แนะนำ suggested_scheduled_at ด้วย; batch ไม่ใช้เพราะ Phase 1
  *     ตัดสินใจเวลาให้แล้ว)
+ *   - idea (string, optional — โจทย์หลักที่ผู้ใช้พิมพ์เอง เป็นทิศทางหลัก เหนือสินค้า)
+ *   - brand_context_section (string, optional — ผลลัพธ์จาก campaign_ai_brand_context_section()
+ *     ที่ caller fetch มาแล้ว ฟังก์ชันนี้ไม่แตะ DB เอง เพื่อให้ยังเป็น pure function)
  */
 function campaign_ai_system_prompt(array $args): string
 {
     $parts = [];
+    $brandContextSection = (string)($args['brand_context_section'] ?? '');
+    if ($brandContextSection !== '') $parts[] = $brandContextSection;
+
     $productsSection = campaign_ai_products_section($args['products'] ?? []);
     if ($productsSection !== '') $parts[] = $productsSection;
+
+    $ideaSection = campaign_ai_idea_section((string)($args['idea'] ?? ''));
+    if ($ideaSection !== '') $parts[] = $ideaSection;
 
     $tone = (string)($args['tone'] ?? 'friendly');
     $toneMap = [
@@ -165,12 +208,24 @@ function campaign_ai_is_future_datetime(?string $datetime): bool
 /**
  * System prompt สำหรับ Phase 1 ของ batch planning — วางแผนหัวข้อ + เวลาส่ง
  * ของทุกฉบับในชุดพร้อมกัน (เห็นภาพรวมทั้งชุด) เพื่อการันตีว่าไม่ซ้ำกันเอง
+ *
+ * $args เพิ่มเติมจาก products/count: topic_idea (string, optional — ธีมหลักของ
+ * ทั้งชุดที่ผู้ใช้พิมพ์เอง ให้ AI วางแผนหัวข้อย่อยให้สอดคล้องกัน), brand_context_section
+ * (string, optional — ผลลัพธ์จาก campaign_ai_brand_context_section() ที่ fetch มาแล้ว)
  */
 function campaign_ai_batch_plan_prompt(array $args): string
 {
     $parts = [];
+    $brandContextSection = (string)($args['brand_context_section'] ?? '');
+    if ($brandContextSection !== '') $parts[] = $brandContextSection;
+
     $productsSection = campaign_ai_products_section($args['products'] ?? []);
     if ($productsSection !== '') $parts[] = $productsSection;
+
+    $topicIdea = trim((string)($args['topic_idea'] ?? ''));
+    if ($topicIdea !== '') {
+        $parts[] = "## ธีมหลักของทั้งชุด (Idea)\n{$topicIdea}\n\nให้วางแผนหัวข้อย่อยของแต่ละฉบับให้สอดคล้องกับธีมหลักนี้เสมอ — ข้อมูลสินค้า (ถ้ามี) ใช้เป็นรายละเอียดประกอบเท่านั้น ไม่ใช่หัวข้อหลัก";
+    }
 
     $count = (int)($args['count'] ?? 1);
     $parts[] = "## งานที่ต้องทำ\nวางแผนอีเมลแคมเปญ {$count} ฉบับ สำหรับสินค้าข้างต้น โดยแต่ละฉบับต้องมี:\n" .

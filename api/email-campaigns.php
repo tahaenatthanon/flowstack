@@ -773,10 +773,20 @@ function generateCampaignContent(PDO $db, string $tenantId): void
     $productIds       = is_array($body['product_ids'] ?? null) ? $body['product_ids'] : [];
     $sourceTopic      = trim((string)($body['source_topic'] ?? ''));
     $tone             = (string)($body['tone'] ?? 'friendly');
+    $useBrandContext  = !empty($body['use_brand_context']);
     // Templates ไม่มี PHP-side source of truth — frontend เป็นเจ้าของลิสต์นี้
     // (src/data/emailTemplates.ts) และส่งมาให้ทุกครั้ง กัน 2 แหล่งข้อมูล drift กัน
     $templates        = is_array($body['templates'] ?? null) ? $body['templates'] : [];
     $currentTemplateId = trim((string)($body['current_template_id'] ?? '')) ?: null;
+
+    $brandContextSection = $useBrandContext ? campaign_ai_brand_context_section($db, $tenantId) : '';
+    $brandContextFound = $useBrandContext && $brandContextSection !== '';
+
+    // ต้องมีอย่างน้อยหนึ่งใน {สินค้า, ไอเดียที่พิมพ์ (source_topic), brand context ที่พบจริง}
+    // — สอง่ชั้นกับฝั่ง frontend ที่ disable ปุ่มไว้แล้ว กันกรณีเรียก API ตรง
+    if (!$productIds && $sourceTopic === '' && !$brandContextFound) {
+        jsonError('กรุณาเลือกสินค้า พิมพ์ไอเดียแคมเปญ หรือเปิดใช้ข้อมูลแบรนด์อย่างน้อยหนึ่งอย่าง', 400);
+    }
 
     $products = _loadCampaignProducts($db, $productIds, $tenantId);
 
@@ -786,6 +796,7 @@ function generateCampaignContent(PDO $db, string $tenantId): void
         'templates'                   => $templates,
         'current_template_id'         => $currentTemplateId,
         'include_schedule_suggestion' => true,
+        'brand_context_section'       => $brandContextSection,
     ]);
     $userMessage  = campaign_ai_user_message($sourceTopic);
 
@@ -825,6 +836,10 @@ function generateCampaignContent(PDO $db, string $tenantId): void
         ? campaign_ai_render_structured_content($templateMeta, $result)
         : '';
     unset($result['blocks'], $result['heading']);
+
+    if ($useBrandContext && !$brandContextFound) {
+        $result['brand_context_found'] = false;
+    }
 
     jsonResponse($result);
 }
@@ -866,21 +881,36 @@ function aiPlanCampaigns(PDO $db, string $userId, string $tenantId): void
     $intervalDays = (int)($body['interval_days'] ?? 0);
     $startDate    = trim((string)($body['start_date'] ?? ''));
     $tone         = (string)($body['tone'] ?? 'friendly');
+    $topicIdea    = trim((string)($body['topic_idea'] ?? ''));
+    $useBrandContext = !empty($body['use_brand_context']);
     $templates    = is_array($body['templates'] ?? null) ? $body['templates'] : [];
 
-    if ($productId === '') jsonError('กรุณาเลือกสินค้า', 400);
+    $brandContextSection = $useBrandContext ? campaign_ai_brand_context_section($db, $tenantId) : '';
+    $brandContextFound = $useBrandContext && $brandContextSection !== '';
+
+    // ต้องมีอย่างน้อยหนึ่งใน {สินค้า, ไอเดีย/ธีมที่พิมพ์, brand context ที่พบจริง}
+    // — เดิมบังคับเลือกสินค้าเสมอ เปลี่ยนเป็นเช็ครวม 3 แหล่งเหมือน generateCampaignContent()
+    if ($productId === '' && $topicIdea === '' && !$brandContextFound) {
+        jsonError('กรุณาเลือกสินค้า พิมพ์แนวคิด/ธีมของชุดแคมเปญ หรือเปิดใช้ข้อมูลแบรนด์อย่างน้อยหนึ่งอย่าง', 400);
+    }
     if ($count < 1 || $count > 10) jsonError('จำนวนฉบับต้องอยู่ระหว่าง 1-10', 400);
     if ($intervalDays < 0) jsonError('ระยะห่างวันต้องไม่ติดลบ', 400);
     if (!$startDate || !strtotime($startDate)) jsonError('กรุณาระบุวันเริ่มต้นที่ถูกต้อง', 400);
 
-    $products = _loadCampaignProducts($db, [$productId], $tenantId);
-    if (!$products) jsonError('ไม่พบสินค้าที่เลือก', 404);
+    // สินค้าเป็น optional แล้ว — โหลดเฉพาะเมื่อเลือกไว้ ไม่ error ถ้าไม่ได้เลือก
+    $products = $productId !== '' ? _loadCampaignProducts($db, [$productId], $tenantId) : [];
+    if ($productId !== '' && !$products) jsonError('ไม่พบสินค้าที่เลือก', 404);
 
     $sender = _defaultCampaignSender($db);
     $planBatchId = generateUUID();
 
     // ── Phase 1: วางแผนหัวข้อ + เวลาส่งทั้งชุดพร้อมกัน (เห็นภาพรวม กันซ้ำ) ──
-    $planPrompt  = campaign_ai_batch_plan_prompt(['products' => $products, 'count' => $count]);
+    $planPrompt  = campaign_ai_batch_plan_prompt([
+        'products'              => $products,
+        'count'                 => $count,
+        'topic_idea'            => $topicIdea,
+        'brand_context_section' => $brandContextSection,
+    ]);
     $planMessage = campaign_ai_batch_plan_user_message($count);
     try {
         $planResult = _callCampaignAIRaw($db, $tenantId, $planPrompt, $planMessage, 'items');
@@ -899,9 +929,11 @@ function aiPlanCampaigns(PDO $db, string $userId, string $tenantId): void
         $sendTime = trim((string)($items[$i]['send_time'] ?? '09:00'));
 
         $systemPrompt = campaign_ai_system_prompt([
-            'products'  => $products,
-            'tone'      => $tone,
-            'templates' => $templates,
+            'products'              => $products,
+            'tone'                  => $tone,
+            'templates'             => $templates,
+            'idea'                  => $topicIdea,
+            'brand_context_section' => $brandContextSection,
         ]);
         $userMessage = campaign_ai_user_message($topic !== '' ? $topic : null);
 
@@ -944,14 +976,18 @@ function aiPlanCampaigns(PDO $db, string $userId, string $tenantId): void
             $id, $tenantId,
             $result['name'] ?: $result['subject'],
             $result['subject'], $bodyHtml, strip_tags($bodyHtml),
-            $productId, $planBatchId, $i + 1, $templateId, $editableContent, $result['cta_text'] ?? null,
+            $productId !== '' ? $productId : null, $planBatchId, $i + 1, $templateId, $editableContent, $result['cta_text'] ?? null,
             $sender['name'], $sender['email'],
             $scheduledAt, $userId,
         ]);
         $created[] = ['id' => $id, 'subject' => $result['subject'], 'scheduled_at' => $scheduledAt, 'sequence' => $i + 1];
     }
 
-    jsonResponse(['plan_batch_id' => $planBatchId, 'campaigns' => $created], 201);
+    $response = ['plan_batch_id' => $planBatchId, 'campaigns' => $created];
+    if ($useBrandContext && !$brandContextFound) {
+        $response['brand_context_found'] = false;
+    }
+    jsonResponse($response, 201);
 }
 
 // logCustomerActivity() moved to api/lib/email-campaign-sender.php — its only
