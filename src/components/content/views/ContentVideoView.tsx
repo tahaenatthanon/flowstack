@@ -1,4 +1,4 @@
-import { Play, ChevronDown, ChevronRight, Loader2, Image, Video, RefreshCw } from 'lucide-react';
+import { Play, ChevronDown, ChevronRight, Loader2, Image, Video, RefreshCw, Clapperboard } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useState, useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -7,6 +7,7 @@ import { apiFetch } from '@/lib/api';
 import DOMPurify from 'dompurify';
 import type { ContentItem, ArticleContent } from '@/components/content/types';
 import CopyButton from './CopyButton';
+import SceneCards from '@/components/content/SceneCards';
 import { cn } from '@/lib/utils';
 
 const SCENE_LABELS: Record<string, string> = {
@@ -312,6 +313,16 @@ export default function ContentVideoView({
           )}
         </>
       )}
+
+      {/* Scene cards — ภาพ + สถานะ + video_prompt ต่อฉาก */}
+      <div className="rounded-xl border overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-3 bg-muted/10 border-b">
+          <Clapperboard className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm font-semibold">ฉากวิดีโอ{videoScenes.length > 0 ? ` (${videoScenes.length})` : ''}</span>
+        </div>
+        <SceneCards itemId={item.id} scenes={videoScenes} readOnly={isApproval}
+          onGenerateAll={handleGenerateScenes} generatingAll={generatingScenes} />
+      </div>
 
       {/* Hashtags */}
       {art.hashtags && art.hashtags.length > 0 && (

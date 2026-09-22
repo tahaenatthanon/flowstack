@@ -483,13 +483,16 @@ export interface ArticleContent {
   };
   scripts?: Record<string, string | undefined>;
   script_sections?: { opening?: string; bridge?: string; twist?: string; ending?: string };
-  visuals?: string[];
+  visuals?: Array<string | { visual?: string; motion?: string }>;
   scenes?: Array<{
     visual_prompt?: string;
+    video_prompt?: string;
     shot?: string;
     narration?: string;
     duration_sec?: number;
     image_url?: string | null;
+    image_gen_status?: 'none' | 'done' | 'failed';
+    image_gen_error?: string | null;
   }>;
   hashtags?: string[];
   // SEO / AEO fields

@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { PlatformIcon } from '@/components/content/PlatformIcon';
 import { PlatformBadgeList } from '@/components/content/PlatformBadgeList';
+import SceneCards from '@/components/content/SceneCards';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import type { PlanItem } from '@/components/content/types';
@@ -542,7 +543,9 @@ export function ContentCardDialog({
   }, [articleData?.scripts, platforms]);
 
   const scriptSections = articleData?.script_sections;
-  const visuals: string[] = articleData?.visuals ?? [];
+  const visuals: Array<string | { visual?: string; motion?: string }> = articleData?.visuals ?? [];
+  const visualText = (v: string | { visual?: string; motion?: string }): string =>
+    typeof v === 'string' ? v : (v?.visual ?? '');
   const hashtags: string[] = articleData?.hashtags ?? [];
   // Content Type Source of Truth: content_items.type (projected as content_type).
   // Never route UI behavior from legacy article_content.platform_type.
@@ -702,7 +705,7 @@ export function ContentCardDialog({
                       {visuals.map((v, i) => (
                         <li key={i} className="text-xs text-muted-foreground flex gap-2">
                           <span className="text-muted-foreground/40 tabular-nums w-4 shrink-0">{i + 1}.</span>
-                          {v}
+                          {visualText(v)}
                         </li>
                       ))}
                     </ul>
@@ -940,6 +943,12 @@ export function ContentCardDialog({
                     <Button variant="outline" size="sm" className="w-full gap-1.5 mt-2" disabled={generatingVideo || existingItem?.video_gen_status === 'generating' || !existingItem?.id || !allScenesHaveImages} onClick={handleGenerateVideo}>
                       {generatingVideo ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />กำลังสร้าง...</> : existingItem?.video_url ? <><RefreshCw className="h-3.5 w-3.5" />สร้างวิดีโอใหม่</> : <><Clapperboard className="h-3.5 w-3.5" />สร้างวิดีโอด้วย AI</>}
                     </Button>
+                    {existingItem?.id && (
+                      <div className="mt-3 rounded-lg border overflow-hidden">
+                        <SceneCards itemId={existingItem.id} scenes={scenes} readOnly={false}
+                          onGenerateAll={handleGenerateScenes} generatingAll={generatingScenes} />
+                      </div>
+                    )}
                   </div>
                   )}
                 </div>

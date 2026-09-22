@@ -140,6 +140,145 @@ function _saveImageUrl(string $imageUrl, string $itemId): string {
     return '/uploads/content/' . $filename;
 }
 
+// ── visuals[] → scenes[] fallback conversion (shared by generate-scene-images
+// and generate-video so both stay in sync) — parses both the legacy plain-string
+// format and the current {visual, motion} object format. New scenes always start
+// with image_gen_status: "none" since they've never had an image attempt yet. ──
+function _visualsToScenes(array $visuals): array {
+    $scenes = array_values(array_map(function($v) {
+        $isObj  = is_array($v) && (isset($v['visual']) || isset($v['motion']));
+        $text   = $isObj ? ($v['visual'] ?? '') : (is_string($v) ? $v : ($v['visual_prompt'] ?? $v['content'] ?? ''));
+        $motion = $isObj ? ($v['motion'] ?? '') : '';
+        $shot   = '';
+        $prompt = $text;
+        if (preg_match('/^(?:Scene|Shot)\s*\d*\s*[:：-]\s*(.+)/i', $text, $m)) {
+            $shot   = trim(substr($text, 0, strpos($text, $m[1]) - 1));
+            $prompt = trim($m[1]);
+        }
+        return [
+            'visual_prompt'     => $prompt,
+            'video_prompt'      => $motion,
+            'shot'              => $shot,
+            'image_gen_status'  => 'none',
+        ];
+    }, $visuals));
+    return array_values(array_filter($scenes, fn($s) => !empty($s['visual_prompt'])));
+}
+
+// Backward-compatible derive rule for scenes generated before image_gen_status
+// existed — do NOT rewrite the DB, just infer at read time.
+function _deriveSceneImageStatus(array $scene): string {
+    if (array_key_exists('image_gen_status', $scene) && $scene['image_gen_status']) {
+        return $scene['image_gen_status'];
+    }
+    return !empty($scene['image_url']) ? 'done' : 'none';
+}
+
+// Generate an image for a single scene and return it with image_url/image_gen_status/
+// image_gen_error set. Shared by the bulk generate-scene-images loop and the
+// single-scene retry action so both stay in sync.
+function _generateOneSceneImage(array $scene, int $idx, string $modelName, string $baseUrl, string $apiKey, string $itemId, string $enrichSuffix): array {
+    $vp = $scene['visual_prompt'] ?? '';
+    if (empty($vp)) {
+        $scene['image_gen_status'] = 'failed';
+        $scene['image_gen_error'] = 'no visual_prompt';
+        return $scene;
+    }
+
+    $fullPrompt = $vp . $enrichSuffix;
+    if (!empty($scene['shot'])) $fullPrompt = $scene['shot'] . ' — ' . $fullPrompt;
+
+    $isKiloScene = (stripos($baseUrl, 'kilo') !== false);
+    if (!$isKiloScene) {
+        $payload = ['model' => $modelName, 'prompt' => $fullPrompt, 'n' => 1, 'size' => '1024x1024'];
+        $ch = curl_init($baseUrl . '/images/generations');
+    } else {
+        $sceneMsg = 'Generate an image based on this description. Return ONLY the image, no text explanation: ' . $fullPrompt;
+        $payload = [
+            'model' => $modelName,
+            'messages' => [['role' => 'user', 'content' => $sceneMsg]],
+            'max_tokens' => 4096,
+        ];
+        $ch = curl_init($baseUrl . '/chat/completions');
+    }
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST           => true,
+        CURLOPT_POSTFIELDS     => json_encode($payload),
+        CURLOPT_HTTPHEADER     => ['Authorization: Bearer ' . $apiKey, 'Content-Type: application/json'],
+        CURLOPT_SSL_VERIFYPEER => !empty(AI_SSL_VERIFY),
+        CURLOPT_TIMEOUT        => 120,
+    ]);
+    $res = curl_exec($ch);
+    curl_close($ch);
+    $dec = json_decode($res, true) ?: [];
+
+    $imgUrl = null;
+    if (!$isKiloScene) {
+        if (isset($dec['data'][0]['url'])) $imgUrl = $dec['data'][0]['url'];
+        elseif (isset($dec['data'][0]['b64_json'])) $imgUrl = 'data:image/png;base64,' . $dec['data'][0]['b64_json'];
+    } else {
+        if (!empty($dec['choices'][0]['message']['images'])) {
+            $imgData = $dec['choices'][0]['message']['images'][0];
+            if (isset($imgData['image_url']['url'])) $imgUrl = $imgData['image_url']['url'];
+        }
+        if (!$imgUrl && is_array($dec['choices'][0]['message']['content'] ?? null)) {
+            foreach ($dec['choices'][0]['message']['content'] as $block) {
+                if (($block['type'] ?? '') === 'image_url') { $imgUrl = $block['image_url']['url'] ?? null; if ($imgUrl) break; }
+            }
+        }
+        if (!$imgUrl && is_string($dec['choices'][0]['message']['content'] ?? null)) {
+            $cnt = $dec['choices'][0]['message']['content'];
+            if (preg_match('/!\[.*?\]\((.*?)\)/', $cnt, $m)) $imgUrl = $m[1];
+            if (!$imgUrl && preg_match('/https?:\/\/\S+\.(?:png|jpg|jpeg|gif|webp)/i', $cnt, $m)) $imgUrl = $m[0];
+        }
+    }
+
+    if ($imgUrl) {
+        $savedUrl = _saveImageUrl($imgUrl, $itemId . '_scene' . $idx);
+        $scene['image_url'] = $savedUrl;
+        $scene['image_gen_status'] = 'done';
+        $scene['image_gen_error'] = null;
+    } else {
+        $errMsg = is_array($dec['error'] ?? null) ? ($dec['error']['message'] ?? json_encode($dec['error'])) : ($dec['error'] ?? null);
+        $err = $errMsg ?: substr((string)$res, 0, 200);
+        error_log('[generate-scene-image] error | model=' . $modelName . ' | scene=' . $idx . ' | response=' . substr((string)$res, 0, 300));
+        $scene['image_gen_status'] = 'failed';
+        $scene['image_gen_error'] = $err;
+    }
+    return $scene;
+}
+
+// Resolve the tenant's configured image-gen model/provider (throws via jsonError if unset).
+function _resolveSceneImageModel(PDO $db, string $tenantId): array {
+    $modelName = 'dall-e-3';
+    $baseUrl   = 'https://api.kilo.ai/api/gateway';
+    $apiKey    = '';
+
+    $imgModelStmt = $db->prepare("
+        SELECT ap.api_base_url, ap.api_key_encrypted, am.model_id
+        FROM company_settings cs
+        JOIN ai_models am ON am.id = cs.ai_content_image_model_id
+        JOIN ai_providers ap ON ap.id = am.provider_id
+        WHERE cs.tenant_id = ? AND ap.api_key_encrypted IS NOT NULL AND ap.api_key_encrypted != ''
+    ");
+    $imgModelStmt->execute([$tenantId]);
+    $imgModelRow = $imgModelStmt->fetch();
+
+    if ($imgModelRow && !empty($imgModelRow['api_key_encrypted'])) {
+        $modelName = $imgModelRow['model_id'] ?: 'dall-e-3';
+        $baseUrl   = rtrim($imgModelRow['api_base_url'] ?: 'https://api.kilo.ai/api/gateway', '/');
+        $apiKey    = decryptValue($imgModelRow['api_key_encrypted']);
+    } else {
+        $creds  = resolveAICreds($db, 'ai_content_image_model_id', $tenantId);
+        $apiKey = $creds['api_key'] ?? '';
+        $baseUrl = rtrim($creds['base_url'] ?: 'https://api.kilo.ai/api/gateway', '/');
+    }
+    if (empty($apiKey)) jsonError('ยังไม่ได้ตั้งค่า AI Provider สำหรับ Image Generation');
+
+    return [$modelName, $baseUrl, $apiKey];
+}
+
 function _resolveImageCreds(PDO $db, string $tenantId = ''): array {
     return resolveAICreds($db, 'ai_content_image_model_id', $tenantId);
 }
@@ -1610,46 +1749,13 @@ if ($action === 'generate-scene-images' && $method === 'POST') {
 
     // Fallback: convert visuals → scenes when no scenes array exists yet
     if (empty($scenes) && !empty($ac['visuals']) && is_array($ac['visuals'])) {
-        $scenes = array_values(array_map(function($v) {
-            $text = is_string($v) ? $v : ($v['visual_prompt'] ?? $v['content'] ?? '');
-            $shot = '';
-            $prompt = $text;
-            if (preg_match('/^(?:Scene|Shot)\s*\d*\s*[:：-]\s*(.+)/i', $text, $m)) {
-                $shot = trim(substr($text, 0, strpos($text, $m[1]) - 1));
-                $prompt = trim($m[1]);
-            }
-            return ['visual_prompt' => $prompt, 'shot' => $shot];
-        }, $ac['visuals']));
-        $scenes = array_values(array_filter($scenes, fn($s) => !empty($s['visual_prompt'])));
+        $scenes = _visualsToScenes($ac['visuals']);
     }
 
     if (empty($scenes)) jsonError('ไม่มี scenes หรือ visuals ใน article_content — กรุณาสร้างสคริปต์ก่อน');
 
     // Resolve image model
-    $modelName = 'dall-e-3';
-    $baseUrl   = 'https://api.kilo.ai/api/gateway';
-    $apiKey    = '';
-
-    $imgModelStmt = $db->prepare("
-        SELECT ap.api_base_url, ap.api_key_encrypted, am.model_id
-        FROM company_settings cs
-        JOIN ai_models am ON am.id = cs.ai_content_image_model_id
-        JOIN ai_providers ap ON ap.id = am.provider_id
-        WHERE cs.tenant_id = ? AND ap.api_key_encrypted IS NOT NULL AND ap.api_key_encrypted != ''
-    ");
-    $imgModelStmt->execute([$tenantId]);
-    $imgModelRow = $imgModelStmt->fetch();
-
-    if ($imgModelRow && !empty($imgModelRow['api_key_encrypted'])) {
-        $modelName = $imgModelRow['model_id'] ?: 'dall-e-3';
-        $baseUrl   = rtrim($imgModelRow['api_base_url'] ?: 'https://api.kilo.ai/api/gateway', '/');
-        $apiKey    = decryptValue($imgModelRow['api_key_encrypted']);
-    } else {
-        $creds  = resolveAICreds($db, 'ai_content_image_model_id', $tenantId);
-        $apiKey = $creds['api_key'] ?? '';
-        $baseUrl = rtrim($creds['base_url'] ?: 'https://api.kilo.ai/api/gateway', '/');
-    }
-    if (empty($apiKey)) jsonError('ยังไม่ได้ตั้งค่า AI Provider สำหรับ Image Generation');
+    [$modelName, $baseUrl, $apiKey] = _resolveSceneImageModel($db, $tenantId);
 
     $db->prepare('UPDATE content_items SET image_gen_status=?, updated_at=NOW() WHERE id=? AND tenant_id=?')
        ->execute(['generating', $itemId, $tenantId]);
@@ -1709,77 +1815,19 @@ if ($action === 'generate-scene-images' && $method === 'POST') {
     $results = [];
 
     foreach ($scenes as $idx => &$scene) {
-        $vp = $scene['visual_prompt'] ?? '';
-        if (empty($vp)) {
+        if (empty($scene['visual_prompt'] ?? '')) {
             $results[] = ['scene_index' => $idx, 'status' => 'skipped', 'reason' => 'no visual_prompt'];
             continue;
         }
 
-        $fullPrompt = $vp . $enrichSuffix;
-        if (!empty($scene['shot'])) $fullPrompt = $scene['shot'] . ' — ' . $fullPrompt;
-
-        $isKiloScene = (stripos($baseUrl, 'kilo') !== false);
-        $isImageGenModelScene = (bool) preg_match('/gpt-image|gpt-\d+-image|dall-e|flux|imagen|ideogram|stable-diffusion/i', $modelName);
-        if (!$isKiloScene) {
-            // Non-Kilo provider: use /images/generations
-            $payload = ['model' => $modelName, 'prompt' => $fullPrompt, 'n' => 1, 'size' => '1024x1024'];
-            $ch = curl_init($baseUrl . '/images/generations');
+        $scene = _generateOneSceneImage($scene, $idx, $modelName, $baseUrl, $apiKey, $itemId, $enrichSuffix);
+        if (($scene['image_gen_status'] ?? '') === 'done') {
+            $results[] = ['scene_index' => $idx, 'status' => 'done', 'image_url' => $scene['image_url']];
         } else {
-            // Kilo gateway: only /chat/completions is accepted. Text-only for image-gen models.
-            $sceneMsg = 'Generate an image based on this description. Return ONLY the image, no text explanation: ' . $fullPrompt;
-            $payload = [
-                'model' => $modelName,
-                'messages' => [['role' => 'user', 'content' => $sceneMsg]],
-                'max_tokens' => 4096,
-            ];
-            $ch = curl_init($baseUrl . '/chat/completions');
-        }
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_POST           => true,
-            CURLOPT_POSTFIELDS     => json_encode($payload),
-            CURLOPT_HTTPHEADER     => ['Authorization: Bearer ' . $apiKey, 'Content-Type: application/json'],
-            CURLOPT_SSL_VERIFYPEER => !empty(AI_SSL_VERIFY),
-            CURLOPT_TIMEOUT        => 120,
-        ]);
-        $res = curl_exec($ch);
-        curl_close($ch);
-        $dec = json_decode($res, true) ?: [];
-
-        $imgUrl = null;
-        if (!$isKiloScene) {
-            // Parse /images/generations response
-            if (isset($dec['data'][0]['url'])) $imgUrl = $dec['data'][0]['url'];
-            elseif (isset($dec['data'][0]['b64_json'])) $imgUrl = 'data:image/png;base64,' . $dec['data'][0]['b64_json'];
-        } else {
-            // Parse /chat/completions image response (multiple formats)
-            if (!empty($dec['choices'][0]['message']['images'])) {
-                $imgData = $dec['choices'][0]['message']['images'][0];
-                if (isset($imgData['image_url']['url'])) $imgUrl = $imgData['image_url']['url'];
-            }
-            if (!$imgUrl && is_array($dec['choices'][0]['message']['content'] ?? null)) {
-                foreach ($dec['choices'][0]['message']['content'] as $block) {
-                    if (($block['type'] ?? '') === 'image_url') { $imgUrl = $block['image_url']['url'] ?? null; if ($imgUrl) break; }
-                }
-            }
-            if (!$imgUrl && is_string($dec['choices'][0]['message']['content'] ?? null)) {
-                $cnt = $dec['choices'][0]['message']['content'];
-                if (preg_match('/!\[.*?\]\((.*?)\)/', $cnt, $m)) $imgUrl = $m[1];
-                if (!$imgUrl && preg_match('/https?:\/\/\S+\.(?:png|jpg|jpeg|gif|webp)/i', $cnt, $m)) $imgUrl = $m[0];
-            }
-        }
-
-        if ($imgUrl) {
-            $savedUrl = _saveImageUrl($imgUrl, $itemId . '_scene' . $idx);
-            $scene['image_url'] = $savedUrl;
-            $results[] = ['scene_index' => $idx, 'status' => 'done', 'image_url' => $savedUrl];
-        } else {
-            $errMsg = is_array($dec['error'] ?? null) ? ($dec['error']['message'] ?? json_encode($dec['error'])) : ($dec['error'] ?? null);
-            $err = $errMsg ?: substr($res, 0, 200);
-            error_log('[generate-scene-images] error | model=' . $modelName . ' | scene=' . $idx . ' | response=' . substr($res, 0, 300));
-            $results[] = ['scene_index' => $idx, 'status' => 'failed', 'error' => $err];
+            $results[] = ['scene_index' => $idx, 'status' => 'failed', 'error' => $scene['image_gen_error']];
         }
     }
+    unset($scene);
 
     $ac['scenes'] = $scenes;
     $newJson = json_encode($ac, JSON_UNESCAPED_UNICODE);
@@ -1793,6 +1841,64 @@ if ($action === 'generate-scene-images' && $method === 'POST') {
         'scenes_done'  => $doneCount,
         'scenes_total' => count($results),
     ]);
+}
+
+// ─── UPDATE-SCENE (edit a single scene's video_prompt) ─────────────────────────
+if ($action === 'update-scene' && $method === 'POST') {
+    $body       = getRequestBody();
+    $itemId     = $body['item_id'] ?? null;
+    $sceneIndex = isset($body['scene_index']) ? (int)$body['scene_index'] : null;
+    if (!$itemId || $sceneIndex === null) jsonError('Missing item_id or scene_index');
+
+    $itemStmt = $db->prepare('SELECT id, article_content FROM content_items WHERE id=? AND tenant_id=?');
+    $itemStmt->execute([$itemId, $tenantId]);
+    $item = $itemStmt->fetch();
+    if (!$item) jsonError('ไม่พบ content item', 404);
+
+    $ac = json_decode($item['article_content'] ?? '{}', true);
+    $scenes = $ac['scenes'] ?? [];
+    if ($sceneIndex < 0 || $sceneIndex >= count($scenes)) jsonError('scene_index อยู่นอกขอบเขตของ scenes', 400);
+
+    if (array_key_exists('video_prompt', $body)) {
+        $scenes[$sceneIndex]['video_prompt'] = trim((string)$body['video_prompt']);
+    }
+
+    $ac['scenes'] = $scenes;
+    $db->prepare('UPDATE content_items SET article_content=?, updated_at=NOW() WHERE id=? AND tenant_id=?')
+       ->execute([json_encode($ac, JSON_UNESCAPED_UNICODE), $itemId, $tenantId]);
+
+    jsonResponse(['status' => 'done', 'scene' => $scenes[$sceneIndex]]);
+}
+
+// ─── GENERATE-SCENE-IMAGE (retry image generation for a single scene) ──────────
+if ($action === 'generate-scene-image' && $method === 'POST') {
+    $body       = getRequestBody();
+    $itemId     = $body['item_id'] ?? null;
+    $sceneIndex = isset($body['scene_index']) ? (int)$body['scene_index'] : null;
+    if (!$itemId || $sceneIndex === null) jsonError('Missing item_id or scene_index');
+
+    $itemStmt = $db->prepare('SELECT id, article_content FROM content_items WHERE id=? AND tenant_id=?');
+    $itemStmt->execute([$itemId, $tenantId]);
+    $item = $itemStmt->fetch();
+    if (!$item) jsonError('ไม่พบ content item', 404);
+
+    $ac = json_decode($item['article_content'] ?? '{}', true);
+    $scenes = $ac['scenes'] ?? [];
+    if (empty($scenes) && !empty($ac['visuals']) && is_array($ac['visuals'])) {
+        $scenes = _visualsToScenes($ac['visuals']);
+    }
+    if ($sceneIndex < 0 || $sceneIndex >= count($scenes)) jsonError('scene_index อยู่นอกขอบเขตของ scenes', 400);
+    if (empty($scenes[$sceneIndex]['visual_prompt'] ?? '')) jsonError('Scene นี้ไม่มี visual_prompt ให้สร้างภาพ', 400);
+
+    [$modelName, $baseUrl, $apiKey] = _resolveSceneImageModel($db, $tenantId);
+
+    $scenes[$sceneIndex] = _generateOneSceneImage($scenes[$sceneIndex], $sceneIndex, $modelName, $baseUrl, $apiKey, $itemId, '');
+
+    $ac['scenes'] = $scenes;
+    $db->prepare('UPDATE content_items SET article_content=?, updated_at=NOW() WHERE id=? AND tenant_id=?')
+       ->execute([json_encode($ac, JSON_UNESCAPED_UNICODE), $itemId, $tenantId]);
+
+    jsonResponse(['status' => 'done', 'scene' => $scenes[$sceneIndex]]);
 }
 
 if ($action === 'convert-brief') {
@@ -2574,7 +2680,7 @@ if ($action === 'generate-article') {
                    '"headlines":{"viral_clickbait":[{"title":"หัวข้อ hook","hook":"ประโยคเปิด"}],"storytelling":[{"title":"หัวข้อ","hook":"hook"}],"educational":[{"title":"หัวข้อ","hook":"hook"}]},' .
                    '"scripts":' . $scriptSchema . ',' .
                    $videoScriptSectionsSchema .
-                   '"visuals":["Scene 1: คำอธิบายภาพ/การถ่าย","Scene 2: คำอธิบายภาพ/การถ่าย", "... (จำนวน scene ตามความเหมาะสมของเนื้อหา ไม่บังคับตายตัว)"],' .
+                   '"visuals":[{"visual":"Scene 1: คำอธิบายภาพ/การถ่าย","motion":"คำสั่งการเคลื่อนไหวกล้อง/subject ของฉากนี้ สำหรับใช้สร้างวิดีโอ เช่น กล้อง zoom เข้าช้าๆ, pan ซ้ายไปขวา"},{"visual":"Scene 2: คำอธิบายภาพ/การถ่าย","motion":"คำสั่งการเคลื่อนไหวของฉากนี้"}, "... (จำนวน scene ตามความเหมาะสมของเนื้อหา ไม่บังคับตายตัว)"],' .
                    '"structured_data":{"@context":"https://schema.org","@type":"VideoObject","name":"...","description":"..."},' .
                    '"hashtags":["#hashtag1","#hashtag2","... (จำนวน hashtag ตามความเหมาะสมของเนื้อหา ไม่บังคับตายตัว)"]}' . "\n\nSEO Checklist Requirements (single source of truth):\n{$seoRequirementsText}\n\nAEO Checklist Requirements (single source of truth):\n" . aeo_generation_requirements() . "\n\n{$platformScriptGuidance}";
     } else {
@@ -3456,17 +3562,7 @@ if ($action === 'generate-video' && $method === 'POST') {
 
     // Fallback: convert visuals → scenes when no scenes array exists yet
     if (empty($scenes) && !empty($ac['visuals']) && is_array($ac['visuals'])) {
-        $scenes = array_values(array_map(function($v) {
-            $text = is_string($v) ? $v : ($v['visual_prompt'] ?? $v['content'] ?? '');
-            $shot = '';
-            $prompt = $text;
-            if (preg_match('/^(?:Scene|Shot)\s*\d*\s*[:：-]\s*(.+)/i', $text, $m)) {
-                $shot = trim(substr($text, 0, strpos($text, $m[1]) - 1));
-                $prompt = trim($m[1]);
-            }
-            return ['visual_prompt' => $prompt, 'shot' => $shot];
-        }, $ac['visuals']));
-        $scenes = array_values(array_filter($scenes, fn($s) => !empty($s['visual_prompt'])));
+        $scenes = _visualsToScenes($ac['visuals']);
     }
 
     if (empty($scenes)) jsonError('ไม่มี scenes หรือ visuals ใน article_content — กรุณาสร้างสคริปต์ก่อน');
