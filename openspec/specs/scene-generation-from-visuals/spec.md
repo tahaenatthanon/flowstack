@@ -71,17 +71,21 @@ In `ContentCardDialog`, the Video Section (including "สร้างภาพ�
 - **THEN** the Video Section SHALL NOT be rendered
 - **AND** only the image generation and caption fields SHALL be shown
 
-### Requirement: Video generation disabled until all scenes have images
-"สร้างวิดีโอด้วย AI" button SHALL be disabled until every scene in the content has an `image_url` (AI-generated image).
+### Requirement: Video generation disabled until first scene has a video_prompt
+"สร้างวิดีโอด้วย AI" button SHALL be disabled until `scenes[0].video_prompt` is non-empty — SHALL NOT require every scene to have an `image_url` (removed — the system only ever uses the first scene, see `video-generation-provider-contract`)
 
-#### Scenario: All scenes have images
-- **WHEN** all scenes in `article_content.scenes` have a non-empty `image_url`
+#### Scenario: First scene has a video_prompt
+- **WHEN** `article_content.scenes[0].video_prompt` is non-empty (regardless of whether scene 0 has an `image_url` or its `image_gen_status`)
 - **THEN** the "สร้างวิดีโอด้วย AI" button SHALL be enabled
 
-#### Scenario: Some scenes missing images
-- **WHEN** at least one scene lacks `image_url` or no scenes exist
+#### Scenario: First scene missing video_prompt
+- **WHEN** `article_content.scenes[0].video_prompt` is empty or no scenes exist
 - **THEN** the "สร้างวิดีโอด้วย AI" button SHALL be disabled
-- **AND** the description SHALL show "ต้องกดสร้างภาพทุกฉากก่อน"
+- **AND** the description SHALL guide the user to write or AI-generate a Video Prompt for the first scene first
+
+#### Scenario: Other scenes lack images — no longer blocks video generation
+- **WHEN** `article_content.scenes[0]` has a `video_prompt` but scenes at other indexes lack `image_url`
+- **THEN** the "สร้างวิดีโอด้วย AI" button SHALL still be enabled (only the first scene matters)
 
 ### Requirement: `generate-scene-images` persists per-scene image generation status
 `generate-scene-images` SHALL write `image_gen_status` (`"done"` or `"failed"`) back into each scene object in `article_content.scenes[]` after attempting image generation for it — not only the top-level `content_items.image_gen_status` column.

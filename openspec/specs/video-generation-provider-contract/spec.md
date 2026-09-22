@@ -13,17 +13,41 @@
 - **WHEN** ผู้ใช้กด "สร้างวิดีโอ" สำหรับ content item ที่มีอย่างน้อย 1 scene พร้อม `image_url`
 - **THEN** ระบบ SHALL ยิง HTTP request ไปที่ `{baseUrl}/api/v1/jobs/createTask` ไม่ใช่ `{baseUrl}/video/generations`
 
-### Requirement: Payload ของ `createTask` ใช้ scene แรกที่มีภาพเท่านั้น
-`generate-video` SHALL ส่ง payload รูปแบบ `{model, callBackUrl: null, input: {prompt, image_urls, aspect_ratio}}` โดยใช้ scene แรก (index 0) ของ `article_content.scenes` ที่ผ่าน validation ว่ามี `image_url` แล้วเท่านั้น — SHALL ไม่ส่ง scene อื่นแม้ content item จะมีหลาย scene — SHALL แปลง `image_url` เป็น absolute URL ก่อนส่ง (ถ้าเป็น relative path)
+### Requirement: Payload ของ `createTask` ใช้ scene แรกเท่านั้น พร้อมเลือกโหมดอัตโนมัติ
+`generate-video` SHALL ส่ง payload รูปแบบ `{model, callBackUrl: null, input: {prompt, image_urls?, generation_type?, aspect_ratio}}` โดยใช้ scene แรก (index 0) ของ `article_content.scenes` เท่านั้น — SHALL ไม่ส่ง scene อื่นแม้ content item จะมีหลาย scene `input.prompt` SHALL มาจาก `video_prompt` ของ scene แรก (ไม่ใช่ `visual_prompt`) `input.aspect_ratio` SHALL มาจากค่าที่ผู้ใช้เลือกในคำขอ (`9:16`/`16:9`/`Auto`) แทนค่า fix `9:16` เดิม โหมด image-to-video/text-to-video SHALL ถูกเลือกอัตโนมัติตาม `image_gen_status` ของ scene แรก:
+- `done` → ส่ง `input.image_urls: [absolute image_url]` (แปลง relative path เป็น absolute เหมือนเดิม), ไม่ส่ง `generation_type`
+- `none` → ไม่ส่ง `input.image_urls`, ส่ง `input.generation_type: "TEXT_2_VIDEO"`
+- `failed` → SHALL ไม่ยิง API เลย คืน error ทันที (ดู requirement "Scene แรกที่สร้างภาพล้มเหลว")
 
-#### Scenario: Content item มีหลาย scene
-- **WHEN** content item มี 3 scenes ที่มี `image_url` ครบทุกตัว
-- **THEN** `input.image_urls` SHALL มีแค่ `image_url` ของ scene แรก (index 0) เท่านั้น
-- **AND** `input.prompt` SHALL มาจาก `visual_prompt` ของ scene แรกเท่านั้น
+#### Scenario: Scene แรกมีภาพสำเร็จ (image-to-video)
+- **WHEN** scene แรกมี `image_gen_status: "done"` และ `image_url`
+- **THEN** `input.image_urls` SHALL มี `image_url` ของ scene แรก (แปลงเป็น absolute URL)
+- **AND** `input.prompt` SHALL มาจาก `video_prompt` ของ scene แรก
+- **AND** `input` SHALL ไม่มี key `generation_type`
 
-#### Scenario: ยังคง validation เดิมว่าทุก scene ต้องมีภาพก่อน
-- **WHEN** content item มี scene ที่ยังไม่มี `image_url`
-- **THEN** ระบบ SHALL แสดง error "กรุณากด 'สร้างภาพทุกฉาก' ให้ครบก่อน" เหมือนพฤติกรรมเดิมทุกประการ ก่อนจะพยายามยิง API
+#### Scenario: Scene แรกยังไม่เคยสร้างภาพ (text-to-video)
+- **WHEN** scene แรกมี `image_gen_status: "none"`
+- **THEN** `input` SHALL ไม่มี key `image_urls`
+- **AND** `input.generation_type` SHALL เป็น `"TEXT_2_VIDEO"`
+- **AND** `input.prompt` SHALL มาจาก `video_prompt` ของ scene แรก
+
+#### Scenario: ผู้ใช้เลือกสัดส่วนวิดีโอ
+- **WHEN** ผู้ใช้เลือกสัดส่วน `"16:9"` ก่อนกด "สร้างวิดีโอ"
+- **THEN** `input.aspect_ratio` SHALL เป็น `"16:9"` ไม่ใช่ `"9:16"` ตายตัวแบบเดิม
+
+### Requirement: Validation ใหม่ — scene แรกต้องมี video_prompt
+`generate-video` SHALL คืน error ถ้า scene แรกไม่มี `video_prompt` (ว่างเปล่าหรือไม่มี key) — SHALL ไม่ยิง API ไปหา kie.ai ด้วย prompt ว่างเปล่า
+
+#### Scenario: Scene แรกไม่มี video_prompt
+- **WHEN** scene แรกมี `video_prompt` ว่างเปล่าหรือไม่มี key นี้เลย
+- **THEN** ระบบ SHALL คืน error แนะนำให้เขียนหรือใช้ปุ่ม "AI เขียน Video Prompt" ก่อน — SHALL ไม่ยิง `createTask`
+
+### Requirement: Scene แรกที่สร้างภาพล้มเหลว ไม่ fallback ไป text-to-video
+เมื่อ scene แรกมี `image_gen_status: "failed"` ระบบ SHALL คืน error ที่มีเหตุผลจาก `image_gen_error` ของ scene นั้น — SHALL ไม่ยิง API เป็น text-to-video แทนแบบเงียบๆ
+
+#### Scenario: Scene แรกสร้างภาพล้มเหลว
+- **WHEN** scene แรกมี `image_gen_status: "failed"` และ `image_gen_error: "provider timeout"`
+- **THEN** ระบบ SHALL คืน error ที่มีข้อความ "provider timeout" หรือใกล้เคียง — SHALL ไม่ยิง `createTask` เป็น text-to-video แทน
 
 ### Requirement: อ่าน `taskId` จาก response ของ `createTask`
 `generate-video` SHALL อ่าน `data.taskId` จาก response ของ `createTask` และเก็บไว้ในคอลัมน์ `content_items.video_job_id` เดิม (ไม่เพิ่มคอลัมน์ใหม่) — SHALL ไม่อ่าน `job_id`/`id`/`video_url` ที่ระดับบนสุดของ response แบบเดิม

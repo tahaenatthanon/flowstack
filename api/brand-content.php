@@ -279,6 +279,49 @@ function _resolveSceneImageModel(PDO $db, string $tenantId): array {
     return [$modelName, $baseUrl, $apiKey];
 }
 
+// เขียน video_prompt (คำสั่งการเคลื่อนไหว/มุมกล้อง) ย้อนหลังให้ scene เดียว จาก
+// visual_prompt ของ scene นั้น — ใช้ text model (ai_content_text_model_id) ไม่ใช่
+// image model เพราะเป็นงาน text-to-text ล้วน ไม่ต้องดูภาพจริง
+function _generateOneSceneVideoPrompt(string $visualPrompt, string $itemTitle, string $imageStyle, PDO $db, string $tenantId): string {
+    $creds = resolveAICreds($db, 'ai_content_text_model_id', $tenantId);
+    if (empty($creds['api_key'])) jsonError('ยังไม่ได้ตั้งค่า AI Provider สำหรับ Text Generation');
+
+    $styleHint = ($imageStyle && $imageStyle !== 'ai') ? " สไตล์ภาพ: {$imageStyle}." : '';
+    $userMsg = "หัวข้อคอนเทนต์: {$itemTitle}\n" .
+        "คำบรรยายภาพนิ่งของฉากนี้: {$visualPrompt}{$styleHint}\n\n" .
+        "เขียนคำสั่งการเคลื่อนไหวกล้อง/subject สำหรับใช้สร้างวิดีโอจากภาพนี้ " .
+        "(เช่น กล้อง zoom เข้าช้าๆ, pan ซ้ายไปขวา, subject ขยับแบบไหน) " .
+        "ตอบเป็นประโยคสั้นๆ ภาษาไทย 1 ประโยค ไม่ต้องมี markdown หรือคำนำ";
+
+    $ch = curl_init(rtrim($creds['base_url'], '/') . '/chat/completions');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST           => true,
+        CURLOPT_POSTFIELDS     => json_encode([
+            'model'      => $creds['model'],
+            'messages'   => [
+                ['role' => 'system', 'content' => 'คุณเป็นผู้กำกับภาพยนตร์ที่เชี่ยวชาญการแต่งคำสั่งเคลื่อนไหวกล้องสำหรับ AI video generation'],
+                ['role' => 'user', 'content' => $userMsg],
+            ],
+            'max_tokens' => 300,
+            'stream'     => false,
+        ]),
+        CURLOPT_TIMEOUT        => 60,
+        CURLOPT_SSL_VERIFYPEER => !empty(AI_SSL_VERIFY),
+        CURLOPT_HTTPHEADER     => ['Content-Type: application/json', 'Authorization: Bearer ' . $creds['api_key']],
+    ]);
+    $res = curl_exec($ch);
+    curl_close($ch);
+    $dec = json_decode($res, true);
+    $content = trim((string)($dec['choices'][0]['message']['content'] ?? ''));
+    if ($content === '') {
+        jsonError('AI เขียน Video Prompt ไม่สำเร็จ: ' . substr((string)$res, 0, 200), 500);
+    }
+    // ตัด markdown fence/เครื่องหมายคำพูดที่โมเดลอาจใส่มาเกิน
+    $content = trim(preg_replace(['/^```\w*\s*/', '/\s*```$/', '/^"|"$/'], '', $content));
+    return $content;
+}
+
 function _resolveImageCreds(PDO $db, string $tenantId = ''): array {
     return resolveAICreds($db, 'ai_content_image_model_id', $tenantId);
 }
@@ -1960,6 +2003,38 @@ if ($action === 'generate-scene-image' && $method === 'POST') {
     jsonResponse(['status' => 'done', 'scene' => $scenes[$sceneIndex]]);
 }
 
+// ─── GENERATE-SCENE-VIDEO-PROMPT (เขียน video_prompt ย้อนหลังให้ scene เดียว) ──
+if ($action === 'generate-scene-video-prompt' && $method === 'POST') {
+    $body       = getRequestBody();
+    $itemId     = $body['item_id'] ?? null;
+    $sceneIndex = isset($body['scene_index']) ? (int)$body['scene_index'] : null;
+    if (!$itemId || $sceneIndex === null) jsonError('Missing item_id or scene_index');
+
+    $itemStmt = $db->prepare('SELECT id, title, article_content, image_style FROM content_items WHERE id=? AND tenant_id=?');
+    $itemStmt->execute([$itemId, $tenantId]);
+    $item = $itemStmt->fetch();
+    if (!$item) jsonError('ไม่พบ content item', 404);
+
+    $ac = json_decode($item['article_content'] ?? '{}', true);
+    $scenes = $ac['scenes'] ?? [];
+    if (empty($scenes) && !empty($ac['visuals']) && is_array($ac['visuals'])) {
+        $scenes = _visualsToScenes($ac['visuals']);
+    }
+    if ($sceneIndex < 0 || $sceneIndex >= count($scenes)) jsonError('scene_index อยู่นอกขอบเขตของ scenes', 400);
+    $visualPrompt = trim((string)($scenes[$sceneIndex]['visual_prompt'] ?? ''));
+    if ($visualPrompt === '') jsonError('Scene นี้ไม่มี visual_prompt ให้ใช้เขียน Video Prompt', 400);
+
+    $imageStyle = normalizeImageStyle($item['image_style'] ?? 'ai');
+    $videoPrompt = _generateOneSceneVideoPrompt($visualPrompt, (string)($item['title'] ?? ''), $imageStyle, $db, $tenantId);
+
+    $scenes[$sceneIndex]['video_prompt'] = $videoPrompt;
+    $ac['scenes'] = $scenes;
+    $db->prepare('UPDATE content_items SET article_content=?, updated_at=NOW() WHERE id=? AND tenant_id=?')
+       ->execute([json_encode($ac, JSON_UNESCAPED_UNICODE), $itemId, $tenantId]);
+
+    jsonResponse(['status' => 'done', 'scene' => $scenes[$sceneIndex]]);
+}
+
 if ($action === 'convert-brief') {
     if ($method !== 'POST') jsonError('Method not allowed', 405);
     if (empty($_FILES['file'])) jsonError('กรุณาแนบไฟล์');
@@ -3616,6 +3691,9 @@ if ($action === 'generate-video' && $method === 'POST') {
     $itemId = $body['item_id'] ?? null;
     if (!$itemId) jsonError('Missing item_id');
 
+    $aspectRatio = (string)($body['aspect_ratio'] ?? '9:16');
+    if (!in_array($aspectRatio, ['9:16', '16:9', 'Auto'], true)) $aspectRatio = '9:16';
+
     $itemStmt = $db->prepare('SELECT id, title, article_content FROM content_items WHERE id=? AND tenant_id=?');
     $itemStmt->execute([$itemId, $tenantId]);
     $item = $itemStmt->fetch();
@@ -3631,17 +3709,21 @@ if ($action === 'generate-video' && $method === 'POST') {
 
     if (empty($scenes)) jsonError('ไม่มี scenes หรือ visuals ใน article_content — กรุณาสร้างสคริปต์ก่อน');
 
-    // Video generation requires an image for EVERY scene. Never allow a partial
-    // scene list to reach the video provider: the backend is the final source of truth.
-    $missingSceneIndexes = [];
-    foreach ($scenes as $idx => $scene) {
-        if (!is_array($scene) || trim((string)($scene['image_url'] ?? '')) === '') {
-            $missingSceneIndexes[] = $idx + 1;
-        }
+    // Phase 2: ระบบใช้จริงแค่ scene แรก (kie.ai ไม่รองรับ multi-scene stitching) —
+    // validate แค่ scene แรกต้องมี video_prompt ไม่บังคับทุก scene มีภาพอีกต่อไป
+    $firstScene = $scenes[0];
+    $firstVideoPrompt = trim((string)($firstScene['video_prompt'] ?? ''));
+    if ($firstVideoPrompt === '') {
+        jsonError('Scene แรกยังไม่มี Video Prompt — กรุณาเขียนเองหรือกด "AI เขียน Video Prompt" ก่อนสร้างวิดีโอ', 422);
     }
-    if ($missingSceneIndexes) {
-        $missingLabels = implode(', ', array_map(static fn(int $n): string => 'Scene ' . $n, $missingSceneIndexes));
-        jsonError('สร้างวิดีโอไม่ได้ — ' . $missingLabels . ' ยังไม่มี Image กรุณากด "สร้างภาพทุกฉาก" ให้ครบก่อน', 422);
+
+    // เลือกโหมด image-to-video/text-to-video ตามสถานะภาพจริงของ scene แรก
+    // (ใช้ derive rule เดียวกับที่ scene cards ใช้แสดงสถานะ — backward-compat กับ
+    // content เก่าที่ไม่มี key image_gen_status)
+    $firstSceneStatus = _deriveSceneImageStatus($firstScene);
+    if ($firstSceneStatus === 'failed') {
+        $failReason = $firstScene['image_gen_error'] ?? 'สร้างภาพไม่สำเร็จ';
+        jsonError('Scene แรกสร้างภาพไม่สำเร็จ (' . $failReason . ') กรุณาลองสร้างภาพใหม่ หรือแก้ Video Prompt แล้วลองอีกครั้ง', 422);
     }
 
     // Resolve video model from ai_content_video_model_id → ai_models → ai_providers
@@ -3674,27 +3756,32 @@ if ($action === 'generate-video' && $method === 'POST') {
     // (เช่น https://api.kie.ai/api/v1) — ตัดออกก่อนแล้วค่อยต่อ path เต็มเสมอ กัน path ซ้อนกัน
     $videoBaseUrl = preg_replace('#/api/v1$#', '', $videoBaseUrl);
 
-    // kie.ai รองรับแค่ 1 request = 1 คลิป (ไม่มี multi-scene stitching) — Phase 1 จึง
-    // ใช้แค่ scene แรกที่ผ่าน validation ข้างบนว่ามี image_url แล้วเท่านั้น
-    // multi-scene stitching เป็นงาน Phase 2 แยกต่างหาก (ต้องมี video-editing layer ใหม่)
-    $firstScene = $scenes[0];
-    // image_url ที่เก็บใน DB เป็น relative path (/uploads/content/...) — kie.ai ต้องการ
-    // URL เต็มที่ดึงได้จริงจากอินเทอร์เน็ต แปลงด้วย VITE_APP_URL เหมือน pattern เดิมที่ใช้
-    // กับ product reference images (ดูบรรทัด ~1232, ~1688)
-    $appUrl = rtrim((getenv('VITE_APP_URL') ?: ($_ENV['VITE_APP_URL'] ?? 'http://localhost:8080')), '/');
-    $sceneImageUrl = $firstScene['image_url'];
-    if (!parse_url($sceneImageUrl, PHP_URL_SCHEME)) {
-        $sceneImageUrl = $appUrl . (str_starts_with($sceneImageUrl, '/') ? $sceneImageUrl : '/' . $sceneImageUrl);
-    }
+    // kie.ai รองรับแค่ 1 request = 1 คลิป (ไม่มี multi-scene stitching) — ใช้แค่ scene
+    // แรกเท่านั้น (multi-scene stitching เป็นงาน Phase 3 แยกต่างหาก ต้องมี
+    // video-editing layer ใหม่) โหมด image-to-video/text-to-video เลือกตาม
+    // $firstSceneStatus ที่ derive ไว้แล้วด้านบน
     $payload = [
         'model'       => $videoModelName,
         'callBackUrl' => null,
         'input'       => [
-            'prompt'       => $firstScene['visual_prompt'] ?? '',
-            'image_urls'   => [$sceneImageUrl],
-            'aspect_ratio' => '9:16',
+            'prompt'       => $firstVideoPrompt,
+            'aspect_ratio' => $aspectRatio,
         ],
     ];
+    if ($firstSceneStatus === 'done') {
+        // image_url ที่เก็บใน DB เป็น relative path (/uploads/content/...) — kie.ai
+        // ต้องการ URL เต็มที่ดึงได้จริงจากอินเทอร์เน็ต แปลงด้วย VITE_APP_URL เหมือน
+        // pattern เดิมที่ใช้กับ product reference images (ดูบรรทัด ~1232, ~1688)
+        $appUrl = rtrim((getenv('VITE_APP_URL') ?: ($_ENV['VITE_APP_URL'] ?? 'http://localhost:8080')), '/');
+        $sceneImageUrl = $firstScene['image_url'];
+        if (!parse_url($sceneImageUrl, PHP_URL_SCHEME)) {
+            $sceneImageUrl = $appUrl . (str_starts_with($sceneImageUrl, '/') ? $sceneImageUrl : '/' . $sceneImageUrl);
+        }
+        $payload['input']['image_urls'] = [$sceneImageUrl];
+    } else {
+        // 'none' — ไม่เคยสร้างภาพเลย ใช้ text-to-video
+        $payload['input']['generation_type'] = 'TEXT_2_VIDEO';
+    }
 
     $ch = curl_init($videoBaseUrl . '/api/v1/jobs/createTask');
     curl_setopt_array($ch, [

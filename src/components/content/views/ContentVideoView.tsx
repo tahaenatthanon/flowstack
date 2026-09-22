@@ -6,6 +6,7 @@ import { useToast } from '@/hooks/use-toast';
 import { apiFetch } from '@/lib/api';
 import DOMPurify from 'dompurify';
 import type { ContentItem, ArticleContent } from '@/components/content/types';
+import { VIDEO_ASPECT_RATIO_OPTIONS } from '@/components/content/types';
 import CopyButton from './CopyButton';
 import SceneCards from '@/components/content/SceneCards';
 import { cn } from '@/lib/utils';
@@ -54,6 +55,7 @@ export default function ContentVideoView({
   // ค่าจริงที่ใช้ถูก derive ทีหลัง (หลัง art.scripts พร้อมใช้) จาก effectiveActivePlatform
   // ด้านล่าง — เก็บแค่ค่าที่ผู้ใช้เลือกเอง (ถ้ามี) ไว้ในนี้
   const [activePlatform, setActivePlatform] = useState<string>('');
+  const [aspectRatio, setAspectRatio] = useState<string>('9:16');
 
   // Poll video status when generating
   useEffect(() => {
@@ -106,7 +108,7 @@ export default function ContentVideoView({
     try {
       const res = await apiFetch('/brand-content.php?action=generate-video', {
         method: 'POST',
-        body: JSON.stringify({ item_id: item.id }),
+        body: JSON.stringify({ item_id: item.id, aspect_ratio: aspectRatio }),
       });
       qc.invalidateQueries({ queryKey: ['content', 'items'] });
       if (res.status === 'done') {
@@ -173,7 +175,9 @@ export default function ContentVideoView({
   }
 
   const videoScenes = Array.isArray(art?.scenes) ? art.scenes : [];
-  const allScenesHaveImages = allVideoScenesHaveImages(videoScenes);
+  // Phase 2: ใช้จริงแค่ scene แรก — เงื่อนไขพร้อมสร้างวิดีโอคือ scene แรกต้องมี
+  // video_prompt เท่านั้น ไม่บังคับทุก scene มีภาพอีกต่อไป (ดู video-generation-mode-detection)
+  const firstSceneVideoPromptReady = !!videoScenes[0]?.video_prompt?.trim();
 
   // Sub-tab แสดงเฉพาะ platform ที่มี script อยู่จริง (ตรงกับ platform ที่เลือกไว้บน
   // content item) แทนรายชื่อ hardcode ตายตัว — ดู
@@ -345,13 +349,22 @@ export default function ContentVideoView({
               {generatingScenes ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Image className="h-3.5 w-3.5 mr-1.5" />}
               สร้างภาพทุกฉาก
             </Button>
-            <Button variant="default" size="sm" disabled={generatingVideo || pollingVideo || !allScenesHaveImages}
-              onClick={handleGenerateVideo} title={!allScenesHaveImages ? 'กรุณาสร้างภาพให้ครบทุก Scene ก่อน' : undefined}>
+            <div className="flex items-center gap-1 border rounded-md p-0.5">
+              {VIDEO_ASPECT_RATIO_OPTIONS.map(opt => (
+                <button key={opt.value} type="button" title={opt.desc} onClick={() => setAspectRatio(opt.value)}
+                  className={cn('px-2 py-1 rounded text-[11px] font-medium transition-colors',
+                    aspectRatio === opt.value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted')}>
+                  {opt.value}
+                </button>
+              ))}
+            </div>
+            <Button variant="default" size="sm" disabled={generatingVideo || pollingVideo || !firstSceneVideoPromptReady}
+              onClick={handleGenerateVideo} title={!firstSceneVideoPromptReady ? 'กรุณาเขียน Video Prompt ของ Scene แรกก่อน' : undefined}>
               {generatingVideo ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Video className="h-3.5 w-3.5 mr-1.5" />}
               {item.video_gen_status === 'generating' || pollingVideo ? 'กำลังสร้าง...' : 'สร้างวิดีโอ'}
             </Button>
-            {!allScenesHaveImages && videoScenes.length > 0 && (
-              <span className="text-xs text-destructive">กรุณาสร้างภาพให้ครบทุก Scene ก่อนสร้างวิดีโอ</span>
+            {!firstSceneVideoPromptReady && videoScenes.length > 0 && (
+              <span className="text-xs text-destructive">กรุณาเขียน Video Prompt ของ Scene แรกก่อนสร้างวิดีโอ</span>
             )}
           </>
         )}

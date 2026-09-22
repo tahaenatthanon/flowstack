@@ -116,6 +116,12 @@ export const IMAGE_STYLE_OPTIONS = [
   { value: 'custom', label: '✏️ กำหนดเอง', desc: 'พิมพ์บรรยายสไตล์ภาพเอง' },
 ] as const;
 
+export const VIDEO_ASPECT_RATIO_OPTIONS = [
+  { value: '9:16', label: '9:16 แนวตั้ง', desc: 'TikTok · Reels · Shorts' },
+  { value: '16:9', label: '16:9 แนวนอน', desc: 'YouTube · เว็บไซต์' },
+  { value: 'Auto', label: 'Auto', desc: 'ให้ Veo เลือกจากภาพต้นฉบับ' },
+] as const;
+
 export const VIDEO_DURATION_OPTIONS = ['15s', '30s', '60s', '3min', '10min+'] as const;
 
 export const VIDEO_DURATION_SECONDS: Record<typeof VIDEO_DURATION_OPTIONS[number], number> = {

@@ -1,4 +1,4 @@
-import { Image, AlertCircle, RefreshCw, Loader2 } from 'lucide-react';
+import { Image, AlertCircle, RefreshCw, Loader2, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { useState } from 'react';
@@ -41,6 +41,7 @@ export default function SceneCards({
   const [videoPromptDrafts, setVideoPromptDrafts] = useState<Record<number, string>>({});
   const [savingSceneIndex, setSavingSceneIndex] = useState<number | null>(null);
   const [retryingSceneIndex, setRetryingSceneIndex] = useState<number | null>(null);
+  const [writingPromptIndex, setWritingPromptIndex] = useState<number | null>(null);
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['content', 'items'] });
@@ -79,6 +80,24 @@ export default function SceneCards({
     }
   };
 
+  const handleWriteVideoPrompt = async (sceneIndex: number) => {
+    setWritingPromptIndex(sceneIndex);
+    try {
+      const res: any = await apiFetch('/brand-content.php?action=generate-scene-video-prompt', {
+        method: 'POST',
+        body: JSON.stringify({ item_id: itemId, scene_index: sceneIndex }),
+      });
+      // เคลียร์ draft ที่ยังไม่บันทึกทิ้ง ให้ใช้ค่าที่ AI เขียนแล้ว (persist ไว้แล้วจาก backend)
+      setVideoPromptDrafts(prev => { const next = { ...prev }; delete next[sceneIndex]; return next; });
+      invalidate();
+      toast({ title: `AI เขียน Video Prompt ฉากที่ ${sceneIndex + 1} สำเร็จ!` });
+    } catch (e: any) {
+      toast({ title: 'AI เขียน Video Prompt ไม่สำเร็จ', description: e.message, variant: 'destructive' });
+    } finally {
+      setWritingPromptIndex(null);
+    }
+  };
+
   if (scenes.length === 0) {
     return (
       <div className="px-4 py-8 text-center text-muted-foreground">
@@ -95,6 +114,8 @@ export default function SceneCards({
         const draft = videoPromptDrafts[idx] ?? scene.video_prompt ?? '';
         const isSaving = savingSceneIndex === idx;
         const isRetrying = retryingSceneIndex === idx;
+        const isWritingPrompt = writingPromptIndex === idx;
+        const hasVideoPrompt = !!scene.video_prompt?.trim();
         return (
           <div key={idx} className="rounded-lg border overflow-hidden">
             <div className="flex items-center justify-between px-3 py-2 bg-muted/10 border-b">
@@ -122,6 +143,13 @@ export default function SceneCards({
                   onClick={() => handleRetryScene(idx)}>
                   {isRetrying ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
                   สร้างใหม่เฉพาะฉากนี้
+                </Button>
+              )}
+              {!hasVideoPrompt && !readOnly && (
+                <Button variant="outline" size="sm" className="w-full" disabled={isWritingPrompt}
+                  onClick={() => handleWriteVideoPrompt(idx)}>
+                  {isWritingPrompt ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 mr-1.5" />}
+                  AI เขียน Video Prompt
                 </Button>
               )}
               <div className="space-y-1">

@@ -12,7 +12,7 @@ import SceneCards from '@/components/content/SceneCards';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import type { PlanItem } from '@/components/content/types';
-import { getCanonicalContentType, PLATFORM_MAP, platformsNeedScriptSections } from '@/components/content/types';
+import { getCanonicalContentType, PLATFORM_MAP, platformsNeedScriptSections, VIDEO_ASPECT_RATIO_OPTIONS } from '@/components/content/types';
 import { getThaiDayName, formatThaiDate } from './calendarUtils';
 import { CalendarDays, Save, Trash2, Sparkles, ImagePlus, RefreshCw, Loader2, Image as ImageIcon, FileText, Hash, Lightbulb, Clapperboard, MessageSquare, Share2, BookOpen, ChevronDown, Video, Play, Send, ShieldCheck } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
@@ -103,6 +103,7 @@ export function ContentCardDialog({
   const [imageViewerOpen, setImageViewerOpen] = useState(false);
   const [generatingVideo, setGeneratingVideo] = useState(false);
   const [generatingScenes, setGeneratingScenes] = useState(false);
+  const [aspectRatio, setAspectRatio] = useState<string>('9:16');
   // Mandatory Research — ทุกการสร้างเนื้อหาต้องผ่าน Fetch/Reuse → Analyze → Generate
   const { run: runResearch, cancel: cancelResearch, step: researchStep } = useResearchRun();
 
@@ -515,7 +516,7 @@ export function ContentCardDialog({
     try {
       const res: any = await apiFetch('/brand-content.php?action=generate-video', {
         method: 'POST',
-        body: JSON.stringify({ item_id: existingItem.id }),
+        body: JSON.stringify({ item_id: existingItem.id, aspect_ratio: aspectRatio }),
       });
       qc.invalidateQueries({ queryKey: ['content', 'items'] });
       qc.invalidateQueries({ queryKey: ['content', 'plans'] });
@@ -555,9 +556,10 @@ export function ContentCardDialog({
   // เส้นทางเดียวกับที่ล็อกการลากบนปฏิทิน — ดู openspec/changes/lock-published-content-date)
   const dateLocked = !!existingItem?.has_published_platform;
 
-  // Check if all scene images are generated
   const scenes = (articleData?.scenes ?? []) as any[];
-  const allScenesHaveImages = scenes.length > 0 && scenes.every((s: any) => !!s.image_url);
+  // Phase 2: ใช้จริงแค่ scene แรก — พร้อมสร้างวิดีโอเมื่อ scene แรกมี video_prompt
+  // เท่านั้น ไม่บังคับทุก scene มีภาพอีกต่อไป (ดู video-generation-mode-detection)
+  const firstSceneVideoPromptReady = !!scenes[0]?.video_prompt?.trim();
 
   return (
     <>
@@ -934,13 +936,22 @@ export function ContentCardDialog({
                       <div className="flex items-center gap-2 text-[11px] text-muted-foreground py-2 mt-1">
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />กำลังสร้างวิดีโอ...
                       </div>
-                    ) : !allScenesHaveImages ? (
-                      <p className="text-[11px] text-muted-foreground mt-1">ต้องสร้างภาพให้ครบทุกฉากก่อน จึงจะสามารถสร้างวิดีโอได้</p>
+                    ) : !firstSceneVideoPromptReady ? (
+                      <p className="text-[11px] text-muted-foreground mt-1">ต้องเขียน Video Prompt ของ Scene แรกก่อน จึงจะสามารถสร้างวิดีโอได้</p>
                     ) : null}
                     <Button variant="outline" size="sm" className="w-full gap-1.5 mt-2" disabled={generatingScenes || !existingItem?.id} onClick={handleGenerateScenes}>
                       {generatingScenes ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />กำลังสร้างภาพทุกฉาก...</> : <><ImageIcon className="h-3.5 w-3.5" />สร้างภาพทุกฉาก</>}
                     </Button>
-                    <Button variant="outline" size="sm" className="w-full gap-1.5 mt-2" disabled={generatingVideo || existingItem?.video_gen_status === 'generating' || !existingItem?.id || !allScenesHaveImages} onClick={handleGenerateVideo}>
+                    <div className="flex items-center gap-1 border rounded-md p-0.5 mt-2 w-full">
+                      {VIDEO_ASPECT_RATIO_OPTIONS.map(opt => (
+                        <button key={opt.value} type="button" title={opt.desc} onClick={() => setAspectRatio(opt.value)}
+                          className={cn('flex-1 px-2 py-1 rounded text-[11px] font-medium transition-colors',
+                            aspectRatio === opt.value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted')}>
+                          {opt.value}
+                        </button>
+                      ))}
+                    </div>
+                    <Button variant="outline" size="sm" className="w-full gap-1.5 mt-2" disabled={generatingVideo || existingItem?.video_gen_status === 'generating' || !existingItem?.id || !firstSceneVideoPromptReady} onClick={handleGenerateVideo}>
                       {generatingVideo ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />กำลังสร้าง...</> : existingItem?.video_url ? <><RefreshCw className="h-3.5 w-3.5" />สร้างวิดีโอใหม่</> : <><Clapperboard className="h-3.5 w-3.5" />สร้างวิดีโอด้วย AI</>}
                     </Button>
                     {existingItem?.id && (
