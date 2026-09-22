@@ -104,6 +104,17 @@ export function ContentCardDialog({
   const [generatingVideo, setGeneratingVideo] = useState(false);
   const [generatingScenes, setGeneratingScenes] = useState(false);
   const [aspectRatio, setAspectRatio] = useState<string>('9:16');
+  // "ลำดับฉาก" (visuals) แก้ไขได้ — draft ก่อนมี scenes, รวมบันทึกกับปุ่ม "บันทึก" หลัก
+  const [visualsDraft, setVisualsDraft] = useState<string[] | null>(null);
+  // visual_prompt ต่อ scene (หลังมี scenes แล้ว) — key เป็น scene index
+  const [scenesVisualPromptDraft, setScenesVisualPromptDraft] = useState<Record<number, string>>({});
+  // video_prompt ต่อ scene — ไม่มีปุ่มบันทึกของตัวเองอีกต่อไป รวมกับปุ่ม "บันทึก" หลักเช่นกัน
+  const [scenesVideoPromptDraft, setScenesVideoPromptDraft] = useState<Record<number, string>>({});
+  // scene index ที่เพิ่งบันทึก visual_prompt ใหม่ แต่ภาพยังเป็นของเดิม
+  const [staleImageIndexes, setStaleImageIndexes] = useState<Set<number>>(new Set());
+  const [regeneratingSceneIndex, setRegeneratingSceneIndex] = useState<number | null>(null);
+  // snapshot ของทุกฟิลด์ที่แก้ไขได้ ณ ตอนโหลด — ใช้เทียบหา isDirty ของปุ่ม "บันทึก"
+  const initialSnapshotRef = useRef<string>('');
   // Mandatory Research — ทุกการสร้างเนื้อหาต้องผ่าน Fetch/Reuse → Analyze → Generate
   const { run: runResearch, cancel: cancelResearch, step: researchStep } = useResearchRun();
 
@@ -170,9 +181,13 @@ export function ContentCardDialog({
     if (open) {
       setLocalImageUrl(null);
       setQualityRecheckedAt(null);
+      let topicVal = '';
+      let captionVal = '';
+      let platformsVal: string[] = [];
+      let imageBriefVal = '';
       if (existingItem) {
-        setTopic(existingItem.topic || '');
-        setCaption(existingItem.caption || '');
+        topicVal = existingItem.topic || '';
+        captionVal = existingItem.caption || '';
         const rawPlatforms = (existingItem as PlanItem & { platforms?: string[] | string | null }).platforms;
         let savedPlatforms: string[] = [];
         if (Array.isArray(rawPlatforms)) {
@@ -188,20 +203,23 @@ export function ContentCardDialog({
         if (savedPlatforms.length === 0 && existingItem.platform) {
           savedPlatforms = existingItem.platform.split(',');
         }
-        setPlatforms(Array.from(new Set(savedPlatforms.map(p => p.trim().toLowerCase()).filter(Boolean))));
-        setImageBrief(existingItem.image_brief || '');
-      } else {
-        setTopic('');
-        setCaption('');
-        setPlatforms([]);
-        setImageBrief('');
+        platformsVal = Array.from(new Set(savedPlatforms.map(p => p.trim().toLowerCase()).filter(Boolean)));
+        imageBriefVal = existingItem.image_brief || '';
       }
+      setTopic(topicVal);
+      setCaption(captionVal);
+      setPlatforms(platformsVal);
+      setImageBrief(imageBriefVal);
+
       // Populate article HTML + SEO from article_content JSON
+      let articleHtmlVal = '';
+      let seoFieldsVal: SeoFields = emptySeoFields();
+      let visualsVal: string[] = [];
       if (existingItem?.article_content) {
         try {
           const art = JSON.parse(existingItem.article_content);
-          setArticleHtml(art.html || '');
-          setSeoFields({
+          articleHtmlVal = art.html || '';
+          seoFieldsVal = {
             seo_title:        existingItem.seo_title        || art.seo_title        || '',
             slug:             existingItem.slug             || art.slug             || '',
             meta_description: existingItem.meta_description || art.meta_description || '',
@@ -213,27 +231,44 @@ export function ContentCardDialog({
                     ? art.structured_data
                     : JSON.stringify(art.structured_data, null, 2))
                 : ''),
-          });
-        } catch {
-          setArticleHtml('');
-          setSeoFields(emptySeoFields());
-        }
-      } else {
-        setArticleHtml('');
-        setSeoFields(emptySeoFields());
+          };
+          const rawVisuals: Array<string | { visual?: string; motion?: string }> = Array.isArray(art.visuals) ? art.visuals : [];
+          visualsVal = rawVisuals.map(v => (typeof v === 'string' ? v : (v?.visual ?? '')));
+        } catch { /* keep defaults */ }
       }
+      setArticleHtml(articleHtmlVal);
+      setSeoFields(seoFieldsVal);
+      setVisualsDraft(visualsVal);
+      setScenesVisualPromptDraft({});
+      setScenesVideoPromptDraft({});
+      setStaleImageIndexes(new Set());
+
+      let scheduledDateVal = '';
       if (date) {
         const y = date.getFullYear();
         const m = String(date.getMonth() + 1).padStart(2, '0');
         const d = String(date.getDate()).padStart(2, '0');
-        setScheduledDate(`${y}-${m}-${d}`);
+        scheduledDateVal = `${y}-${m}-${d}`;
       } else if (existingItem?.scheduled_date) {
-        setScheduledDate(existingItem.scheduled_date);
+        scheduledDateVal = existingItem.scheduled_date;
       } else {
-        setScheduledDate(new Date().toISOString().split('T')[0]);
+        scheduledDateVal = new Date().toISOString().split('T')[0];
       }
+      setScheduledDate(scheduledDateVal);
+
+      // เก็บ snapshot ของทุกฟิลด์ที่แก้ไขได้ ณ ตอนโหลด — ใช้เทียบหา isDirty
+      initialSnapshotRef.current = JSON.stringify({
+        topic: topicVal, caption: captionVal, platforms: platformsVal, imageBrief: imageBriefVal,
+        scheduledDate: scheduledDateVal, articleHtml: articleHtmlVal, seoFields: seoFieldsVal,
+        visuals: visualsVal, scenesVisualPrompt: {}, scenesVideoPrompt: {},
+      });
     }
   }, [open, existingItem, date]);
+
+  const isDirty = JSON.stringify({
+    topic, caption, platforms, imageBrief, scheduledDate, articleHtml, seoFields,
+    visuals: visualsDraft ?? [], scenesVisualPrompt: scenesVisualPromptDraft, scenesVideoPrompt: scenesVideoPromptDraft,
+  }) !== initialSnapshotRef.current;
 
   const effectiveDate = date || (existingItem?.scheduled_date ? new Date(existingItem.scheduled_date + 'T00:00:00') : null);
   const dateStr = effectiveDate ? formatThaiDate(effectiveDate) : (existingItem?.scheduled_date ?? '');
@@ -244,6 +279,8 @@ export function ContentCardDialog({
     try {
       // Merge updated html + seo back into article_content JSON
       let updatedArticleContent: string | undefined;
+      const changedVisualPromptIndexes: number[] = [];
+      const changedVideoPromptIndexes: number[] = [];
       if (existingItem?.article_content || articleHtml) {
         let art: Record<string, any> = {};
         if (existingItem?.article_content) {
@@ -254,9 +291,19 @@ export function ContentCardDialog({
         if (seoFields.structured_data.trim()) {
           try { parsedSd = JSON.parse(seoFields.structured_data); } catch { parsedSd = seoFields.structured_data; }
         }
+        // รวม "ลำดับฉาก" ที่แก้ไข — แก้เฉพาะ .visual เก็บ .motion เดิมไว้ (เฉพาะ entry แบบ object)
+        let updatedVisuals: any = art.visuals;
+        if (visualsDraft) {
+          const rawVisuals: Array<string | { visual?: string; motion?: string }> = Array.isArray(art.visuals) ? art.visuals : [];
+          updatedVisuals = visualsDraft.map((text, i) => {
+            const orig = rawVisuals[i];
+            return orig && typeof orig === 'object' ? { ...orig, visual: text } : text;
+          });
+        }
         art = {
           ...art,
           html:             articleHtml,
+          visuals:          updatedVisuals,
           seo_title:        seoFields.seo_title        || undefined,
           slug:             seoFields.slug             || undefined,
           meta_description: seoFields.meta_description || undefined,
@@ -265,6 +312,21 @@ export function ContentCardDialog({
           structured_data:  parsedSd                  ?? undefined,
         };
         updatedArticleContent = JSON.stringify(art);
+
+        // หา scene ที่ visual_prompt / video_prompt ถูกแก้ไขจริง (ต่างจากค่าเดิม)
+        const scenesArr: any[] = Array.isArray(art.scenes) ? art.scenes : [];
+        Object.keys(scenesVisualPromptDraft).forEach(key => {
+          const i = Number(key);
+          const newVal = scenesVisualPromptDraft[i];
+          const oldVal = scenesArr[i]?.visual_prompt ?? '';
+          if (newVal !== oldVal) changedVisualPromptIndexes.push(i);
+        });
+        Object.keys(scenesVideoPromptDraft).forEach(key => {
+          const i = Number(key);
+          const newVal = scenesVideoPromptDraft[i];
+          const oldVal = scenesArr[i]?.video_prompt ?? '';
+          if (newVal !== oldVal) changedVideoPromptIndexes.push(i);
+        });
       }
 
       await onSave({
@@ -283,10 +345,40 @@ export function ContentCardDialog({
         og_image: seoFields.og_image,
         structured_data: seoFields.structured_data,
       });
+
+      // บันทึก visual_prompt / video_prompt ของ scene ที่แก้ไขทีละฉาก ผ่าน update-scene เดิม
+      // (รวม field ที่เปลี่ยนของ scene เดียวกันไว้ใน request เดียว)
+      const changedIndexSet = new Set([...changedVisualPromptIndexes, ...changedVideoPromptIndexes]);
+      if (existingItem?.id && changedIndexSet.size > 0) {
+        for (const i of changedIndexSet) {
+          const body: Record<string, any> = { item_id: existingItem.id, scene_index: i };
+          if (changedVisualPromptIndexes.includes(i)) body.visual_prompt = scenesVisualPromptDraft[i];
+          if (changedVideoPromptIndexes.includes(i)) body.video_prompt = scenesVideoPromptDraft[i];
+          await apiFetch('/brand-content.php?action=update-scene', {
+            method: 'POST',
+            body: JSON.stringify(body),
+          });
+        }
+        qc.invalidateQueries({ queryKey: ['content', 'items'] });
+        qc.invalidateQueries({ queryKey: ['content', 'plans'] });
+      }
+
       if (regenImageOnSave && existingItem?.id && imageBrief.trim()) {
         handleGenerateImage();
       }
-      onOpenChange(false);
+
+      // อัปเดต snapshot ให้ isDirty กลับเป็น false หลังบันทึกสำเร็จ
+      initialSnapshotRef.current = JSON.stringify({
+        topic: topic.trim(), caption, platforms, imageBrief: imageBrief.trim(), scheduledDate, articleHtml, seoFields,
+        visuals: visualsDraft ?? [], scenesVisualPrompt: scenesVisualPromptDraft, scenesVideoPrompt: scenesVideoPromptDraft,
+      });
+
+      if (changedVisualPromptIndexes.length > 0) {
+        // มีการแก้ visual_prompt ของ scene — เปิด dialog ค้างไว้ให้เห็นปุ่ม "สร้างภาพฉากนี้ใหม่" ทันที
+        setStaleImageIndexes(new Set(changedVisualPromptIndexes));
+      } else {
+        onOpenChange(false);
+      }
     } finally {
       setSaving(false);
     }
@@ -532,6 +624,31 @@ export function ContentCardDialog({
     }
   };
 
+  const handleRegenerateScene = async (index: number) => {
+    if (!existingItem?.id) return;
+    const ok = await confirm({
+      title: 'ยืนยันสร้างภาพใหม่',
+      description: `สร้างภาพ Scene ${index + 1} ใหม่ด้วยคำบรรยายภาพที่แก้ไข — จะใช้เครดิต AI ยืนยันหรือไม่?`,
+      confirmLabel: 'สร้างภาพใหม่',
+    });
+    if (!ok) return;
+    setRegeneratingSceneIndex(index);
+    try {
+      await apiFetch('/brand-content.php?action=generate-scene-image', {
+        method: 'POST',
+        body: JSON.stringify({ item_id: existingItem.id, scene_index: index }),
+      });
+      setStaleImageIndexes(prev => { const next = new Set(prev); next.delete(index); return next; });
+      qc.invalidateQueries({ queryKey: ['content', 'items'] });
+      qc.invalidateQueries({ queryKey: ['content', 'plans'] });
+      toast({ title: `สร้างภาพฉากที่ ${index + 1} สำเร็จ!` });
+    } catch (e: any) {
+      toast({ title: 'สร้างภาพไม่สำเร็จ', description: e.message, variant: 'destructive' });
+    } finally {
+      setRegeneratingSceneIndex(null);
+    }
+  };
+
   const headlines = articleData?.headlines;
   // Show only scripts belonging to the Content Item's selected platforms.
   // This also hides legacy scripts that were generated before platform scoping was enforced.
@@ -545,8 +662,6 @@ export function ContentCardDialog({
 
   const scriptSections = articleData?.script_sections;
   const visuals: Array<string | { visual?: string; motion?: string }> = articleData?.visuals ?? [];
-  const visualText = (v: string | { visual?: string; motion?: string }): string =>
-    typeof v === 'string' ? v : (v?.visual ?? '');
   const hashtags: string[] = articleData?.hashtags ?? [];
   // Content Type Source of Truth: content_items.type (projected as content_type).
   // Never route UI behavior from legacy article_content.platform_type.
@@ -693,26 +808,10 @@ export function ContentCardDialog({
             </div>
           )}
 
-          {/* ===== Visuals + Hashtags ===== */}
-          {(visuals.length > 0 || hashtags.length > 0) && (
+          {/* ===== Hashtags ===== */}
+          {hashtags.length > 0 && (
             <div className="px-6 py-5 border-b">
               <div className="grid gap-4 sm:grid-cols-2">
-                {visuals.length > 0 && (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-1.5">
-                      <ImageIcon className="h-3.5 w-3.5 text-muted-foreground" />
-                      <h3 className="text-sm font-semibold">ลำดับฉาก ({visuals.length})</h3>
-                    </div>
-                    <ul className="space-y-1">
-                      {visuals.map((v, i) => (
-                        <li key={i} className="text-xs text-muted-foreground flex gap-2">
-                          <span className="text-muted-foreground/40 tabular-nums w-4 shrink-0">{i + 1}.</span>
-                          {visualText(v)}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
                 {hashtags.length > 0 && (
                   <div className="space-y-2">
                     <div className="flex items-center gap-1.5">
@@ -939,7 +1038,62 @@ export function ContentCardDialog({
                     ) : !firstSceneVideoPromptReady ? (
                       <p className="text-[11px] text-muted-foreground mt-1">ต้องเขียน Video Prompt ของ Scene แรกก่อน จึงจะสามารถสร้างวิดีโอได้</p>
                     ) : null}
-                    <Button variant="outline" size="sm" className="w-full gap-1.5 mt-2" disabled={generatingScenes || !existingItem?.id} onClick={handleGenerateScenes}>
+
+                    {/* ลำดับฉาก — แก้ไขได้ เฉพาะก่อนมี scenes (backend ไม่อ่าน visuals อีกต่อไปหลังมี scenes) */}
+                    {visuals.length > 0 && scenes.length === 0 && (
+                      <div className="mt-3 space-y-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <ImageIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                          <h3 className="text-xs font-semibold">ลำดับฉาก ({visuals.length})</h3>
+                        </div>
+                        <div className="space-y-1.5">
+                          {(visualsDraft ?? []).map((text, i) => (
+                            <div key={i} className="flex gap-2 items-start">
+                              <span className="text-[11px] text-muted-foreground/60 tabular-nums w-4 shrink-0 pt-2">{i + 1}.</span>
+                              <Textarea value={text}
+                                onChange={e => setVisualsDraft(prev => {
+                                  const next = [...(prev ?? [])];
+                                  next[i] = e.target.value;
+                                  return next;
+                                })}
+                                className="min-h-[50px] text-xs resize-y flex-1" />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {existingItem?.id && scenes.length > 0 && (
+                      <>
+                        <div className="mt-3 space-y-1.5">
+                          <div className="flex items-center gap-1.5">
+                            <ImageIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                            <h3 className="text-xs font-semibold">ลำดับฉาก ({scenes.length})</h3>
+                          </div>
+                          <div className="space-y-1.5">
+                            {scenes.map((s, i) => (
+                              <div key={i} className="flex gap-2 items-start">
+                                <span className="text-[11px] text-muted-foreground/60 tabular-nums w-4 shrink-0 pt-2">{i + 1}.</span>
+                                <Textarea value={scenesVisualPromptDraft[i] ?? s.visual_prompt ?? ''}
+                                  onChange={e => setScenesVisualPromptDraft(prev => ({ ...prev, [i]: e.target.value }))}
+                                  className="min-h-[50px] text-xs resize-y flex-1" />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="mt-3 rounded-lg border overflow-hidden">
+                          <SceneCards itemId={existingItem.id} scenes={scenes} readOnly={false}
+                            staleImageIndexes={staleImageIndexes}
+                            onRegenerateScene={handleRegenerateScene}
+                            regeneratingIndex={regeneratingSceneIndex}
+                            videoPromptDrafts={scenesVideoPromptDraft}
+                            onVideoPromptChange={(i, value) => setScenesVideoPromptDraft(prev => ({ ...prev, [i]: value }))}
+                            onVideoPromptGenerated={(i) => setScenesVideoPromptDraft(prev => { const next = { ...prev }; delete next[i]; return next; })} />
+                        </div>
+                      </>
+                    )}
+
+                    <Button variant="outline" size="sm" className="w-full gap-1.5 mt-3" disabled={generatingScenes || !existingItem?.id} onClick={handleGenerateScenes}>
                       {generatingScenes ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />กำลังสร้างภาพทุกฉาก...</> : <><ImageIcon className="h-3.5 w-3.5" />สร้างภาพทุกฉาก</>}
                     </Button>
                     <div className="flex items-center gap-1 border rounded-md p-0.5 mt-2 w-full">
@@ -954,11 +1108,6 @@ export function ContentCardDialog({
                     <Button variant="outline" size="sm" className="w-full gap-1.5 mt-2" disabled={generatingVideo || existingItem?.video_gen_status === 'generating' || !existingItem?.id || !firstSceneVideoPromptReady} onClick={handleGenerateVideo}>
                       {generatingVideo ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />กำลังสร้าง...</> : existingItem?.video_url ? <><RefreshCw className="h-3.5 w-3.5" />สร้างวิดีโอใหม่</> : <><Clapperboard className="h-3.5 w-3.5" />สร้างวิดีโอด้วย AI</>}
                     </Button>
-                    {existingItem?.id && (
-                      <div className="mt-3 rounded-lg border overflow-hidden">
-                        <SceneCards itemId={existingItem.id} scenes={scenes} readOnly={false} />
-                      </div>
-                    )}
                   </div>
                   )}
                 </div>
@@ -1009,7 +1158,7 @@ export function ContentCardDialog({
           )}
           <Button
             onClick={handleSave}
-            disabled={saving || !topic.trim()}
+            disabled={saving || !topic.trim() || !isDirty}
             className="gap-1.5"
             title={qualityCheckedAtValue ? 'การบันทึกจะล้างผลตรวจ Quality เดิม ต้องกด "ตรวจ Quality" ใหม่ก่อนเผยแพร่' : undefined}
           >

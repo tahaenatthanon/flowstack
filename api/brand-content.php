@@ -1960,6 +1960,9 @@ if ($action === 'update-scene' && $method === 'POST') {
     if (array_key_exists('video_prompt', $body)) {
         $scenes[$sceneIndex]['video_prompt'] = trim((string)$body['video_prompt']);
     }
+    if (array_key_exists('visual_prompt', $body)) {
+        $scenes[$sceneIndex]['visual_prompt'] = trim((string)$body['visual_prompt']);
+    }
 
     $ac['scenes'] = $scenes;
     $db->prepare('UPDATE content_items SET article_content=?, updated_at=NOW() WHERE id=? AND tenant_id=?')

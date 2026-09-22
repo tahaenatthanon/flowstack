@@ -1,4 +1,4 @@
-import { Image, AlertCircle, RefreshCw, Loader2, Sparkles } from 'lucide-react';
+import { Image, AlertCircle, RefreshCw, Loader2, Sparkles, Wand2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { useState } from 'react';
@@ -31,37 +31,34 @@ export default function SceneCards({
   itemId,
   scenes,
   readOnly = false,
+  staleImageIndexes,
+  onRegenerateScene,
+  regeneratingIndex,
+  videoPromptDrafts,
+  onVideoPromptChange,
+  onVideoPromptGenerated,
 }: {
   itemId: string;
   scenes: Scene[];
   readOnly?: boolean;
+  /** scene index ที่เพิ่งบันทึก visual_prompt ใหม่ (แก้จากช่อง "ลำดับฉาก" รวมด้านบน) แต่ภาพยังเป็นของเดิม — แสดงปุ่ม "สร้างภาพฉากนี้ใหม่" */
+  staleImageIndexes?: Set<number>;
+  onRegenerateScene?: (index: number) => void;
+  regeneratingIndex?: number | null;
+  /** ค่า draft ของ video_prompt ต่อ scene index — ควบคุมจาก parent (ContentCardDialog) เพื่อรวมบันทึกกับปุ่ม "บันทึก" หลัก ไม่มีปุ่มบันทึกของตัวเองอีกต่อไป */
+  videoPromptDrafts?: Record<number, string>;
+  onVideoPromptChange?: (index: number, value: string) => void;
+  /** เรียกหลัง AI เขียน video_prompt สำเร็จ ให้ parent เคลียร์ draft ทิ้งเพื่อกลับไปอ่านค่าที่ persist แล้วจาก scene */
+  onVideoPromptGenerated?: (index: number) => void;
 }) {
   const { toast } = useToast();
   const qc = useQueryClient();
-  const [videoPromptDrafts, setVideoPromptDrafts] = useState<Record<number, string>>({});
-  const [savingSceneIndex, setSavingSceneIndex] = useState<number | null>(null);
   const [retryingSceneIndex, setRetryingSceneIndex] = useState<number | null>(null);
   const [writingPromptIndex, setWritingPromptIndex] = useState<number | null>(null);
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['content', 'items'] });
     qc.invalidateQueries({ queryKey: ['content', 'plans'] });
-  };
-
-  const handleSaveVideoPrompt = async (sceneIndex: number, videoPrompt: string) => {
-    setSavingSceneIndex(sceneIndex);
-    try {
-      await apiFetch('/brand-content.php?action=update-scene', {
-        method: 'POST',
-        body: JSON.stringify({ item_id: itemId, scene_index: sceneIndex, video_prompt: videoPrompt }),
-      });
-      invalidate();
-      toast({ title: 'บันทึก Video Prompt แล้ว' });
-    } catch (e: any) {
-      toast({ title: 'บันทึกไม่สำเร็จ', description: e.message, variant: 'destructive' });
-    } finally {
-      setSavingSceneIndex(null);
-    }
   };
 
   const handleRetryScene = async (sceneIndex: number) => {
@@ -88,7 +85,7 @@ export default function SceneCards({
         body: JSON.stringify({ item_id: itemId, scene_index: sceneIndex }),
       });
       // เคลียร์ draft ที่ยังไม่บันทึกทิ้ง ให้ใช้ค่าที่ AI เขียนแล้ว (persist ไว้แล้วจาก backend)
-      setVideoPromptDrafts(prev => { const next = { ...prev }; delete next[sceneIndex]; return next; });
+      onVideoPromptGenerated?.(sceneIndex);
       invalidate();
       toast({ title: `AI เขียน Video Prompt ฉากที่ ${sceneIndex + 1} สำเร็จ!` });
     } catch (e: any) {
@@ -111,11 +108,11 @@ export default function SceneCards({
     <div className="grid gap-3 p-4 sm:grid-cols-2">
       {scenes.map((scene, idx) => {
         const status = deriveSceneImageStatus(scene);
-        const draft = videoPromptDrafts[idx] ?? scene.video_prompt ?? '';
-        const isSaving = savingSceneIndex === idx;
+        const videoPromptDraft = videoPromptDrafts?.[idx] ?? scene.video_prompt ?? '';
         const isRetrying = retryingSceneIndex === idx;
         const isWritingPrompt = writingPromptIndex === idx;
-        const hasVideoPrompt = !!scene.video_prompt?.trim();
+        const isStale = !!staleImageIndexes?.has(idx);
+        const isRegenerating = regeneratingIndex === idx;
         return (
           <div key={idx} className="rounded-lg border overflow-hidden">
             <div className="flex items-center justify-between px-3 py-2 bg-muted/10 border-b">
@@ -145,25 +142,25 @@ export default function SceneCards({
                   สร้างใหม่เฉพาะฉากนี้
                 </Button>
               )}
-              {!hasVideoPrompt && !readOnly && (
-                <Button variant="outline" size="sm" className="w-full" disabled={isWritingPrompt}
-                  onClick={() => handleWriteVideoPrompt(idx)}>
-                  {isWritingPrompt ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 mr-1.5" />}
-                  AI เขียน Video Prompt
+              {isStale && !readOnly && (
+                <Button variant="outline" size="sm" className="w-full" disabled={isRegenerating}
+                  onClick={() => onRegenerateScene?.(idx)}>
+                  {isRegenerating ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5 mr-1.5" />}
+                  สร้างภาพฉากนี้ใหม่
                 </Button>
               )}
               <div className="space-y-1">
                 <span className="text-[11px] text-muted-foreground">Video Prompt</span>
-                <Textarea value={draft} disabled={readOnly}
-                  onChange={e => setVideoPromptDrafts(prev => ({ ...prev, [idx]: e.target.value }))}
+                <Textarea value={videoPromptDraft} disabled={readOnly}
+                  onChange={e => onVideoPromptChange?.(idx, e.target.value)}
                   placeholder="คำสั่งการเคลื่อนไหว/มุมกล้องของฉากนี้..."
                   className="min-h-[70px] text-xs resize-y" />
               </div>
               {!readOnly && (
-                <Button variant="secondary" size="sm" className="w-full" disabled={isSaving}
-                  onClick={() => handleSaveVideoPrompt(idx, draft)}>
-                  {isSaving ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : null}
-                  บันทึก Video Prompt
+                <Button variant="outline" size="sm" className="w-full" disabled={isWritingPrompt}
+                  onClick={() => handleWriteVideoPrompt(idx)}>
+                  {isWritingPrompt ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 mr-1.5" />}
+                  AI เขียน Video Prompt
                 </Button>
               )}
             </div>
