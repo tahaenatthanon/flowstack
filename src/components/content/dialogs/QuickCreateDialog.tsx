@@ -10,10 +10,12 @@ import type { ContentPlan } from '@/components/content/types';
 import {
   getTriggerDisplayLabel, PLATFORM_MAP,
   ARTICLE_TONE_OPTIONS, VIDEO_SCRIPT_STYLE_OPTIONS, VIDEO_DURATION_OPTIONS, VIDEO_DURATION_SECONDS,
+  IMAGE_STYLE_OPTIONS,
 } from '@/components/content/types';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { Plus, Wand2, Sparkles, FileText, Play, Loader2, ArrowRight, RefreshCw, Send, ImagePlus, PenTool, Zap, CheckCircle2, ChevronRight } from 'lucide-react';
@@ -27,8 +29,10 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
   const [contentType, setContentType] = useState<'article' | 'video' | null>(null);
   const [topic, setTopic]             = useState('');
   const [selPlatforms, setSelPlatforms] = useState<string[]>([]);
-  const [tone, setTone]               = useState<'friendly' | 'formal' | 'educational' | 'storytelling'>('friendly');
-  const [scriptStyle, setScriptStyle] = useState<'hook-story' | 'educational' | 'storytelling' | 'vsl'>('hook-story');
+  const [tone, setTone]               = useState<'ai' | 'friendly' | 'formal' | 'educational' | 'storytelling'>('ai');
+  const [scriptStyle, setScriptStyle] = useState<'ai' | 'hook-story' | 'educational' | 'storytelling' | 'vsl'>('ai');
+  const [imageStyle, setImageStyle]   = useState<string>('ai');
+  const [imageStyleCustomText, setImageStyleCustomText] = useState('');
   const [duration, setDuration]       = useState<'15s' | '30s' | '60s' | '3min' | '10min+'>('60s');
   const [selTriggerIds, setSelTriggerIds] = useState<string[]>([]);
   const [selSkillIds, setSelSkillIds]   = useState<string[]>([]);
@@ -52,8 +56,8 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
   const { data: triggers = [] } = useContentTriggers(open);
 
   const handleReset = () => {
-    setContentType(null); setTopic(''); setSelPlatforms([]); setTone('friendly');
-    setScriptStyle('hook-story'); setDuration('60s');
+    setContentType(null); setTopic(''); setSelPlatforms([]); setTone('ai');
+    setScriptStyle('ai'); setDuration('60s'); setImageStyle('ai'); setImageStyleCustomText('');
     setSelTriggerIds([]); setSelSkillIds([]); setAutoSkillIds([]); setSelContextIds([]);
     setTriggerSearch(''); setSkillSearch(''); setStep('type'); setDoneTitle('');
   };
@@ -121,6 +125,7 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
           brand_context_ids: selContextIds,
           platforms: platList,
           type: contentType,
+          image_style: imageStyle === 'custom' ? imageStyleCustomText.trim() : imageStyle,
           ...(contentType === 'article'
             ? { tone }
             : { script_style: scriptStyle, duration: VIDEO_DURATION_SECONDS[duration] }),
@@ -403,6 +408,27 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
                 </div>
               </>
             )}
+            {/* Image Style — ใช้ได้ทั้ง article และ video ไม่ผูก contentType */}
+            <div className="space-y-1.5">
+              <Label>สไตล์ภาพ</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {IMAGE_STYLE_OPTIONS.map(opt => (
+                  <button key={opt.value} type="button" onClick={() => setImageStyle(opt.value)}
+                    className={cn('flex flex-col items-start p-2.5 rounded-lg border text-left text-xs transition-all',
+                      imageStyle === opt.value
+                        ? 'border-primary bg-primary/5 text-primary'
+                        : 'border-border hover:border-muted-foreground hover:bg-muted/30')}>
+                    <span className="font-medium">{opt.label}</span>
+                    <span className="text-[10px] text-muted-foreground mt-0.5">{opt.desc}</span>
+                  </button>
+                ))}
+              </div>
+              {imageStyle === 'custom' && (
+                <Textarea value={imageStyleCustomText} onChange={e => setImageStyleCustomText(e.target.value)}
+                  placeholder="บรรยายสไตล์ภาพที่ต้องการ เช่น แสงนีออนโทนไซเบอร์พังก์..."
+                  className="min-h-[70px] text-xs resize-y" />
+              )}
+            </div>
             {/* Platform multi-select */}
             <div className="space-y-1.5">
               <Label>

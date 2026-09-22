@@ -945,8 +945,7 @@ export function ContentCardDialog({
                     </Button>
                     {existingItem?.id && (
                       <div className="mt-3 rounded-lg border overflow-hidden">
-                        <SceneCards itemId={existingItem.id} scenes={scenes} readOnly={false}
-                          onGenerateAll={handleGenerateScenes} generatingAll={generatingScenes} />
+                        <SceneCards itemId={existingItem.id} scenes={scenes} readOnly={false} />
                       </div>
                     )}
                   </div>

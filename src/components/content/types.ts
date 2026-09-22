@@ -16,6 +16,7 @@ export interface ContentItem {
   approved_at?: string | null;
   updated_at?: string | null;
   image_brief?: string | null;
+  image_style?: string | null;
   generated_image_url?: string | null;
   image_gen_status?: string | null;
   video_gen_status?: string | null;
@@ -91,6 +92,7 @@ export function getTriggerDisplayLabel(command: string): string {
 // ─── Article/Video style configuration — shared between QuickCreateDialog and BatchGenerateDialog ───
 
 export const ARTICLE_TONE_OPTIONS = [
+  { value: 'ai', label: '🤖 AI เลือกให้', desc: 'ให้ AI พิจารณาจากเนื้อหาเอง' },
   { value: 'friendly', label: '😊 กันเอง', desc: 'อบอุ่น เป็นกันเอง' },
   { value: 'formal', label: '💼 ทางการ', desc: 'มืออาชีพ น่าเชื่อถือ' },
   { value: 'educational', label: '🎓 ให้ความรู้', desc: 'สาระ เข้าใจง่าย' },
@@ -98,10 +100,20 @@ export const ARTICLE_TONE_OPTIONS = [
 ] as const;
 
 export const VIDEO_SCRIPT_STYLE_OPTIONS = [
+  { value: 'ai', label: '🤖 AI เลือกให้', desc: 'ให้ AI พิจารณาจากเนื้อหาเอง' },
   { value: 'hook-story', label: '🔥 ฮุก-เรื่อง-CTA', desc: 'ไวรัล · เน้น engagement' },
   { value: 'educational', label: '🎓 ให้ความรู้', desc: 'สอน · เข้าใจง่าย' },
   { value: 'storytelling', label: '📖 เล่าเรื่อง', desc: 'เล่าเรื่อง · อารมณ์' },
   { value: 'vsl', label: '💰 VSL (ขายตรง)', desc: 'ขาย · เพิ่มยอดแปลง' },
+] as const;
+
+export const IMAGE_STYLE_OPTIONS = [
+  { value: 'ai', label: '🤖 AI เลือกให้', desc: 'ให้ AI พิจารณาสไตล์จากเนื้อหาเอง' },
+  { value: 'photorealistic', label: '📸 สมจริง', desc: 'ภาพถ่ายจริง น่าเชื่อถือ' },
+  { value: '3d-render', label: '🧊 3D เรนเดอร์', desc: 'ทันสมัย เหมาะกับ Tech/AI' },
+  { value: 'illustration', label: '🎨 อินโฟกราฟิก/ภาพประกอบ', desc: 'อธิบายแนวคิด สถิติ ขั้นตอน' },
+  { value: 'corporate', label: '💼 องค์กรมืออาชีพ', desc: 'สะอาด เป็นทางการ stock-photo' },
+  { value: 'custom', label: '✏️ กำหนดเอง', desc: 'พิมพ์บรรยายสไตล์ภาพเอง' },
 ] as const;
 
 export const VIDEO_DURATION_OPTIONS = ['15s', '30s', '60s', '3min', '10min+'] as const;

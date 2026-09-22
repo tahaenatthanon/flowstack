@@ -31,14 +31,10 @@ export default function SceneCards({
   itemId,
   scenes,
   readOnly = false,
-  onGenerateAll,
-  generatingAll = false,
 }: {
   itemId: string;
   scenes: Scene[];
   readOnly?: boolean;
-  onGenerateAll?: () => void;
-  generatingAll?: boolean;
 }) {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -88,12 +84,6 @@ export default function SceneCards({
       <div className="px-4 py-8 text-center text-muted-foreground">
         <Image className="h-8 w-8 mx-auto mb-2 opacity-30" />
         <p className="text-sm">ยังไม่มีฉาก กด "สร้างภาพทุกฉาก" เพื่อเริ่มสร้าง</p>
-        {!readOnly && onGenerateAll && (
-          <Button variant="outline" size="sm" className="mt-3" disabled={generatingAll} onClick={onGenerateAll}>
-            {generatingAll ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Image className="h-3.5 w-3.5 mr-1.5" />}
-            สร้างภาพทุกฉาก
-          </Button>
-        )}
       </div>
     );
   }

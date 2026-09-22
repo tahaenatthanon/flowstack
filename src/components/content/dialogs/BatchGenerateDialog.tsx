@@ -9,10 +9,12 @@ import type { ContentPlan } from '@/components/content/types';
 import {
   getTriggerDisplayLabel, PLATFORM_MAP,
   ARTICLE_TONE_OPTIONS, VIDEO_SCRIPT_STYLE_OPTIONS, VIDEO_DURATION_OPTIONS, VIDEO_DURATION_SECONDS,
+  IMAGE_STYLE_OPTIONS,
 } from '@/components/content/types';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -33,9 +35,11 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
     topic: '', niche: '', contentType: 'article' as 'article' | 'video',
     platforms: [] as string[], triggerIds: [] as string[], skillIds: [] as string[],
     autoSkillIds: [] as string[], contextIds: [] as string[], language: '', openSettings: false,
-    tone: 'friendly' as 'friendly' | 'formal' | 'educational' | 'storytelling',
-    scriptStyle: 'hook-story' as 'hook-story' | 'educational' | 'storytelling' | 'vsl',
+    tone: 'ai' as 'ai' | 'friendly' | 'formal' | 'educational' | 'storytelling',
+    scriptStyle: 'ai' as 'ai' | 'hook-story' | 'educational' | 'storytelling' | 'vsl',
     duration: '60s' as '15s' | '30s' | '60s' | '3min' | '10min+',
+    imageStyle: 'ai' as string,
+    imageStyleCustomText: '',
   });
   // หัวข้อลำดับที่ topicIndex (0-based) ได้ scheduled_date = startDate + topicIndex วัน
   // เรียงต่อเนื่องกันไปตามจำนวนหัวข้อจริง — ไม่มีช่อง "จำนวนวัน" แยกให้เลือกอีกต่อไป
@@ -205,6 +209,7 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
             generation_mode: 'direct',
             platforms: topicConfig.platforms,
             type: topicConfig.contentType,
+            image_style: topicConfig.imageStyle === 'custom' ? topicConfig.imageStyleCustomText.trim() : topicConfig.imageStyle,
             ...(topicConfig.contentType === 'article'
               ? { tone: topicConfig.tone }
               : { script_style: topicConfig.scriptStyle, duration: VIDEO_DURATION_SECONDS[topicConfig.duration] }),
@@ -467,6 +472,28 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
                               </div>
                             </>
                           )}
+
+                          <div className="space-y-1.5">
+                            <Label>สไตล์ภาพ</Label>
+                            <div className="grid grid-cols-2 gap-2">
+                              {IMAGE_STYLE_OPTIONS.map(opt => (
+                                <button key={opt.value} type="button" onClick={() => setTopics(rows => rows.map((row, i) => i === index ? { ...row, imageStyle: opt.value } : row))}
+                                  className={cn('flex flex-col items-start p-2.5 rounded-lg border text-left text-xs transition-all',
+                                    item.imageStyle === opt.value
+                                      ? 'border-primary bg-primary/5 text-primary'
+                                      : 'border-border hover:border-muted-foreground hover:bg-muted/30')}>
+                                  <span className="font-medium">{opt.label}</span>
+                                  <span className="text-[10px] text-muted-foreground mt-0.5">{opt.desc}</span>
+                                </button>
+                              ))}
+                            </div>
+                            {item.imageStyle === 'custom' && (
+                              <Textarea value={item.imageStyleCustomText}
+                                onChange={e => setTopics(rows => rows.map((row, i) => i === index ? { ...row, imageStyleCustomText: e.target.value } : row))}
+                                placeholder="บรรยายสไตล์ภาพที่ต้องการ เช่น แสงนีออนโทนไซเบอร์พังก์..."
+                                className="min-h-[70px] text-xs resize-y" />
+                            )}
+                          </div>
 
                           <div className="space-y-1.5">
                             <Label>แพลตฟอร์ม ({item.platforms.length === 0 ? 'ไม่เลือก' : item.platforms.length})</Label>

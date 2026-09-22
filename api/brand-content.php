@@ -362,18 +362,28 @@ function normalizeContentType(mixed $raw): string {
 
 /** Normalize the Article writing style selected in the Create Content UI. */
 function normalizeArticleTone(mixed $raw): string {
-    $tone = strtolower(trim((string)($raw ?? 'friendly')));
+    $tone = strtolower(trim((string)($raw ?? 'ai')));
     // `professional` was the previous frontend value for the Thai "ทางการ" option.
     if ($tone === 'professional') $tone = 'formal';
-    $allowed = ['friendly', 'formal', 'educational', 'storytelling'];
-    return in_array($tone, $allowed, true) ? $tone : 'friendly';
+    $allowed = ['ai', 'friendly', 'formal', 'educational', 'storytelling'];
+    return in_array($tone, $allowed, true) ? $tone : 'ai';
 }
 
 /** Normalize the Video Script Style selected in the Create Content UI. */
 function normalizeVideoScriptStyle(mixed $raw): string {
-    $style = strtolower(trim((string)($raw ?? 'hook-story')));
-    $allowed = ['hook-story', 'educational', 'storytelling', 'vsl'];
-    return in_array($style, $allowed, true) ? $style : 'hook-story';
+    $style = strtolower(trim((string)($raw ?? 'ai')));
+    $allowed = ['ai', 'hook-story', 'educational', 'storytelling', 'vsl'];
+    return in_array($style, $allowed, true) ? $style : 'ai';
+}
+
+/** Normalize the Image Style selected in the Create Content UI. Unlike tone/script-style,
+ * an unrecognized non-empty value is treated as free-form custom style text (not an error). */
+function normalizeImageStyle(mixed $raw): string {
+    $style = trim((string)($raw ?? ''));
+    if ($style === '') return 'ai';
+    $presets = ['ai', 'photorealistic', '3d-render', 'illustration', 'corporate'];
+    if (in_array(strtolower($style), $presets, true)) return strtolower($style);
+    return $style; // custom free-text style, used verbatim
 }
 
 /** Normalize requested video duration to seconds. */
@@ -383,9 +393,11 @@ function normalizeVideoDuration(mixed $raw): int {
     return in_array($duration, $allowed, true) ? $duration : 60;
 }
 
-/** Build explicit Video Script Style instructions from the selected style. */
+/** Build explicit Video Script Style instructions from the selected style.
+ * Returns '' for "ai" so the model picks the style itself from the content. */
 function videoScriptStyleInstruction(string $style): string {
     return match ($style) {
+        'ai' => '',
         'educational' => 'ใช้รูปแบบให้ความรู้: เปิดด้วยประเด็นสำคัญ อธิบายเป็นลำดับ ใช้ตัวอย่างหรือเหตุผลที่เข้าใจง่าย และปิดด้วยสรุป/CTA',
         'storytelling' => 'ใช้รูปแบบเล่าเรื่อง: มีจุดเริ่มต้น บริบท เหตุการณ์หรือปัญหา การดำเนินเรื่อง และบทสรุป/CTA ให้ผู้ชมอยากติดตามต่อ',
         'vsl' => 'ใช้รูปแบบ VSL: เปิดด้วยปัญหาหรือผลลัพธ์ที่ต้องการ นำเสนอประโยชน์/เหตุผลสนับสนุนอย่างชัดเจน จัดการข้อกังวล และปิดด้วย CTA เชิง Conversion',
@@ -399,13 +411,43 @@ function videoDurationInstruction(int $duration): string {
     return "ความยาวเป้าหมาย {$duration} วินาที ({$minutes}). ปริมาณบทพูด จังหวะ เนื้อหา จำนวนฉาก และ duration ของแต่ละฉากต้องสอดคล้องกับความยาวนี้ โดยเวลารวมของ scenes ควรใกล้เคียง {$duration} วินาที และห้ามใช้ความยาวเริ่มต้นแบบตายตัว 60 วินาทีเมื่อผู้ใช้เลือกค่าอื่น";
 }
 
-/** Build an explicit Article writing instruction from the selected tone. */
+/** Build an explicit Article writing instruction from the selected tone.
+ * Returns '' for "ai" so the model picks the tone itself from the content. */
 function articleToneInstruction(string $tone): string {
     return match ($tone) {
+        'ai' => '',
         'formal' => 'ใช้ภาษาทางการ สุภาพ เป็นมืออาชีพและน่าเชื่อถือ หลีกเลี่ยงภาษาพูด คำสแลง และถ้อยคำที่เป็นกันเองเกินไป',
         'educational' => 'เน้นการให้ความรู้และการอธิบายอย่างเป็นระบบ จัดลำดับเนื้อหาให้ชัดเจน ใช้ภาษาที่เข้าใจง่าย และอธิบายแนวคิดสำคัญให้ผู้อ่านนำไปใช้ได้',
         'storytelling' => 'เขียนในรูปแบบการเล่าเรื่อง มีบริบท ลำดับเหตุการณ์หรือมุมมองที่ต่อเนื่อง ใช้รายละเอียดเพื่อดึงผู้อ่านให้ติดตามเรื่องจนจบ',
         default => 'ใช้ภาษาที่เป็นกันเอง อบอุ่น เป็นธรรมชาติ อ่านง่าย เหมือนสื่อสารกับคนจริง หลีกเลี่ยงภาษาทางการหรือแข็งเกินไป',
+    };
+}
+
+/** Build an explicit Image Style instruction for the content-writing AI so it describes
+ * visuals (image_brief / scene "visual") matching the chosen style. Returns '' for "ai". */
+function imageStyleInstruction(string $style): string {
+    if ($style === 'ai') return '';
+    $canned = match ($style) {
+        'photorealistic' => 'บรรยายภาพให้เป็นภาพถ่ายจริงสมจริง (photorealistic) ไม่ใช่ภาพวาดหรือภาพประกอบการ์ตูน',
+        '3d-render' => 'บรรยายภาพให้เป็นโมเดล 3 มิติที่ทันสมัย (3D render) มีแสงเงาและวัสดุสมจริงแบบ 3D',
+        'illustration' => 'บรรยายภาพให้เป็น vector illustration/infographic แบบเรียบง่าย เส้นชัด สีพื้น',
+        'corporate' => 'บรรยายภาพให้เป็นภาพถ่ายสไตล์องค์กรมืออาชีพ สะอาด เป็นทางการแบบ stock photography',
+        default => null, // not a known preset → treat $style itself as custom text below
+    };
+    if ($canned !== null) return $canned;
+    return "ใช้สไตล์ภาพตามคำอธิบายนี้: {$style}";
+}
+
+/** Build the style suffix appended to the prompt sent to the image-gen model itself.
+ * Returns '' for "ai" (no forced style at generation time). */
+function imageStyleSuffix(string $style): string {
+    if ($style === 'ai') return '';
+    return match ($style) {
+        'photorealistic' => 'photorealistic, real photography, natural lighting, 8k, DSLR photo, not illustration/cartoon/vector art',
+        '3d-render' => '3D render, octane render, studio lighting, glossy materials',
+        'illustration' => 'flat vector illustration, clean infographic style',
+        'corporate' => 'professional corporate stock photography, clean, minimal',
+        default => $style, // custom free-text style, used verbatim
     };
 }
 
@@ -934,8 +976,9 @@ if ($action === 'generate-plan' && $method === 'POST') {
     $planEnd         = $body['plan_end'] ?? null;
     $platforms       = $body['platforms'] ?? []; // optional: force specific platforms
     // Article/Video style configuration is structured data, not trigger text.
-    $tone            = normalizeArticleTone($body['tone'] ?? 'friendly');
-    $scriptStyle     = normalizeVideoScriptStyle($body['script_style'] ?? 'hook-story');
+    $tone            = normalizeArticleTone($body['tone'] ?? 'ai');
+    $scriptStyle     = normalizeVideoScriptStyle($body['script_style'] ?? 'ai');
+    $imageStyle      = normalizeImageStyle($body['image_style'] ?? 'ai');
     $durationSeconds = normalizeVideoDuration($body['duration'] ?? 60);
     // Backward compat: accept single platform string
     if (empty($platforms) && !empty($body['platform'])) $platforms = [$body['platform']];
@@ -1001,6 +1044,10 @@ if ($action === 'generate-plan' && $method === 'POST') {
             "SCRIPT STYLE REQUIREMENT: " . videoScriptStyleInstruction($scriptStyle) . "\n" .
             "DURATION REQUIREMENT: " . videoDurationInstruction($durationSeconds) . "\n" .
             "These settings are hard content requirements and must affect the generated script. Do not replace them with Trigger, Skill, or model defaults.";
+    }
+    $imageStyleInstr = imageStyleInstruction($imageStyle);
+    if ($imageStyleInstr !== '') {
+        $sysParts[] = "## Image Style Requirement (selected by user)\n{$imageStyleInstr}\nApply this to every image description you write (image_brief and/or each scene's visual description).";
     }
     if (!empty($platforms)) {
         $pList = implode(', ', $platforms);
@@ -1262,8 +1309,8 @@ if ($action === 'generate-plan' && $method === 'POST') {
         // source_topic must never be empty — see content_plan_item_source_topic()
         // for the Direct-mode-vs-legacy-mode resolution rule.
         $itemSourceTopic = content_plan_item_source_topic($originalTopic, $item['topic'] ?? null);
-        $db->prepare('INSERT INTO content_items (id, tenant_id, title, source_topic, type, tone, script_style, duration_sec, status, created_by, plan_item_id, plan_id, platform, platforms, scheduled_date, caption, image_brief) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-           ->execute([$ciId, $tenantId, $item['topic'] ?? '', $itemSourceTopic, $type, $type === 'article' ? $tone : null, $type === 'video' ? $scriptStyle : null, $type === 'video' ? $durationSeconds : null, 'draft', $userId, $itemId, $planId, $item['platform'] ?? '', $platformsJson, $item['scheduled_date'] ?? null, $item['caption'] ?? '', $item['image_brief'] ?? '']);
+        $db->prepare('INSERT INTO content_items (id, tenant_id, title, source_topic, type, tone, script_style, duration_sec, status, created_by, plan_item_id, plan_id, platform, platforms, scheduled_date, caption, image_brief, image_style) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+           ->execute([$ciId, $tenantId, $item['topic'] ?? '', $itemSourceTopic, $type, $type === 'article' ? $tone : null, $type === 'video' ? $scriptStyle : null, $type === 'video' ? $durationSeconds : null, 'draft', $userId, $itemId, $planId, $item['platform'] ?? '', $platformsJson, $item['scheduled_date'] ?? null, $item['caption'] ?? '', $item['image_brief'] ?? '', $imageStyle]);
     }
 
     $stmt = $db->prepare('SELECT * FROM content_plans WHERE id=? AND tenant_id=?');
@@ -1336,8 +1383,13 @@ if ($action === 'generate-image' && $method === 'POST') {
         $modelName = $legacy['image_gen_model'] ?: $modelName;
     }
 
-    // Enrich prompt with brand colors + product reference
+    // Enrich prompt with image style + brand colors + product reference
     $fullPrompt = $prompt;
+    $styleStmt = $db->prepare('SELECT image_style FROM content_items WHERE id=? AND tenant_id=?');
+    $styleStmt->execute([$itemId, $tenantId]);
+    $itemImageStyle = normalizeImageStyle($styleStmt->fetchColumn() ?: 'ai');
+    $imageStyleSuffixText = imageStyleSuffix($itemImageStyle);
+    if ($imageStyleSuffixText !== '') $fullPrompt .= ', ' . $imageStyleSuffixText;
     $stmt2 = $db->prepare("SELECT parsed_data FROM brand_contexts WHERE tenant_id=? AND file_type='brand_md' LIMIT 1");
     $stmt2->execute([$tenantId]);
     $bc = $stmt2->fetch();
@@ -1739,7 +1791,7 @@ if ($action === 'generate-scene-images' && $method === 'POST') {
     $itemId = $body['item_id'] ?? null;
     if (!$itemId) jsonError('Missing item_id');
 
-    $itemStmt = $db->prepare('SELECT id, title, article_content FROM content_items WHERE id=? AND tenant_id=?');
+    $itemStmt = $db->prepare('SELECT id, title, article_content, image_style FROM content_items WHERE id=? AND tenant_id=?');
     $itemStmt->execute([$itemId, $tenantId]);
     $item = $itemStmt->fetch();
     if (!$item) jsonError('��辺 content item', 404);
@@ -1760,8 +1812,11 @@ if ($action === 'generate-scene-images' && $method === 'POST') {
     $db->prepare('UPDATE content_items SET image_gen_status=?, updated_at=NOW() WHERE id=? AND tenant_id=?')
        ->execute(['generating', $itemId, $tenantId]);
 
-    // Enrichment suffix: brand colors + product references
+    // Enrichment suffix: image style + brand colors + product references
     $enrichSuffix = '';
+    $sceneImageStyle = normalizeImageStyle($item['image_style'] ?? 'ai');
+    $sceneImageStyleSuffix = imageStyleSuffix($sceneImageStyle);
+    if ($sceneImageStyleSuffix !== '') $enrichSuffix .= ', ' . $sceneImageStyleSuffix;
     $bcStmt = $db->prepare("SELECT parsed_data FROM brand_contexts WHERE tenant_id=? AND file_type='brand_md' LIMIT 1");
     $bcStmt->execute([$tenantId]);
     $bcRow = $bcStmt->fetch();
@@ -1877,7 +1932,7 @@ if ($action === 'generate-scene-image' && $method === 'POST') {
     $sceneIndex = isset($body['scene_index']) ? (int)$body['scene_index'] : null;
     if (!$itemId || $sceneIndex === null) jsonError('Missing item_id or scene_index');
 
-    $itemStmt = $db->prepare('SELECT id, article_content FROM content_items WHERE id=? AND tenant_id=?');
+    $itemStmt = $db->prepare('SELECT id, article_content, image_style FROM content_items WHERE id=? AND tenant_id=?');
     $itemStmt->execute([$itemId, $tenantId]);
     $item = $itemStmt->fetch();
     if (!$item) jsonError('ไม่พบ content item', 404);
@@ -1892,7 +1947,11 @@ if ($action === 'generate-scene-image' && $method === 'POST') {
 
     [$modelName, $baseUrl, $apiKey] = _resolveSceneImageModel($db, $tenantId);
 
-    $scenes[$sceneIndex] = _generateOneSceneImage($scenes[$sceneIndex], $sceneIndex, $modelName, $baseUrl, $apiKey, $itemId, '');
+    $retrySceneImageStyle = normalizeImageStyle($item['image_style'] ?? 'ai');
+    $retryEnrichSuffix = imageStyleSuffix($retrySceneImageStyle);
+    if ($retryEnrichSuffix !== '') $retryEnrichSuffix = ', ' . $retryEnrichSuffix;
+
+    $scenes[$sceneIndex] = _generateOneSceneImage($scenes[$sceneIndex], $sceneIndex, $modelName, $baseUrl, $apiKey, $itemId, $retryEnrichSuffix);
 
     $ac['scenes'] = $scenes;
     $db->prepare('UPDATE content_items SET article_content=?, updated_at=NOW() WHERE id=? AND tenant_id=?')
@@ -2503,10 +2562,15 @@ if ($action === 'generate-article') {
     $baseCtx = ($globalInstr ? $globalInstr."\n\n" : '') . ($brandText ? "Brand Context:{$brandText}\n\n" : '') . ($kbContext ? "Knowledge Base Reference:{$kbContext}\n\n" : '') . $triggerCtx . $skillCtx;
     $isVideo = strtolower((string)($item['type'] ?? 'article')) === 'video';
     if (!$isVideo) {
-        $articleTone = normalizeArticleTone($item['tone'] ?? 'friendly');
+        $articleTone = normalizeArticleTone($item['tone'] ?? 'ai');
         $baseCtx .= "Article Writing Style (selected by user): {$articleTone}\n" .
             "WRITING STYLE REQUIREMENT: " . articleToneInstruction($articleTone) . "\n\n" .
             "The selected writing style is a hard content requirement. Apply it throughout the article body, headline, excerpt, caption, and social scripts where applicable. Do not replace the selected style with a different tone from a Trigger or generic brand instruction unless the user explicitly requests that override.\n\n";
+    }
+    $itemImageStyle = normalizeImageStyle($item['image_style'] ?? 'ai');
+    $itemImageStyleInstr = imageStyleInstruction($itemImageStyle);
+    if ($itemImageStyleInstr !== '') {
+        $baseCtx .= "Image Style Requirement (selected by user): {$itemImageStyleInstr}\nApply this to every image description you write (image_brief and/or each scene's visual description).\n\n";
     }
 
     $aiCall = function(string $sysPart, string $userMsg) use ($apiUrl, $headers, $modelName, &$baseCtx, $contentTimeout, $contentMaxTokens): string {
@@ -2599,7 +2663,7 @@ if ($action === 'generate-article') {
     $itemPlatform = $itemPlatforms[0] ?? '';
     $itemCtx = "หัวข้อ (Source of Truth): {$item['topic']}\nแพลตฟอร์มที่เลือก: " . ($itemPlatforms ? implode(', ', $itemPlatforms) : 'ไม่ได้กำหนด') . "\nแคปชั่น:\n{$item['caption']}";
     if ($isVideo) {
-        $storedScriptStyle = normalizeVideoScriptStyle($item['script_style'] ?? 'hook-story');
+        $storedScriptStyle = normalizeVideoScriptStyle($item['script_style'] ?? 'ai');
         $storedDuration = normalizeVideoDuration($item['duration_sec'] ?? 60);
         $baseCtx .= "Video Script Style (selected by user): {$storedScriptStyle}\n" .
             "SCRIPT STYLE REQUIREMENT: " . videoScriptStyleInstruction($storedScriptStyle) . "\n" .

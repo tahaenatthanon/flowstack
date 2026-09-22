@@ -320,8 +320,7 @@ export default function ContentVideoView({
           <Clapperboard className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm font-semibold">ฉากวิดีโอ{videoScenes.length > 0 ? ` (${videoScenes.length})` : ''}</span>
         </div>
-        <SceneCards itemId={item.id} scenes={videoScenes} readOnly={isApproval}
-          onGenerateAll={handleGenerateScenes} generatingAll={generatingScenes} />
+        <SceneCards itemId={item.id} scenes={videoScenes} readOnly={isApproval} />
       </div>
 
       {/* Hashtags */}
