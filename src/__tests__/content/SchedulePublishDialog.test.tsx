@@ -1,3 +1,4 @@
+import type { ComponentProps } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { SchedulePublishDialog } from '@/components/content/SchedulePublishDialog';
@@ -27,7 +28,7 @@ const mockChannels = {
   value: [] as Array<{ id: string; platform: string; name: string; is_active: number }>,
 };
 
-function renderDialog() {
+function renderDialog(extra: Partial<ComponentProps<typeof SchedulePublishDialog>> = {}) {
   return render(
     <SchedulePublishDialog
       open
@@ -35,6 +36,7 @@ function renderDialog() {
       contentId="content-1"
       contentTitle="ทดสอบ"
       mode="send_now"
+      {...extra}
     />
   );
 }
@@ -102,5 +104,57 @@ describe('SchedulePublishDialog — สถานะ blocked จาก send_now',
     const call = toast.mock.calls.find(([arg]) => arg.title === 'ส่งบางส่วนไม่สำเร็จ')?.[0];
     expect(call.description).toContain('สำเร็จ 1');
     expect(call.description).not.toContain('ล้มเหลว');
+  });
+});
+
+/**
+ * Change: wire-platform-scripts-to-publish
+ * spec: platform-script-publish-prefill
+ */
+describe('SchedulePublishDialog — prefill ข้อความเผยแพร่จาก scripts[platform]', () => {
+  it('เลือก 2 platform ที่มี script ต่างกัน — ส่ง override ไม่เหมือนกัน', async () => {
+    mockChannels.value = [
+      { id: 'ch-fb', platform: 'facebook', name: 'Facebook เพจหลัก', is_active: 1 },
+      { id: 'ch-tt', platform: 'tiktok', name: 'TikTok หลัก', is_active: 1 },
+    ];
+    mockSendNowMutateAsync.mockResolvedValue({
+      results: [
+        { channel_id: 'ch-fb', platform: 'facebook', success: true, status: 'success' },
+        { channel_id: 'ch-tt', platform: 'tiktok', success: true, status: 'success' },
+      ],
+    });
+
+    renderDialog({
+      scripts: { facebook: 'Post caption: A', tiktok: 'Hook 3 วิ: B' },
+    });
+    await waitFor(() => expect(apiFetch).toHaveBeenCalled());
+
+    const checkboxes = screen.getAllByRole('checkbox');
+    fireEvent.click(checkboxes[0]);
+    fireEvent.click(checkboxes[1]);
+    fireEvent.click(screen.getByRole('button', { name: /ส่งเลย/ }));
+
+    await waitFor(() => expect(mockSendNowMutateAsync).toHaveBeenCalled());
+    const args = mockSendNowMutateAsync.mock.calls[0][0];
+    expect(args.channel_overrides['ch-fb']).toBe('Post caption: A');
+    expect(args.channel_overrides['ch-tt']).toBe('B'); // ตัดคำกำกับฉาก "Hook 3 วิ:" ออกแล้ว
+    expect(args.channel_overrides['ch-fb']).not.toBe(args.channel_overrides['ch-tt']);
+  });
+
+  it('ไม่มี scripts ของ platform ที่เลือก — fallback เป็น caption เดิม', async () => {
+    mockChannels.value = [{ id: 'ch-li', platform: 'linkedin', name: 'LinkedIn หลัก', is_active: 1 }];
+    mockSendNowMutateAsync.mockResolvedValue({
+      results: [{ channel_id: 'ch-li', platform: 'linkedin', success: true, status: 'success' }],
+    });
+
+    renderDialog({ defaultCaption: 'caption เดิม', scripts: { facebook: 'Post caption: A' } });
+    await waitFor(() => expect(apiFetch).toHaveBeenCalled());
+
+    fireEvent.click(screen.getAllByRole('checkbox')[0]);
+    fireEvent.click(screen.getByRole('button', { name: /ส่งเลย/ }));
+
+    await waitFor(() => expect(mockSendNowMutateAsync).toHaveBeenCalled());
+    const args = mockSendNowMutateAsync.mock.calls[0][0];
+    expect(args.channel_overrides['ch-li']).toBe('caption เดิม');
   });
 });

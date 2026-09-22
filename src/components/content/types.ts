@@ -481,12 +481,7 @@ export interface ArticleContent {
     storytelling?: Array<{ title: string; hook: string }>;
     educational?: Array<{ title: string; hook: string }>;
   };
-  scripts?: {
-    facebook?: string;
-    instagram?: string;
-    tiktok?: string;
-    youtube?: string;
-  };
+  scripts?: Record<string, string | undefined>;
   script_sections?: { opening?: string; bridge?: string; twist?: string; ending?: string };
   visuals?: string[];
   scenes?: Array<{
@@ -613,6 +608,36 @@ export const VIDEO_SCRIPT_PLATFORMS = ['tiktok', 'youtube'];
 /** Platform ที่เลือกไว้มี platform วิดีโอ (TikTok/YouTube) อยู่หรือไม่ */
 export function platformsNeedScriptSections(platforms: string[]): boolean {
   return platforms.some(p => VIDEO_SCRIPT_PLATFORMS.includes(p.toLowerCase()));
+}
+
+// ตัดคำกำกับฉากต้นบรรทัด (Hook N วิ:/Scene N:/Intro:/Outro:/Section N:/CTA:) ออกจาก
+// scripts['tiktok']/['youtube'] เพราะเป็น screenplay format ที่ไม่ควรหลุดไปเป็นข้อความ
+// โพสต์จริง — platform อื่น (facebook/instagram/lineoa/linkedin/twitter) ใช้ label
+// แบบ "Post caption:"/"CTA:" ที่เป็นส่วนหนึ่งของโครงโพสต์ปกติ ไม่ใช่คำกำกับฉากถ่ายทำ
+// จึงไม่ต้อง clean (ดู openspec/changes/wire-platform-scripts-to-publish/design.md)
+const SCREENPLAY_SCRIPT_PLATFORMS = ['tiktok', 'youtube'];
+const SCENE_DIRECTION_LINE_RE = /^(Hook\s*\d*\s*วิ|Scene\s*\d+|Intro|Outro|Section\s*\d+|CTA)\s*:\s*/gim;
+
+export function stripScriptDirections(text: string, platform: string): string {
+  if (!SCREENPLAY_SCRIPT_PLATFORMS.includes(platform.toLowerCase())) return text;
+  return text
+    .split('\n')
+    .map(line => line.replace(SCENE_DIRECTION_LINE_RE, ''))
+    .join('\n');
+}
+
+/**
+ * ข้อความเผยแพร่เริ่มต้นต่อ platform — ใช้ scripts[platform] (ตัดคำกำกับฉากถ้าจำเป็น)
+ * ถ้ามี ไม่งั้น fallback ไป caption ตามพฤติกรรมเดิม
+ */
+export function getPublishDefaultText(
+  scripts: Record<string, string | undefined> | undefined,
+  platform: string,
+  caption: string,
+): string {
+  const raw = scripts?.[platform.toLowerCase()];
+  if (raw && raw.trim() !== '') return stripScriptDirections(raw, platform);
+  return caption;
 }
 
 // เดิม PLATFORM_MAP นิยามสี/label ของตัวเองซ้ำกับ PLATFORM_CATALOG ใน

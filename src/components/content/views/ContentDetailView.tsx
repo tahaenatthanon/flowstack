@@ -440,6 +440,7 @@ export default function ContentDetailView({
           mode={publishDialog}
           defaultCaption={item.caption || ''}
           defaultBody={(() => { try { return JSON.parse(item.article_content || '{}')?.html || ''; } catch { return ''; } })()}
+          scripts={(() => { try { return JSON.parse(item.article_content || '{}')?.scripts; } catch { return undefined; } })()}
         />
       )}
 

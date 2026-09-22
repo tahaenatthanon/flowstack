@@ -56,6 +56,35 @@ describe('ContentVideoView', () => {
     expect(screen.getByText('YouTube')).toBeTruthy();
   });
 
+  // spec: content-video-ui-section — "Platform sub-tab ของ script แสดงเฉพาะ platform ที่มีจริง"
+  it('เลือกไว้ 2 platform (tiktok/youtube) เห็นแค่ 2 แท็บ ไม่มี Instagram/Facebook', () => {
+    wrap(<ContentVideoView item={mockVideoItem} />);
+    expect(screen.queryByText('Instagram')).toBeNull();
+    expect(screen.queryByText('Facebook')).toBeNull();
+  });
+
+  it('ไม่มี script เลยไม่มี sub-tab', () => {
+    const noScripts: ContentItem = {
+      ...mockVideoItem,
+      article_content: JSON.stringify({ title: 'ไม่มีสคริปต์', scripts: {} }),
+    };
+    wrap(<ContentVideoView item={noScripts} />);
+    expect(screen.queryByText('TikTok')).toBeNull();
+    expect(screen.queryByText('YouTube')).toBeNull();
+  });
+
+  it('เพิ่ม platform ใหม่ (linkedin) ที่ไม่เคยอยู่ในรายชื่อ hardcode เดิม — ยังแสดงแท็บได้', () => {
+    const withLinkedIn: ContentItem = {
+      ...mockVideoItem,
+      article_content: JSON.stringify({
+        title: 'มี LinkedIn',
+        scripts: { linkedin: 'Professional post: ทดสอบ\nCTA: ทักแชท' },
+      }),
+    };
+    wrap(<ContentVideoView item={withLinkedIn} />);
+    expect(screen.getByText('LinkedIn')).toBeTruthy();
+  });
+
   it('renders cover image', () => {
     wrap(<ContentVideoView item={mockVideoItem} />);
     const img = screen.getByRole('img');

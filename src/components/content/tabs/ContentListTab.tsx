@@ -27,7 +27,7 @@ export default function ContentListTab() {
   const [platformFilter, setPlatformFilter] = useState<string>('all');
   const [editItem, setEditItem] = useState<ContentItem | null>(null);
   const [generatingImage, setGeneratingImage] = useState(false);
-  const [publishDialog, setPublishDialog] = useState<{ contentId: string; contentTitle: string; mode: 'schedule' | 'send_now'; defaultCaption?: string; defaultBody?: string } | null>(null);
+  const [publishDialog, setPublishDialog] = useState<{ contentId: string; contentTitle: string; mode: 'schedule' | 'send_now'; defaultCaption?: string; defaultBody?: string; scripts?: Record<string, string | undefined> } | null>(null);
   const [imageViewerSrc, setImageViewerSrc] = useState<string | null>(null);
   const [deleteConfirmItem, setDeleteConfirmItem] = useState<ContentItem | null>(null);
   // Mandatory Research — การสร้างเนื้อหาต้องผ่าน Fetch/Reuse → Analyze → Generate
@@ -434,7 +434,7 @@ export default function ContentListTab() {
                           className="h-7 w-7 p-0 hover:text-green-600 text-muted-foreground"
                           onClick={e => {
                             e.stopPropagation();
-                            setPublishDialog({ contentId: item.id, contentTitle: item.title, mode: 'send_now', defaultCaption: item.caption || '', defaultBody: (() => { try { return JSON.parse(item.article_content || '{}')?.html || ''; } catch { return ''; } })() });
+                            setPublishDialog({ contentId: item.id, contentTitle: item.title, mode: 'send_now', defaultCaption: item.caption || '', defaultBody: (() => { try { return JSON.parse(item.article_content || '{}')?.html || ''; } catch { return ''; } })(), scripts: (() => { try { return JSON.parse(item.article_content || '{}')?.scripts; } catch { return undefined; } })() });
                           }}
                           title="ส่งทันที"
                         >
@@ -446,7 +446,7 @@ export default function ContentListTab() {
                           className="h-7 w-7 p-0 hover:text-primary text-muted-foreground"
                           onClick={e => {
                             e.stopPropagation();
-                            setPublishDialog({ contentId: item.id, contentTitle: item.title, mode: 'schedule', defaultCaption: item.caption || '', defaultBody: (() => { try { return JSON.parse(item.article_content || '{}')?.html || ''; } catch { return ''; } })() });
+                            setPublishDialog({ contentId: item.id, contentTitle: item.title, mode: 'schedule', defaultCaption: item.caption || '', defaultBody: (() => { try { return JSON.parse(item.article_content || '{}')?.html || ''; } catch { return ''; } })(), scripts: (() => { try { return JSON.parse(item.article_content || '{}')?.scripts; } catch { return undefined; } })() });
                           }}
                           title="ตั้งเวลาโพสต์"
                         >
@@ -527,6 +527,7 @@ export default function ContentListTab() {
           mode={publishDialog.mode}
           defaultCaption={publishDialog.defaultCaption}
           defaultBody={publishDialog.defaultBody}
+          scripts={publishDialog.scripts}
         />
       )}
 

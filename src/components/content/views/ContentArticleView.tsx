@@ -246,6 +246,7 @@ export default function ContentArticleView({
         contentTitle={item.title || item.topic || ''}
         defaultCaption={item.caption || ''}
         defaultBody={art?.html || ''}
+        scripts={art?.scripts}
         mode={publishMode}
       />
     </div>

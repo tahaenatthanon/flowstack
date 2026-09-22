@@ -10,7 +10,7 @@ import { usePublishChannels, useScheduleContent, useSendNow } from '@/hooks/useC
 import { apiFetch } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import { PlatformIcon } from '@/components/content/PlatformIcon';
-import { PLATFORM_MAP } from '@/components/content/types';
+import { PLATFORM_MAP, getPublishDefaultText } from '@/components/content/types';
 
 const ARTICLE_PLATFORMS = new Set(['wordpress', 'wix', 'custom', 'website']);
 const SOCIAL_PLATFORMS  = new Set(['facebook', 'instagram', 'tiktok', 'lineoa', 'linkedin', 'twitter']);
@@ -22,10 +22,11 @@ interface Props {
   contentTitle: string;
   defaultCaption?: string;
   defaultBody?: string;
+  scripts?: Record<string, string | undefined>;
   mode?: 'schedule' | 'send_now';
 }
 
-export function SchedulePublishDialog({ open, onOpenChange, contentId, contentTitle, defaultCaption = '', defaultBody = '', mode = 'schedule' }: Props) {
+export function SchedulePublishDialog({ open, onOpenChange, contentId, contentTitle, defaultCaption = '', defaultBody = '', scripts, mode = 'schedule' }: Props) {
   const { toast } = useToast();
   const { data: channels = [] } = usePublishChannels();
   const schedule = useScheduleContent();
@@ -36,8 +37,13 @@ export function SchedulePublishDialog({ open, onOpenChange, contentId, contentTi
   const [scheduleDate, setScheduleDate] = useState('');
   const [scheduleTime, setScheduleTime] = useState('');
   const [articleBody, setArticleBody] = useState('');
-  const [socialCaption, setSocialCaption] = useState('');
+  // เนื้อหาเผยแพร่ต่อ platform (ไม่ใช่ต่อ channel id) — dialog ล็อกให้เลือกได้แค่
+  // 1 channel ต่อ 1 platform ในการส่งครั้งเดียวอยู่แล้ว (ดู toggleChannel) จึง derive
+  // ค่า default จาก platform พอ ไม่ต้องผูกกับ channel id
+  const [socialCaptions, setSocialCaptions] = useState<Record<string, string>>({});
   const [platformStatus, setPlatformStatus] = useState<Record<string, { published: boolean; pending: boolean }>>({});
+
+  const activeChannels = (channels as any[]).filter((c: any) => c.is_active);
 
   // Reset state every time dialog opens with new content
   useEffect(() => {
@@ -46,15 +52,22 @@ export function SchedulePublishDialog({ open, onOpenChange, contentId, contentTi
       setScheduleDate('');
       setScheduleTime('');
       setArticleBody(defaultBody);
-      setSocialCaption(defaultCaption);
+      const defaults: Record<string, string> = {};
+      const seenPlatforms = new Set<string>();
+      for (const ch of activeChannels) {
+        const platform = String(ch.platform ?? '').toLowerCase();
+        if (!SOCIAL_PLATFORMS.has(platform) || seenPlatforms.has(platform)) continue;
+        seenPlatforms.add(platform);
+        defaults[platform] = getPublishDefaultText(scripts, platform, defaultCaption);
+      }
+      setSocialCaptions(defaults);
       setPlatformStatus({});
       apiFetch(`/content-publish.php?action=platform_status&content_id=${encodeURIComponent(contentId)}`)
         .then((res: any) => setPlatformStatus(res?.platforms ?? {}))
         .catch(() => setPlatformStatus({}));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, contentId]);
-
-  const activeChannels = (channels as any[]).filter((c: any) => c.is_active);
 
   const toggleChannel = (id: string) => {
     const channel = activeChannels.find((c: any) => c.id === id);
@@ -84,8 +97,8 @@ export function SchedulePublishDialog({ open, onOpenChange, contentId, contentTi
     for (const ch of selectedChannelObjs) {
       if (ARTICLE_PLATFORMS.has(ch.platform) && articleBody.trim()) {
         overrides[ch.id] = articleBody.trim();
-      } else if (SOCIAL_PLATFORMS.has(ch.platform) && socialCaption.trim()) {
-        overrides[ch.id] = socialCaption.trim();
+      } else if (SOCIAL_PLATFORMS.has(ch.platform) && (socialCaptions[ch.platform] ?? '').trim()) {
+        overrides[ch.id] = socialCaptions[ch.platform].trim();
       }
     }
     return overrides;
@@ -244,20 +257,27 @@ export function SchedulePublishDialog({ open, onOpenChange, contentId, contentTi
           )}
 
           {hasSocialPlatform && (
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium">
-                Caption
-                <span className="ml-1.5 text-muted-foreground font-normal">
-                  ({selectedChannelObjs.filter((c: any) => SOCIAL_PLATFORMS.has(c.platform)).map((c: any) => (PLATFORM_MAP as any)[c.platform]?.label ?? c.platform).join(', ')})
-                </span>
-              </Label>
-              <Textarea
-                value={socialCaption}
-                onChange={e => setSocialCaption(e.target.value)}
-                placeholder="Caption สำหรับโพสต์ (ไม่กรอกจะใช้ caption เดิม)"
-                rows={4}
-                className="text-sm resize-none"
-              />
+            <div className="space-y-3">
+              {Array.from(new Set(selectedChannelObjs
+                .filter((c: any) => SOCIAL_PLATFORMS.has(c.platform))
+                .map((c: any) => String(c.platform).toLowerCase())))
+                .map(platform => (
+                  <div key={platform} className="space-y-1.5">
+                    <Label className="text-xs font-medium">
+                      Caption
+                      <span className="ml-1.5 text-muted-foreground font-normal">
+                        ({(PLATFORM_MAP as any)[platform]?.label ?? platform})
+                      </span>
+                    </Label>
+                    <Textarea
+                      value={socialCaptions[platform] ?? ''}
+                      onChange={e => setSocialCaptions(prev => ({ ...prev, [platform]: e.target.value }))}
+                      placeholder="Caption สำหรับโพสต์ (ไม่กรอกจะใช้ caption เดิม)"
+                      rows={4}
+                      className="text-sm resize-none"
+                    />
+                  </div>
+                ))}
             </div>
           )}
 

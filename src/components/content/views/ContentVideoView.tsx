@@ -24,6 +24,14 @@ export function allVideoScenesHaveImages(scenes: Array<{ image_url?: string | nu
 const PLATFORM_COLORS: Record<string, string> = {
   tiktok: 'bg-black text-white', youtube: 'bg-red-600 text-white',
   instagram: 'bg-pink-500 text-white', facebook: 'bg-indigo-600 text-white',
+  lineoa: 'bg-green-600 text-white', linkedin: 'bg-sky-700 text-white',
+  twitter: 'bg-neutral-800 text-white',
+};
+const DEFAULT_PLATFORM_COLOR = 'bg-muted text-foreground';
+
+const PLATFORM_LABELS: Record<string, string> = {
+  tiktok: 'TikTok', youtube: 'YouTube', instagram: 'Instagram', facebook: 'Facebook',
+  lineoa: 'LINE OA', linkedin: 'LinkedIn', twitter: 'Twitter/X',
 };
 
 export default function ContentVideoView({
@@ -42,9 +50,9 @@ export default function ContentVideoView({
   const [generatingVideo, setGeneratingVideo] = useState(false);
   const [pollingVideo, setPollingVideo] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [activePlatform, setActivePlatform] = useState<'tiktok' | 'youtube' | 'instagram' | 'facebook'>(
-    (['tiktok', 'youtube', 'instagram', 'facebook'].includes(item.platform ?? '') ? item.platform : 'tiktok') as any
-  );
+  // ค่าจริงที่ใช้ถูก derive ทีหลัง (หลัง art.scripts พร้อมใช้) จาก effectiveActivePlatform
+  // ด้านล่าง — เก็บแค่ค่าที่ผู้ใช้เลือกเอง (ถ้ามี) ไว้ในนี้
+  const [activePlatform, setActivePlatform] = useState<string>('');
 
   // Poll video status when generating
   useEffect(() => {
@@ -163,9 +171,16 @@ export default function ContentVideoView({
     );
   }
 
-  const platformLabel: Record<string, string> = { tiktok: 'TikTok', youtube: 'YouTube', instagram: 'Instagram', facebook: 'Facebook' };
   const videoScenes = Array.isArray(art?.scenes) ? art.scenes : [];
   const allScenesHaveImages = allVideoScenesHaveImages(videoScenes);
+
+  // Sub-tab แสดงเฉพาะ platform ที่มี script อยู่จริง (ตรงกับ platform ที่เลือกไว้บน
+  // content item) แทนรายชื่อ hardcode ตายตัว — ดู
+  // openspec/changes/wire-platform-scripts-to-publish/specs/content-video-ui-section/spec.md
+  const scriptPlatformKeys = Object.keys(art.scripts ?? {}).filter(k => art!.scripts?.[k]);
+  const effectiveActivePlatform = scriptPlatformKeys.includes(activePlatform)
+    ? activePlatform
+    : (scriptPlatformKeys[0] ?? '');
 
   return (
     <div className="space-y-6">
@@ -221,33 +236,35 @@ export default function ContentVideoView({
         </div>
       )}
 
-      {/* Platform sub-tabs */}
-      <div className="flex gap-2 flex-wrap">
-        {(['tiktok', 'youtube', 'instagram', 'facebook'] as const).map(p => (
-          <button key={p}
-            onClick={() => setActivePlatform(p)}
-            className={cn('px-3.5 py-1.5 rounded-full text-xs font-semibold border transition-all',
-              activePlatform === p
-                ? PLATFORM_COLORS[p]
-                : 'bg-background text-muted-foreground border-border hover:bg-muted')}>
-            {platformLabel[p]}
-          </button>
-        ))}
-      </div>
+      {/* Platform sub-tabs — เฉพาะ platform ที่มี script อยู่จริง */}
+      {scriptPlatformKeys.length > 0 && (
+        <div className="flex gap-2 flex-wrap">
+          {scriptPlatformKeys.map(p => (
+            <button key={p}
+              onClick={() => setActivePlatform(p)}
+              className={cn('px-3.5 py-1.5 rounded-full text-xs font-semibold border transition-all',
+                effectiveActivePlatform === p
+                  ? (PLATFORM_COLORS[p] ?? DEFAULT_PLATFORM_COLOR)
+                  : 'bg-background text-muted-foreground border-border hover:bg-muted')}>
+              {PLATFORM_LABELS[p] ?? p}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Full script for selected platform */}
-      {art.scripts?.[activePlatform] && (
+      {art.scripts?.[effectiveActivePlatform] && (
         <div className="rounded-xl border overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 bg-muted/10 border-b">
-            <span className={cn('text-xs font-bold px-2.5 py-1 rounded-full', PLATFORM_COLORS[activePlatform])}>
-              🎬 สคริปต์ {platformLabel[activePlatform]}
+            <span className={cn('text-xs font-bold px-2.5 py-1 rounded-full', PLATFORM_COLORS[effectiveActivePlatform] ?? DEFAULT_PLATFORM_COLOR)}>
+              🎬 สคริปต์ {PLATFORM_LABELS[effectiveActivePlatform] ?? effectiveActivePlatform}
             </span>
-            <CopyButton text={art.scripts[activePlatform]!} label="คัดลอก" />
+            <CopyButton text={art.scripts[effectiveActivePlatform]!} label="คัดลอก" />
           </div>
           <div className="px-4 py-4">
             <div className="text-sm leading-relaxed whitespace-pre-wrap"
-              dangerouslySetInnerHTML={(art.scripts?.[activePlatform] ?? '').includes('<') ? { __html: DOMPurify.sanitize(art.scripts[activePlatform]!) } : undefined}>
-              {!(art.scripts?.[activePlatform] ?? '').includes('<') ? art.scripts[activePlatform] : undefined}
+              dangerouslySetInnerHTML={(art.scripts?.[effectiveActivePlatform] ?? '').includes('<') ? { __html: DOMPurify.sanitize(art.scripts[effectiveActivePlatform]!) } : undefined}>
+              {!(art.scripts?.[effectiveActivePlatform] ?? '').includes('<') ? art.scripts[effectiveActivePlatform] : undefined}
             </div>
           </div>
         </div>
