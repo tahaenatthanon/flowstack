@@ -3510,28 +3510,33 @@ if ($action === 'generate-video' && $method === 'POST') {
     }
     if (empty($videoApiKey)) jsonError('ยังไม่ได้ตั้งค่า AI Provider สำหรับ Video Generation');
 
-    // Build scene list for video API
-    $sceneList = [];
-    foreach ($scenes as $idx => $scene) {
-        $img = $scene['image_url'] ?? null;
-        if ($img) {
-            $sceneList[] = [
-                'image_url'    => $img,
-                'prompt'       => $scene['visual_prompt'] ?? '',
-                'narration'    => $scene['narration'] ?? '',
-                'shot'         => $scene['shot'] ?? '',
-                'duration_sec' => $scene['duration_sec'] ?? 5,
-            ];
-        }
-    }
+    // api_base_url ที่ตั้งค่าไว้ใน DB สำหรับ kie.ai มี /api/v1 ต่อท้ายอยู่แล้ว
+    // (เช่น https://api.kie.ai/api/v1) — ตัดออกก่อนแล้วค่อยต่อ path เต็มเสมอ กัน path ซ้อนกัน
+    $videoBaseUrl = preg_replace('#/api/v1$#', '', $videoBaseUrl);
 
+    // kie.ai รองรับแค่ 1 request = 1 คลิป (ไม่มี multi-scene stitching) — Phase 1 จึง
+    // ใช้แค่ scene แรกที่ผ่าน validation ข้างบนว่ามี image_url แล้วเท่านั้น
+    // multi-scene stitching เป็นงาน Phase 2 แยกต่างหาก (ต้องมี video-editing layer ใหม่)
+    $firstScene = $scenes[0];
+    // image_url ที่เก็บใน DB เป็น relative path (/uploads/content/...) — kie.ai ต้องการ
+    // URL เต็มที่ดึงได้จริงจากอินเทอร์เน็ต แปลงด้วย VITE_APP_URL เหมือน pattern เดิมที่ใช้
+    // กับ product reference images (ดูบรรทัด ~1232, ~1688)
+    $appUrl = rtrim((getenv('VITE_APP_URL') ?: ($_ENV['VITE_APP_URL'] ?? 'http://localhost:8080')), '/');
+    $sceneImageUrl = $firstScene['image_url'];
+    if (!parse_url($sceneImageUrl, PHP_URL_SCHEME)) {
+        $sceneImageUrl = $appUrl . (str_starts_with($sceneImageUrl, '/') ? $sceneImageUrl : '/' . $sceneImageUrl);
+    }
     $payload = [
-        'model'  => $videoModelName,
-        'scenes' => $sceneList,
-        'title'  => $item['title'] ?? '',
+        'model'       => $videoModelName,
+        'callBackUrl' => null,
+        'input'       => [
+            'prompt'       => $firstScene['visual_prompt'] ?? '',
+            'image_urls'   => [$sceneImageUrl],
+            'aspect_ratio' => '9:16',
+        ],
     ];
 
-    $ch = curl_init($videoBaseUrl . '/video/generations');
+    $ch = curl_init($videoBaseUrl . '/api/v1/jobs/createTask');
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_POST           => true,
@@ -3543,27 +3548,20 @@ if ($action === 'generate-video' && $method === 'POST') {
     $res = curl_exec($ch);
     curl_close($ch);
 
-    if ($res === false) jsonError('���¡ Video API ��������', 500);
+    if ($res === false) jsonError('เรียก Video API ไม่สำเร็จ', 500);
 
     $dec = json_decode($res, true);
-    $jobId = $dec['job_id'] ?? $dec['id'] ?? null;
+    $taskId = $dec['data']['taskId'] ?? null;
 
-    // Handle synchronous response (direct URL returned)
-    if (!$jobId) {
-        $directUrl = $dec['video_url'] ?? $dec['url'] ?? $dec['output'] ?? null;
-        if ($directUrl) {
-            $db->prepare('UPDATE content_items SET video_gen_status=?, video_url=?, video_job_id=NULL, updated_at=NOW() WHERE id=? AND tenant_id=?')
-               ->execute(['done', $directUrl, $itemId, $tenantId]);
-            jsonResponse(['status' => 'done', 'video_url' => $directUrl]);
-        }
-        $err = $dec['error']['message'] ?? substr($res, 0, 300);
-        jsonError('Video API ������� job_id ��Ѻ��: ' . $err, 500);
+    if (!$taskId) {
+        $err = $dec['msg'] ?? substr($res, 0, 300);
+        jsonError('Video API ไม่คืน taskId กลับ: ' . $err, 500);
     }
 
     $db->prepare('UPDATE content_items SET video_gen_status=?, video_job_id=?, updated_at=NOW() WHERE id=? AND tenant_id=?')
-       ->execute(['generating', $jobId, $itemId, $tenantId]);
+       ->execute(['generating', $taskId, $itemId, $tenantId]);
 
-    jsonResponse(['status' => 'generating', 'video_job_id' => $jobId]);
+    jsonResponse(['status' => 'generating', 'video_job_id' => $taskId]);
 }
 
 // ─── VIDEO-STATUS ──────────────────────────────────────────────────────────
@@ -3607,7 +3605,10 @@ if ($action === 'video-status' && $method === 'GET') {
         jsonResponse(['status' => $item['video_gen_status'] ?? 'generating', 'video_job_id' => $item['video_job_id'], 'note' => 'no API key configured']);
     }
 
-    $ch = curl_init($videoBaseUrl . '/video/generations/' . urlencode($item['video_job_id']));
+    // ตัด /api/v1 ที่ต่อท้ายอยู่แล้วใน DB ออกก่อน กัน path ซ้อนกัน (เหมือน generate-video)
+    $videoBaseUrl = preg_replace('#/api/v1$#', '', $videoBaseUrl);
+
+    $ch = curl_init($videoBaseUrl . '/api/v1/jobs/recordInfo?taskId=' . urlencode($item['video_job_id']));
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_HTTPHEADER     => ['Authorization: Bearer ' . $videoApiKey, 'Content-Type: application/json'],
@@ -3622,22 +3623,25 @@ if ($action === 'video-status' && $method === 'GET') {
     }
 
     $dec = json_decode($res, true);
-    $jobStatus = $dec['status'] ?? 'generating';
+    $state = $dec['data']['state'] ?? 'generating';
 
-    if ($jobStatus === 'completed' || $jobStatus === 'done' || $jobStatus === 'succeeded') {
-        $videoUrl = $dec['video_url'] ?? $dec['url'] ?? $dec['output'] ?? '';
+    if ($state === 'success') {
+        // resultJson เป็น JSON string ซ้อนอีกชั้น ต้อง decode แยก
+        $result = json_decode($dec['data']['resultJson'] ?? '{}', true);
+        $videoUrl = $result['resultUrls'][0] ?? '';
         $db->prepare('UPDATE content_items SET video_gen_status=?, video_url=?, updated_at=NOW() WHERE id=? AND tenant_id=?')
            ->execute(['done', $videoUrl, $itemId, $tenantId]);
         jsonResponse(['status' => 'done', 'video_url' => $videoUrl]);
     }
 
-    if ($jobStatus === 'failed' || $jobStatus === 'error') {
-        $errMsg = $dec['error']['message'] ?? $dec['error'] ?? 'Unknown';
+    if ($state === 'fail') {
+        $errMsg = $dec['data']['failMsg'] ?? 'Unknown';
         $db->prepare('UPDATE content_items SET video_gen_status=?, updated_at=NOW() WHERE id=? AND tenant_id=?')
            ->execute(['failed', $itemId, $tenantId]);
         jsonResponse(['status' => 'failed', 'error' => $errMsg]);
     }
 
+    // waiting / queuing / generating
     jsonResponse(['status' => 'generating', 'video_job_id' => $item['video_job_id']]);
 }
 

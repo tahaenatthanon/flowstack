@@ -696,7 +696,7 @@ export function ContentCardDialog({
                   <div className="space-y-2">
                     <div className="flex items-center gap-1.5">
                       <ImageIcon className="h-3.5 w-3.5 text-muted-foreground" />
-                      <h3 className="text-sm font-semibold">ภาพประกอบ ({visuals.length})</h3>
+                      <h3 className="text-sm font-semibold">ลำดับฉาก ({visuals.length})</h3>
                     </div>
                     <ul className="space-y-1">
                       {visuals.map((v, i) => (
