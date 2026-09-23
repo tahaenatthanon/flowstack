@@ -1,10 +1,15 @@
-# video-generation-provider-contract Specification
+## RENAMED Requirements
 
-## Purpose
+- FROM: `### Requirement: Payload ของ `createTask` ใช้ scene แรกเท่านั้น พร้อมเลือกโหมดอัตโนมัติ`
+- TO: `### Requirement: Payload ใช้ scene แรกเท่านั้น พร้อมเลือกโหมดอัตโนมัติตามตระกูล model`
 
-กำหนด request/response contract ระหว่าง `generate-video`/`video-status` (`api/brand-content.php`) กับ kie.ai ผ่าน adapter `api/lib/kie-video.php` ที่เลือก endpoint ตามตระกูลของ model (`features.video.api`): `veo` ใช้ `POST /api/v1/veo/generate` + `GET /api/v1/veo/record-info` ส่วน `market` (Seedance) ใช้ `POST /api/v1/jobs/createTask` + `GET /api/v1/jobs/recordInfo` — รองรับ 1 scene (scene แรก) ต่อคำขอ การยิงหลายคลิปเป็นงาน Phase 3
+- FROM: `### Requirement: อ่าน `taskId` จาก response ของ `createTask``
+- TO: `### Requirement: อ่าน `taskId` จาก response และบันทึก model ที่ใช้`
 
-## Requirements
+- FROM: `### Requirement: `video-status` poll endpoint จริงและ decode ผลลัพธ์ซ้อน 2 ชั้น`
+- TO: `### Requirement: `video-status` poll ตามตระกูล model ที่บันทึกไว้`
+
+## MODIFIED Requirements
 
 ### Requirement: `generate-video` ยิงไปยัง endpoint จริงของ kie.ai
 `generate-video` (`api/brand-content.php`) SHALL เลือก endpoint ตาม `features.video.api` ของ model ที่ตั้งไว้ใน `company_settings.ai_content_video_model_id`:
@@ -59,20 +64,6 @@ Payload ต่อตระกูล:
 #### Scenario: ผู้ใช้เลือก 1080p
 - **WHEN** คำขอส่ง `resolution: "1080p"`
 - **THEN** payload SHALL มี `resolution: "1080p"` (สำหรับ `market` อยู่ใน `input`)
-
-### Requirement: Validation ใหม่ — scene แรกต้องมี video_prompt
-`generate-video` SHALL คืน error ถ้า scene แรกไม่มี `video_prompt` (ว่างเปล่าหรือไม่มี key) — SHALL ไม่ยิง API ไปหา kie.ai ด้วย prompt ว่างเปล่า
-
-#### Scenario: Scene แรกไม่มี video_prompt
-- **WHEN** scene แรกมี `video_prompt` ว่างเปล่าหรือไม่มี key นี้เลย
-- **THEN** ระบบ SHALL คืน error แนะนำให้เขียนหรือใช้ปุ่ม "AI เขียน Video Prompt" ก่อน — SHALL ไม่ยิง `createTask`
-
-### Requirement: Scene แรกที่สร้างภาพล้มเหลว ไม่ fallback ไป text-to-video
-เมื่อ scene แรกมี `image_gen_status: "failed"` ระบบ SHALL คืน error ที่มีเหตุผลจาก `image_gen_error` ของ scene นั้น — SHALL ไม่ยิง API เป็น text-to-video แทนแบบเงียบๆ
-
-#### Scenario: Scene แรกสร้างภาพล้มเหลว
-- **WHEN** scene แรกมี `image_gen_status: "failed"` และ `image_gen_error: "provider timeout"`
-- **THEN** ระบบ SHALL คืน error ที่มีข้อความ "provider timeout" หรือใกล้เคียง — SHALL ไม่ยิง `createTask` เป็น text-to-video แทน
 
 ### Requirement: อ่าน `taskId` จาก response และบันทึก model ที่ใช้
 `generate-video` SHALL อ่าน `data.taskId` จาก response (ทั้งสองตระกูลใช้ path เดียวกัน) บันทึกลง `content_items.video_job_id` และ SHALL บันทึก `ai_models.id` ของ model ที่ใช้ลง `content_items.video_model_id`

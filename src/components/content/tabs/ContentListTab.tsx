@@ -64,6 +64,9 @@ export default function ContentListTab() {
     content_item_id: item.id,
     content_type: item.type,
     reject_reason: item.reject_reason || null,
+    video_gen_status: item.video_gen_status ?? null,
+    video_url: item.video_url ?? null,
+    video_job_id: item.video_job_id ?? null,
   });
 
   const handleSave = async (data: {

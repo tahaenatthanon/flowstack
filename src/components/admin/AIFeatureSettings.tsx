@@ -6,6 +6,7 @@ import { Loader2, MessageSquare, FileText, CreditCard, BarChart3, Save, Image, V
 import { useToast } from '@/hooks/use-toast';
 import { apiFetch } from '@/lib/api';
 import ModelCombobox from '@/components/ModelCombobox';
+import { isVideoModel, videoModelWarning } from '@/lib/videoModels';
 
 interface AIModel {
   id: string;
@@ -13,6 +14,7 @@ interface AIModel {
   model_id: string;
   name: string;
   provider_name?: string;
+  features?: unknown;
 }
 
 interface FeatureSettings {
@@ -47,7 +49,7 @@ const FEATURES = [
   {
     key: 'ai_content_video_model_id' as const,
     label: 'คอนเทนท์วิดีโอ',
-    description: 'โมเดลสำหรับสร้างสคริปต์และคำบรรยายวิดีโอ',
+    description: 'โมเดลสำหรับสร้างวิดีโอ (Veo / Seedance)',
     icon: Video,
   },
   {
@@ -145,7 +147,11 @@ export default function AIFeatureSettings() {
         </Card>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
-          {FEATURES.map(({ key, label, description, icon: Icon }) => (
+          {FEATURES.map(({ key, label, description, icon: Icon }) => {
+            const isVideo = key === 'ai_content_video_model_id';
+            const featureModels = isVideo ? models.filter(isVideoModel) : models;
+            const warning = isVideo ? videoModelWarning(settings[key], models) : null;
+            return (
             <Card key={key}>
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm font-medium flex items-center gap-2">
@@ -157,7 +163,7 @@ export default function AIFeatureSettings() {
               <CardContent>
                 <Label className="text-xs mb-1.5 block">โมเดลที่ใช้งาน</Label>
                 <ModelCombobox
-                  models={models}
+                  models={featureModels}
                   value={settings[key] || '__default__'}
                   onChange={(val) =>
                     setSettings((prev) => ({ ...prev, [key]: val === '__default__' ? null : val }))
@@ -166,9 +172,11 @@ export default function AIFeatureSettings() {
                   defaultValue="__default__"
                   defaultLabel="— ใช้โมเดลเริ่มต้น —"
                 />
+                {warning && <p className="text-xs text-amber-600 dark:text-amber-400 mt-1.5">{warning}</p>}
               </CardContent>
             </Card>
-          ))}
+            );
+          })}
         </div>
       )}
 

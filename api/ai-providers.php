@@ -415,17 +415,24 @@ if ($method === 'POST' && $action === 'sync-models' && $providerId) {
         if (!empty($rm['architecture'])) $features['architecture'] = $rm['architecture'];
 
         // Check if model already exists for this provider
-        $existing = $db->prepare('SELECT id FROM ai_models WHERE provider_id = ? AND model_id = ?');
+        $existing = $db->prepare('SELECT id, features FROM ai_models WHERE provider_id = ? AND model_id = ?');
         $existing->execute([$providerId, $modelId]);
         $existingRow = $existing->fetch();
 
         if ($existingRow) {
-            // Update
+            // Merge กับ features เดิม — ห้ามทับ features.video (capability ของ model วิดีโอ
+            // ที่กำหนดด้วย migration) และห้ามเปิด model วิดีโอที่ถูกปิดไว้กลับมาเป็น active
+            $oldFeatures = json_decode((string)($existingRow['features'] ?? ''), true);
+            $oldFeatures = is_array($oldFeatures) ? $oldFeatures : [];
+            $isVideoModel = isset($oldFeatures['video']);
+            $features = array_merge($oldFeatures, $features);
+            if ($isVideoModel) $features['video'] = $oldFeatures['video'];
+
             $upd = $db->prepare('UPDATE ai_models SET
                 name = ?, description = ?, context_window = ?, max_output_tokens = ?,
                 input_price_per_1k = ?, output_price_per_1k = ?,
                 supports_vision = ?, supports_streaming = ?, supports_function_calling = ?, supports_tool_calling = ?,
-                features = ?, status = "active", updated_at = NOW()
+                features = ?, ' . ($isVideoModel ? '' : 'status = "active", ') . 'updated_at = NOW()
                 WHERE id = ?');
             $upd->execute([
                 $name, $description, $contextWin, $maxOut,

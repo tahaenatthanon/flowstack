@@ -14,6 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useConfirm } from '@/hooks/useConfirm';
 import { apiFetch } from '@/lib/api';
 import ModelCombobox from '@/components/ModelCombobox';
+import { isVideoModel, videoModelWarning } from '@/lib/videoModels';
 
 interface AIProvider {
   id: string;
@@ -85,7 +86,7 @@ const AI_FEATURES = [
   { key: 'ai_chat_model_id'           as const, label: 'AI Chat',                   description: 'โมเดลสำหรับแชทผู้ช่วย AI',                       icon: MessageSquare },
   { key: 'ai_content_text_model_id'   as const, label: 'คอนเทนท์ข้อความ',          description: 'โมเดลสำหรับสร้างบทความ แคปชั่น และเนื้อหาข้อความ',  icon: FileText },
   { key: 'ai_content_image_model_id'  as const, label: 'คอนเทนท์ภาพ',              description: 'โมเดลสำหรับสร้างเนื้อหาที่เกี่ยวกับภาพ (Image Brief / Alt Text)', icon: Image },
-  { key: 'ai_content_video_model_id'  as const, label: 'คอนเทนท์วิดีโอ',           description: 'โมเดลสำหรับสร้างสคริปต์และคำบรรยายวิดีโอ',          icon: Video },
+  { key: 'ai_content_video_model_id'  as const, label: 'คอนเทนท์วิดีโอ',           description: 'โมเดลสำหรับสร้างวิดีโอ (Veo / Seedance)',          icon: Video },
   { key: 'ai_cardscan_model_id'       as const, label: 'แสกนนามบัตร',               description: 'โมเดลสำหรับอ่านและแปลงข้อมูลนามบัตร (Vision)',     icon: CreditCard },
   { key: 'ai_analyst_model_id'        as const, label: 'AI Analyst งานและโปรเจค',   description: 'โมเดลสำหรับวิเคราะห์งานและโครงการ',                  icon: BarChart3 },
   { key: 'ai_lead_model_id'           as const, label: 'ค้นหาลูกค้าใหม่ (Lead Generation)', description: 'โมเดลสำหรับค้นหา leads จากอินเทอร์เน็ต และสกัด/สรุปอีเมลเป็น lead', icon: UserSearch },
@@ -936,9 +937,11 @@ export default function AISettingsPanel() {
             <div className="grid gap-5 md:grid-cols-2">
               {AI_FEATURES.map(({ key, label, description, icon: Icon }) => {
                 const selectedGatewayId = featureGateways[key] || null;
+                const isVideo = key === 'ai_content_video_model_id';
                 const modelsForGateway = selectedGatewayId
-                  ? allModels.filter(m => m.provider_id === selectedGatewayId)
+                  ? allModels.filter(m => m.provider_id === selectedGatewayId && (!isVideo || isVideoModel(m)))
                   : [];
+                const videoWarning = isVideo ? videoModelWarning(featureSettings[key], allModels) : null;
                 const activeProviders = providers.filter(p => p.is_active);
                 return (
                   <Card key={key}>
@@ -992,8 +995,9 @@ export default function AISettingsPanel() {
                           disabled={!selectedGatewayId}
                           defaultValue="__default__"
                           defaultLabel="— ใช้โมเดลเริ่มต้น —"
-                          emptyMessage="ไม่พบโมเดล — ซิงค์โมเดลในแท็บ AI Models ก่อน"
+                          emptyMessage={isVideo ? 'Gateway นี้ไม่มีโมเดลวิดีโอ — เลือก Gateway ที่มี Veo / Seedance' : 'ไม่พบโมเดล — ซิงค์โมเดลในแท็บ AI Models ก่อน'}
                         />
+                        {videoWarning && <p className="text-xs text-amber-600 dark:text-amber-400">{videoWarning}</p>}
                       </div>
                     </CardContent>
                   </Card>

@@ -10,6 +10,7 @@ require_once __DIR__ . '/lib/ai-creds.php';
 require_once __DIR__ . '/lib/ai-research.php';
 require_once __DIR__ . '/lib/content-plan-prompt.php';
 require_once __DIR__ . '/lib/publish-dispatch.php';
+require_once __DIR__ . '/lib/kie-video.php';
 
 /**
  * Whitelist-based sanitizer: keep ONLY printable ASCII + Thai script.
@@ -3694,8 +3695,9 @@ if ($action === 'generate-video' && $method === 'POST') {
     $itemId = $body['item_id'] ?? null;
     if (!$itemId) jsonError('Missing item_id');
 
-    $aspectRatio = (string)($body['aspect_ratio'] ?? '9:16');
-    if (!in_array($aspectRatio, ['9:16', '16:9', 'Auto'], true)) $aspectRatio = '9:16';
+    // Seedance ไม่รองรับ Auto — รับแค่ 9:16 | 16:9 และ 720p | 1080p (ค่าอื่นใช้ค่าเริ่มต้น)
+    $aspectRatio = kieVideoNormalizeAspect($body['aspect_ratio'] ?? null);
+    $resolution  = kieVideoNormalizeResolution($body['resolution'] ?? null);
 
     $itemStmt = $db->prepare('SELECT id, title, article_content FROM content_items WHERE id=? AND tenant_id=?');
     $itemStmt->execute([$itemId, $tenantId]);
@@ -3729,87 +3731,46 @@ if ($action === 'generate-video' && $method === 'POST') {
         jsonError('Scene แรกสร้างภาพไม่สำเร็จ (' . $failReason . ') กรุณาลองสร้างภาพใหม่ หรือแก้ Video Prompt แล้วลองอีกครั้ง', 422);
     }
 
-    // Resolve video model from ai_content_video_model_id → ai_models → ai_providers
-    $videoModelName = 'veo-3';
-    $videoBaseUrl   = 'https://api.kilo.ai/api/gateway';
-    $videoApiKey    = '';
-
-    $vidModelStmt1 = $db->prepare("
-        SELECT ap.api_base_url, ap.api_key_encrypted, am.model_id
-        FROM company_settings cs
-        JOIN ai_models am ON am.id = cs.ai_content_video_model_id
-        JOIN ai_providers ap ON ap.id = am.provider_id
-        WHERE cs.tenant_id = ? AND ap.api_key_encrypted IS NOT NULL AND ap.api_key_encrypted != ''
-    ");
-    $vidModelStmt1->execute([$tenantId]);
-    $vidModelRow = $vidModelStmt1->fetch();
-
-    if ($vidModelRow && !empty($vidModelRow['api_key_encrypted'])) {
-        $videoModelName = $vidModelRow['model_id'] ?: 'veo-3';
-        $videoBaseUrl   = rtrim($vidModelRow['api_base_url'] ?: 'https://api.kilo.ai/api/gateway', '/');
-        $videoApiKey    = decryptValue($vidModelRow['api_key_encrypted']);
-    } else {
-        $creds = resolveAICreds($db, 'ai_content_video_model_id', $tenantId);
-        $videoApiKey = $creds['api_key'] ?? '';
-        $videoBaseUrl = rtrim($creds['base_url'] ?: 'https://api.kilo.ai/api/gateway', '/');
+    // Resolve video model จาก ai_content_video_model_id → adapter ตามตระกูล (api/lib/kie-video.php)
+    // ไม่มี fallback ไป gateway อื่น — ถ้าตั้งค่าไม่ถูกให้ error บอกชัดเจน
+    $vidSettingStmt = $db->prepare('SELECT ai_content_video_model_id FROM company_settings WHERE tenant_id = ?');
+    $vidSettingStmt->execute([$tenantId]);
+    $videoModelId = (string)($vidSettingStmt->fetchColumn() ?: '');
+    if ($videoModelId === '') jsonError('ยังไม่ได้เลือก model สำหรับสร้างวิดีโอ — กรุณาตั้งค่าในหน้าตั้งค่า AI', 422);
+    try {
+        $videoModel = kieVideoLoadModel($db, $videoModelId);
+    } catch (RuntimeException $e) {
+        jsonError($e->getMessage(), 422);
     }
-    if (empty($videoApiKey)) jsonError('ยังไม่ได้ตั้งค่า AI Provider สำหรับ Video Generation');
 
-    // api_base_url ที่ตั้งค่าไว้ใน DB สำหรับ kie.ai มี /api/v1 ต่อท้ายอยู่แล้ว
-    // (เช่น https://api.kie.ai/api/v1) — ตัดออกก่อนแล้วค่อยต่อ path เต็มเสมอ กัน path ซ้อนกัน
-    $videoBaseUrl = preg_replace('#/api/v1$#', '', $videoBaseUrl);
-
-    // kie.ai รองรับแค่ 1 request = 1 คลิป (ไม่มี multi-scene stitching) — ใช้แค่ scene
-    // แรกเท่านั้น (multi-scene stitching เป็นงาน Phase 3 แยกต่างหาก ต้องมี
-    // video-editing layer ใหม่) โหมด image-to-video/text-to-video เลือกตาม
-    // $firstSceneStatus ที่ derive ไว้แล้วด้านบน
-    $payload = [
-        'model'       => $videoModelName,
-        'callBackUrl' => null,
-        'input'       => [
-            'prompt'       => $firstVideoPrompt,
-            'aspect_ratio' => $aspectRatio,
-        ],
-    ];
+    // ใช้แค่ scene แรก (หลายคลิปเป็นงาน Phase 3a) — โหมด image-to-video/text-to-video
+    // เลือกตาม $firstSceneStatus ที่ derive ไว้แล้วด้านบน
+    $sceneImageUrl = null;
     if ($firstSceneStatus === 'done') {
         // image_url ที่เก็บใน DB เป็น relative path (/uploads/content/...) — kie.ai
         // ต้องการ URL เต็มที่ดึงได้จริงจากอินเทอร์เน็ต แปลงด้วย VITE_APP_URL เหมือน
-        // pattern เดิมที่ใช้กับ product reference images (ดูบรรทัด ~1232, ~1688)
+        // pattern เดิมที่ใช้กับ product reference images
         $appUrl = rtrim((getenv('VITE_APP_URL') ?: ($_ENV['VITE_APP_URL'] ?? 'http://localhost:8080')), '/');
         $sceneImageUrl = $firstScene['image_url'];
         if (!parse_url($sceneImageUrl, PHP_URL_SCHEME)) {
             $sceneImageUrl = $appUrl . (str_starts_with($sceneImageUrl, '/') ? $sceneImageUrl : '/' . $sceneImageUrl);
         }
-        $payload['input']['image_urls'] = [$sceneImageUrl];
-    } else {
-        // 'none' — ไม่เคยสร้างภาพเลย ใช้ text-to-video
-        $payload['input']['generation_type'] = 'TEXT_2_VIDEO';
     }
 
-    $ch = curl_init($videoBaseUrl . '/api/v1/jobs/createTask');
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_POST           => true,
-        CURLOPT_POSTFIELDS     => json_encode($payload),
-        CURLOPT_HTTPHEADER     => ['Authorization: Bearer ' . $videoApiKey, 'Content-Type: application/json'],
-        CURLOPT_SSL_VERIFYPEER => !empty(AI_SSL_VERIFY),
-        CURLOPT_TIMEOUT        => 60,
-    ]);
-    $res = curl_exec($ch);
-    curl_close($ch);
-
-    if ($res === false) jsonError('เรียก Video API ไม่สำเร็จ', 500);
-
-    $dec = json_decode($res, true);
-    $taskId = $dec['data']['taskId'] ?? null;
-
-    if (!$taskId) {
-        $err = $dec['msg'] ?? substr($res, 0, 300);
-        jsonError('Video API ไม่คืน taskId กลับ: ' . $err, 500);
+    try {
+        $taskId = kieVideoSubmit($videoModel, [
+            'prompt'       => $firstVideoPrompt,
+            'aspect_ratio' => $aspectRatio,
+            'resolution'   => $resolution,
+            'image_url'    => $sceneImageUrl,
+        ]);
+    } catch (RuntimeException $e) {
+        jsonError($e->getMessage(), 500);
     }
 
-    $db->prepare('UPDATE content_items SET video_gen_status=?, video_job_id=?, updated_at=NOW() WHERE id=? AND tenant_id=?')
-       ->execute(['generating', $taskId, $itemId, $tenantId]);
+    // video_model_id — video-status poll ด้วย adapter ของ model นี้ แม้แอดมินเปลี่ยน model ระหว่างรอ
+    $db->prepare('UPDATE content_items SET video_gen_status=?, video_job_id=?, video_model_id=?, updated_at=NOW() WHERE id=? AND tenant_id=?')
+       ->execute(['generating', $taskId, $videoModel['id'], $itemId, $tenantId]);
 
     jsonResponse(['status' => 'generating', 'video_job_id' => $taskId]);
 }
@@ -3819,79 +3780,53 @@ if ($action === 'video-status' && $method === 'GET') {
     $itemId = $_GET['item_id'] ?? null;
     if (!$itemId) jsonError('Missing item_id');
 
-    $itemStmt = $db->prepare('SELECT id, video_gen_status, video_job_id, video_url FROM content_items WHERE id=? AND tenant_id=?');
+    $itemStmt = $db->prepare('SELECT id, video_gen_status, video_job_id, video_model_id, video_url FROM content_items WHERE id=? AND tenant_id=?');
     $itemStmt->execute([$itemId, $tenantId]);
     $item = $itemStmt->fetch();
-    if (!$item) jsonError('��辺 content item', 404);
+    if (!$item) jsonError('ไม่พบ content item', 404);
 
-    if (empty($item['video_job_id'])) {
+    // poll เฉพาะงานที่กำลังสร้าง — งานที่ done/failed แล้วตอบค่าเดิม (กันดาวน์โหลดซ้ำ)
+    if (empty($item['video_job_id']) || ($item['video_gen_status'] ?? '') !== 'generating') {
         jsonResponse(['status' => $item['video_gen_status'] ?? 'none', 'video_url' => $item['video_url']]);
     }
 
-    // Resolve video model for API credentials
-    $videoBaseUrl = 'https://api.kilo.ai/api/gateway';
-    $videoApiKey  = '';
-
-    $vidModelStmt2 = $db->prepare("
-        SELECT ap.api_base_url, ap.api_key_encrypted
-        FROM company_settings cs
-        JOIN ai_models am ON am.id = cs.ai_content_video_model_id
-        JOIN ai_providers ap ON ap.id = am.provider_id
-        WHERE cs.tenant_id = ? AND ap.api_key_encrypted IS NOT NULL AND ap.api_key_encrypted != ''
-    ");
-    $vidModelStmt2->execute([$tenantId]);
-    $vidModelRow = $vidModelStmt2->fetch();
-
-    if ($vidModelRow && !empty($vidModelRow['api_key_encrypted'])) {
-        $videoBaseUrl = rtrim($vidModelRow['api_base_url'] ?: 'https://api.kilo.ai/api/gateway', '/');
-        $videoApiKey  = decryptValue($vidModelRow['api_key_encrypted']);
-    } else {
-        $creds = resolveAICreds($db, 'ai_content_video_model_id', $tenantId);
-        $videoApiKey = $creds['api_key'] ?? '';
-        $videoBaseUrl = rtrim($creds['base_url'] ?: 'https://api.kilo.ai/api/gateway', '/');
+    // เลือก adapter จาก model ที่ใช้สร้างงานนี้ — งานก่อน kie-video-adapter (video_model_id NULL)
+    // ยิงผ่าน /jobs/createTask เสมอ จึงใช้ model ปัจจุบันกับ adapter market
+    $pollModelId = (string)($item['video_model_id'] ?? '');
+    $isLegacyJob = $pollModelId === '';
+    if ($isLegacyJob) {
+        $vidSettingStmt = $db->prepare('SELECT ai_content_video_model_id FROM company_settings WHERE tenant_id = ?');
+        $vidSettingStmt->execute([$tenantId]);
+        $pollModelId = (string)($vidSettingStmt->fetchColumn() ?: '');
     }
-
-    if (empty($videoApiKey)) {
-        jsonResponse(['status' => $item['video_gen_status'] ?? 'generating', 'video_job_id' => $item['video_job_id'], 'note' => 'no API key configured']);
+    try {
+        $videoModel = kieVideoLoadModel($db, $pollModelId);
+    } catch (RuntimeException $e) {
+        error_log('[video-status] ' . $e->getMessage() . ' | item=' . $itemId);
+        jsonError($e->getMessage(), 422);
     }
+    if ($isLegacyJob) $videoModel['video']['api'] = 'market';
 
-    // ตัด /api/v1 ที่ต่อท้ายอยู่แล้วใน DB ออกก่อน กัน path ซ้อนกัน (เหมือน generate-video)
-    $videoBaseUrl = preg_replace('#/api/v1$#', '', $videoBaseUrl);
+    $poll = kieVideoPoll($videoModel, $item['video_job_id']);
 
-    $ch = curl_init($videoBaseUrl . '/api/v1/jobs/recordInfo?taskId=' . urlencode($item['video_job_id']));
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_HTTPHEADER     => ['Authorization: Bearer ' . $videoApiKey, 'Content-Type: application/json'],
-        CURLOPT_SSL_VERIFYPEER => !empty(AI_SSL_VERIFY),
-        CURLOPT_TIMEOUT        => 30,
-    ]);
-    $res = curl_exec($ch);
-    curl_close($ch);
-
-    if ($res === false) {
-        jsonResponse(['status' => 'generating', 'video_job_id' => $item['video_job_id'], 'note' => 'poll failed, retry']);
-    }
-
-    $dec = json_decode($res, true);
-    $state = $dec['data']['state'] ?? 'generating';
-
-    if ($state === 'success') {
-        // resultJson เป็น JSON string ซ้อนอีกชั้น ต้อง decode แยก
-        $result = json_decode($dec['data']['resultJson'] ?? '{}', true);
-        $videoUrl = $result['resultUrls'][0] ?? '';
+    if ($poll['status'] === 'success') {
+        $localUrl = kieVideoDownload($poll['url'], $itemId, $item['video_job_id']);
+        if ($localUrl === null) {
+            // kie คิด credit ไปแล้ว — ห้ามตั้ง failed (ผู้ใช้จะกดสร้างใหม่แล้วเสีย credit ซ้ำ)
+            // คงสถานะ generating ไว้ให้ poll รอบหน้าลองดาวน์โหลดใหม่
+            jsonResponse(['status' => 'generating', 'video_job_id' => $item['video_job_id']]);
+        }
         $db->prepare('UPDATE content_items SET video_gen_status=?, video_url=?, updated_at=NOW() WHERE id=? AND tenant_id=?')
-           ->execute(['done', $videoUrl, $itemId, $tenantId]);
-        jsonResponse(['status' => 'done', 'video_url' => $videoUrl]);
+           ->execute(['done', $localUrl, $itemId, $tenantId]);
+        jsonResponse(['status' => 'done', 'video_url' => $localUrl]);
     }
 
-    if ($state === 'fail') {
-        $errMsg = $dec['data']['failMsg'] ?? 'Unknown';
+    if ($poll['status'] === 'failed') {
         $db->prepare('UPDATE content_items SET video_gen_status=?, updated_at=NOW() WHERE id=? AND tenant_id=?')
            ->execute(['failed', $itemId, $tenantId]);
-        jsonResponse(['status' => 'failed', 'error' => $errMsg]);
+        jsonResponse(['status' => 'failed', 'error' => $poll['error']]);
     }
 
-    // waiting / queuing / generating
     jsonResponse(['status' => 'generating', 'video_job_id' => $item['video_job_id']]);
 }
 

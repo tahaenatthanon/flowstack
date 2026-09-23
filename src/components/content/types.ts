@@ -119,7 +119,11 @@ export const IMAGE_STYLE_OPTIONS = [
 export const VIDEO_ASPECT_RATIO_OPTIONS = [
   { value: '9:16', label: '9:16 แนวตั้ง', desc: 'TikTok · Reels · Shorts' },
   { value: '16:9', label: '16:9 แนวนอน', desc: 'YouTube · เว็บไซต์' },
-  { value: 'Auto', label: 'Auto', desc: 'ให้ Veo เลือกจากภาพต้นฉบับ' },
+] as const;
+
+export const VIDEO_RESOLUTION_OPTIONS = [
+  { value: '720p', label: '720p', desc: 'ความละเอียดมาตรฐาน · ประหยัดกว่า' },
+  { value: '1080p', label: '1080p', desc: 'ความละเอียดสูง (Full HD)' },
 ] as const;
 
 export const VIDEO_DURATION_OPTIONS = ['15s', '30s', '60s', '3min', '10min+'] as const;
@@ -186,6 +190,9 @@ export interface PlanItem {
   content_item_id?: string | null;
   content_type?: string | null;
   reject_reason?: string | null;
+  video_gen_status?: string | null;
+  video_url?: string | null;
+  video_job_id?: string | null;
   /**
    * true = มีอย่างน้อย 1 แพลตฟอร์มใน `platforms` เผยแพร่สำเร็จแล้ว (content_publish_queue
    * หรือ content_schedules status='sent') — ต่างจาก content_items.status==='published'

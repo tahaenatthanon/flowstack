@@ -169,6 +169,9 @@ export default function ContentDetailView({
     og_image: item.og_image || '',
     content_item_id: item.id,
     content_type: item.type,
+    video_gen_status: item.video_gen_status ?? null,
+    video_url: item.video_url ?? null,
+    video_job_id: item.video_job_id ?? null,
   };
 
   const handleEditSave = async (data: {

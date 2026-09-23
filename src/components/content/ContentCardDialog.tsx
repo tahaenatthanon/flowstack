@@ -12,7 +12,7 @@ import SceneCards from '@/components/content/SceneCards';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import type { PlanItem } from '@/components/content/types';
-import { getCanonicalContentType, PLATFORM_MAP, platformsNeedScriptSections, VIDEO_ASPECT_RATIO_OPTIONS } from '@/components/content/types';
+import { getCanonicalContentType, PLATFORM_MAP, platformsNeedScriptSections, VIDEO_ASPECT_RATIO_OPTIONS, VIDEO_RESOLUTION_OPTIONS } from '@/components/content/types';
 import { getThaiDayName, formatThaiDate } from './calendarUtils';
 import { CalendarDays, Save, Trash2, Sparkles, ImagePlus, RefreshCw, Loader2, Image as ImageIcon, FileText, Hash, Lightbulb, Clapperboard, MessageSquare, Share2, BookOpen, ChevronDown, Video, Play, Send, ShieldCheck } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
@@ -104,6 +104,7 @@ export function ContentCardDialog({
   const [generatingVideo, setGeneratingVideo] = useState(false);
   const [generatingScenes, setGeneratingScenes] = useState(false);
   const [aspectRatio, setAspectRatio] = useState<string>('9:16');
+  const [resolution, setResolution] = useState<string>('720p');
   // "ลำดับฉาก" (visuals) แก้ไขได้ — draft ก่อนมี scenes, รวมบันทึกกับปุ่ม "บันทึก" หลัก
   const [visualsDraft, setVisualsDraft] = useState<string[] | null>(null);
   // visual_prompt ต่อ scene (หลังมี scenes แล้ว) — key เป็น scene index
@@ -608,14 +609,14 @@ export function ContentCardDialog({
     try {
       const res: any = await apiFetch('/brand-content.php?action=generate-video', {
         method: 'POST',
-        body: JSON.stringify({ item_id: existingItem.id, aspect_ratio: aspectRatio }),
+        body: JSON.stringify({ item_id: existingItem.id, aspect_ratio: aspectRatio, resolution }),
       });
       qc.invalidateQueries({ queryKey: ['content', 'items'] });
       qc.invalidateQueries({ queryKey: ['content', 'plans'] });
       if (res?.status === 'done') {
         toast({ title: 'สร้างวิดีโอสำเร็จ!' });
       } else {
-        toast({ title: 'ส่งคำขอสร้างวิดีโอแล้ว', description: 'กำลังสร้าง — รอสักครู่แล้วรีเฟรช' });
+        toast({ title: 'ส่งคำขอสร้างวิดีโอแล้ว', description: 'กำลังสร้าง — วิดีโอจะแสดงที่นี่เมื่อเสร็จ' });
       }
     } catch (e: any) {
       toast({ title: 'สร้างวิดีโอไม่สำเร็จ', description: e.message, variant: 'destructive' });
@@ -623,6 +624,26 @@ export function ContentCardDialog({
       setGeneratingVideo(false);
     }
   };
+
+  // Poll สถานะวิดีโอระหว่างกำลังสร้าง (แบบเดียวกับ ContentVideoView) — เมื่อเสร็จ/ล้มเหลว
+  // invalidate รายการคอนเทนต์ให้ existingItem ได้ video_url/สถานะใหม่ แล้วหยุด poll
+  const videoPollItemId = existingItem?.video_gen_status === 'generating' && existingItem?.video_job_id ? existingItem.id : null;
+  useEffect(() => {
+    if (!videoPollItemId) return;
+    const timer = setInterval(async () => {
+      try {
+        const res: any = await apiFetch(`/brand-content.php?action=video-status&item_id=${videoPollItemId}`);
+        if (res?.status === 'done' || res?.status === 'failed') {
+          clearInterval(timer);
+          qc.invalidateQueries({ queryKey: ['content', 'items'] });
+          qc.invalidateQueries({ queryKey: ['content', 'plans'] });
+          if (res.status === 'done') toast({ title: 'สร้างวิดีโอสำเร็จ!' });
+          else toast({ title: 'สร้างวิดีโอไม่สำเร็จ', description: res.error, variant: 'destructive' });
+        }
+      } catch { /* poll รอบถัดไปจะลองใหม่ */ }
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [videoPollItemId, qc, toast]);
 
   const handleRegenerateScene = async (index: number) => {
     if (!existingItem?.id) return;
@@ -1102,6 +1123,15 @@ export function ContentCardDialog({
                           className={cn('flex-1 px-2 py-1 rounded text-[11px] font-medium transition-colors',
                             aspectRatio === opt.value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted')}>
                           {opt.value}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-1 border rounded-md p-0.5 mt-2 w-full" aria-label="ความละเอียดวิดีโอ">
+                      {VIDEO_RESOLUTION_OPTIONS.map(opt => (
+                        <button key={opt.value} type="button" title={opt.desc} onClick={() => setResolution(opt.value)}
+                          className={cn('flex-1 px-2 py-1 rounded text-[11px] font-medium transition-colors',
+                            resolution === opt.value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted')}>
+                          {opt.label}
                         </button>
                       ))}
                     </div>
