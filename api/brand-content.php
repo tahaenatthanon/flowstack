@@ -11,6 +11,7 @@ require_once __DIR__ . '/lib/ai-research.php';
 require_once __DIR__ . '/lib/content-plan-prompt.php';
 require_once __DIR__ . '/lib/publish-dispatch.php';
 require_once __DIR__ . '/lib/kie-video.php';
+require_once __DIR__ . '/lib/video-clips.php';
 
 /**
  * Whitelist-based sanitizer: keep ONLY printable ASCII + Thai script.
@@ -141,41 +142,8 @@ function _saveImageUrl(string $imageUrl, string $itemId): string {
     return '/uploads/content/' . $filename;
 }
 
-// ── visuals[] → scenes[] fallback conversion (shared by generate-scene-images
-// and generate-video so both stay in sync) — parses both the legacy plain-string
-// format and the current {visual, motion} object format. New scenes always start
-// with image_gen_status: "none" since they've never had an image attempt yet. ──
-function _visualsToScenes(array $visuals): array {
-    $scenes = array_values(array_map(function($v) {
-        $isObj  = is_array($v) && (isset($v['visual']) || isset($v['motion']));
-        $text   = $isObj ? ($v['visual'] ?? '') : (is_string($v) ? $v : ($v['visual_prompt'] ?? $v['content'] ?? ''));
-        $motion = $isObj ? ($v['motion'] ?? '') : '';
-        $shot   = '';
-        $prompt = $text;
-        if (preg_match('/^(?:Scene|Shot)\s*\d*\s*[:：-]\s*(.+)/i', $text, $m)) {
-            $shot   = trim(substr($text, 0, strpos($text, $m[1]) - 1));
-            $prompt = trim($m[1]);
-        }
-        return [
-            'visual_prompt'     => $prompt,
-            'video_prompt'      => $motion,
-            'narration'         => $isObj ? trim((string)($v['narration'] ?? '')) : '',
-            'duration_sec'      => $isObj && (int)($v['duration_sec'] ?? 0) > 0 ? (int)$v['duration_sec'] : KIE_VIDEO_TARGET_CLIP_SEC,
-            'shot'              => $shot,
-            'image_gen_status'  => 'none',
-        ];
-    }, $visuals));
-    return array_values(array_filter($scenes, fn($s) => !empty($s['visual_prompt'])));
-}
-
-// Backward-compatible derive rule for scenes generated before image_gen_status
-// existed — do NOT rewrite the DB, just infer at read time.
-function _deriveSceneImageStatus(array $scene): string {
-    if (array_key_exists('image_gen_status', $scene) && $scene['image_gen_status']) {
-        return $scene['image_gen_status'];
-    }
-    return !empty($scene['image_url']) ? 'done' : 'none';
-}
+// _visualsToScenes() และ _deriveSceneImageStatus() ย้ายไป api/lib/video-clips.php (multi-clip-video)
+// เพื่อแจก scene.id ที่เดียวและทดสอบได้
 
 // Generate an image for a single scene and return it with image_url/image_gen_status/
 // image_gen_error set. Shared by the bulk generate-scene-images loop and the
@@ -3717,147 +3685,73 @@ if ($action === 'analytics-recalculate' && $method === 'POST') {
     jsonResponse(['recalculated' => true]);
 }
 
-// ─── GENERATE-VIDEO ────────────────────────────────────────────────────────
-if ($action === 'generate-video' && $method === 'POST') {
-    $body   = getRequestBody();
-    $itemId = $body['item_id'] ?? null;
-    if (!$itemId) jsonError('Missing item_id');
+// ─── วิดีโอหลายคลิป (multi-clip-video) ──────────────────────────────────────
+// 2 จังหวะ: สร้างคลิปรายฉาก (generate-clips, เสีย credit) → ผู้ใช้กดรวม (combine-video, ไม่เสีย credit)
+// สถานะคลิปอยู่ในตาราง content_video_clips / content_video_combines (ไม่เก็บใน article_content
+// เพราะถูกปุ่ม "บันทึก" ของ dialog เขียนทับ) — logic อยู่ใน api/lib/video-clips.php / video-combine.php
+// แทนที่ generate-video / video-status เดิมที่ยิงแค่ฉากแรก
 
-    $itemStmt = $db->prepare('SELECT id, title, article_content, video_aspect_ratio, video_resolution FROM content_items WHERE id=? AND tenant_id=?');
-    $itemStmt->execute([$itemId, $tenantId]);
-    $item = $itemStmt->fetch();
+function _loadVideoItem(PDO $db, string $itemId, string $tenantId): array {
+    $stmt = $db->prepare('SELECT id, tenant_id, type, article_content, video_aspect_ratio, video_resolution, video_model_id,
+                                 video_url, video_gen_status FROM content_items WHERE id = ? AND tenant_id = ?');
+    $stmt->execute([$itemId, $tenantId]);
+    $item = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$item) jsonError('ไม่พบ content item', 404);
-
-    // อัตราส่วน/ความละเอียดวิดีโอเลือกตอนสร้างคอนเทนต์แล้วล็อก — อ่านจาก content item เท่านั้น
-    // (ไม่รับจาก request) NULL/ค่าที่ไม่รู้จัก → 9:16 / 720p
-    $aspectRatio = kieVideoNormalizeAspect($item['video_aspect_ratio'] ?? null);
-    $resolution  = kieVideoNormalizeResolution($item['video_resolution'] ?? null);
-
-    $ac = json_decode($item['article_content'] ?? '{}', true);
-    $scenes = $ac['scenes'] ?? [];
-
-    // Fallback: convert visuals → scenes when no scenes array exists yet
-    if (empty($scenes) && !empty($ac['visuals']) && is_array($ac['visuals'])) {
-        $scenes = _visualsToScenes($ac['visuals']);
-    }
-
-    if (empty($scenes)) jsonError('ไม่มี scenes หรือ visuals ใน article_content — กรุณาสร้างสคริปต์ก่อน');
-
-    // Phase 2: ระบบใช้จริงแค่ scene แรก (kie.ai ไม่รองรับ multi-scene stitching) —
-    // validate แค่ scene แรกต้องมี video_prompt ไม่บังคับทุก scene มีภาพอีกต่อไป
-    $firstScene = $scenes[0];
-    $firstVideoPrompt = trim((string)($firstScene['video_prompt'] ?? ''));
-    if ($firstVideoPrompt === '') {
-        jsonError('Scene แรกยังไม่มี Video Prompt — กรุณาเขียนเองหรือกด "AI เขียน Video Prompt" ก่อนสร้างวิดีโอ', 422);
-    }
-
-    // เลือกโหมด image-to-video/text-to-video ตามสถานะภาพจริงของ scene แรก
-    // (ใช้ derive rule เดียวกับที่ scene cards ใช้แสดงสถานะ — backward-compat กับ
-    // content เก่าที่ไม่มี key image_gen_status)
-    $firstSceneStatus = _deriveSceneImageStatus($firstScene);
-    if ($firstSceneStatus === 'failed') {
-        $failReason = $firstScene['image_gen_error'] ?? 'สร้างภาพไม่สำเร็จ';
-        jsonError('Scene แรกสร้างภาพไม่สำเร็จ (' . $failReason . ') กรุณาลองสร้างภาพใหม่ หรือแก้ Video Prompt แล้วลองอีกครั้ง', 422);
-    }
-
-    // Resolve video model จาก ai_content_video_model_id → adapter ตามตระกูล (api/lib/kie-video.php)
-    // ไม่มี fallback ไป gateway อื่น — ถ้าตั้งค่าไม่ถูกให้ error บอกชัดเจน
-    $vidSettingStmt = $db->prepare('SELECT ai_content_video_model_id FROM company_settings WHERE tenant_id = ?');
-    $vidSettingStmt->execute([$tenantId]);
-    $videoModelId = (string)($vidSettingStmt->fetchColumn() ?: '');
-    if ($videoModelId === '') jsonError('ยังไม่ได้เลือก model สำหรับสร้างวิดีโอ — กรุณาตั้งค่าในหน้าตั้งค่า AI', 422);
-    try {
-        $videoModel = kieVideoLoadModel($db, $videoModelId);
-    } catch (RuntimeException $e) {
-        jsonError($e->getMessage(), 422);
-    }
-
-    // ใช้แค่ scene แรก (หลายคลิปเป็นงาน Phase 3a) — โหมด image-to-video/text-to-video
-    // เลือกตาม $firstSceneStatus ที่ derive ไว้แล้วด้านบน
-    $sceneImageUrl = null;
-    if ($firstSceneStatus === 'done') {
-        // image_url ที่เก็บใน DB เป็น relative path (/uploads/content/...) — kie.ai
-        // ต้องการ URL เต็มที่ดึงได้จริงจากอินเทอร์เน็ต แปลงด้วย VITE_APP_URL เหมือน
-        // pattern เดิมที่ใช้กับ product reference images
-        $appUrl = rtrim((getenv('VITE_APP_URL') ?: ($_ENV['VITE_APP_URL'] ?? 'http://localhost:8080')), '/');
-        $sceneImageUrl = $firstScene['image_url'];
-        if (!parse_url($sceneImageUrl, PHP_URL_SCHEME)) {
-            $sceneImageUrl = $appUrl . (str_starts_with($sceneImageUrl, '/') ? $sceneImageUrl : '/' . $sceneImageUrl);
-        }
-    }
-
-    try {
-        $taskId = kieVideoSubmit($videoModel, [
-            // video_prompt + บทพากย์ของฉาก (ถ้ามี) — ให้ Veo/Seedance พูดบทพากย์ภาษาไทยในคลิปเอง
-            'prompt'       => kieVideoComposePrompt($firstVideoPrompt, (string)($firstScene['narration'] ?? '')),
-            'aspect_ratio' => $aspectRatio,
-            'resolution'   => $resolution,
-            'image_url'    => $sceneImageUrl,
-        ]);
-    } catch (RuntimeException $e) {
-        jsonError($e->getMessage(), 500);
-    }
-
-    // video_model_id — video-status poll ด้วย adapter ของ model นี้ แม้แอดมินเปลี่ยน model ระหว่างรอ
-    $db->prepare('UPDATE content_items SET video_gen_status=?, video_job_id=?, video_model_id=?, updated_at=NOW() WHERE id=? AND tenant_id=?')
-       ->execute(['generating', $taskId, $videoModel['id'], $itemId, $tenantId]);
-
-    jsonResponse(['status' => 'generating', 'video_job_id' => $taskId]);
+    return $item;
 }
 
-// ─── VIDEO-STATUS ──────────────────────────────────────────────────────────
-if ($action === 'video-status' && $method === 'GET') {
-    $itemId = $_GET['item_id'] ?? null;
-    if (!$itemId) jsonError('Missing item_id');
+// ─── VIDEO-STATE ─────────────────────────────────────────────────────────────
+if ($action === 'video-state' && $method === 'GET') {
+    $itemId = (string)($_GET['item_id'] ?? '');
+    if ($itemId === '') jsonError('Missing item_id');
+    jsonResponse(videoItemState($db, _loadVideoItem($db, $itemId, $tenantId), $tenantId));
+}
 
-    $itemStmt = $db->prepare('SELECT id, video_gen_status, video_job_id, video_model_id, video_url FROM content_items WHERE id=? AND tenant_id=?');
-    $itemStmt->execute([$itemId, $tenantId]);
-    $item = $itemStmt->fetch();
-    if (!$item) jsonError('ไม่พบ content item', 404);
+// ─── GENERATE-CLIPS ──────────────────────────────────────────────────────────
+// ยิงเฉพาะ scene_ids ที่ผู้ใช้ยืนยันใน dialog credit — backend ตรวจความพร้อมซ้ำและไม่ยิงเกินรายการนั้น
+if ($action === 'generate-clips' && $method === 'POST') {
+    $body = getRequestBody();
+    $itemId = (string)($body['item_id'] ?? '');
+    $sceneIds = $body['scene_ids'] ?? null;
+    if ($itemId === '' || !is_array($sceneIds) || $sceneIds === []) jsonError('Missing item_id or scene_ids');
 
-    // poll เฉพาะงานที่กำลังสร้าง — งานที่ done/failed แล้วตอบค่าเดิม (กันดาวน์โหลดซ้ำ)
-    if (empty($item['video_job_id']) || ($item['video_gen_status'] ?? '') !== 'generating') {
-        jsonResponse(['status' => $item['video_gen_status'] ?? 'none', 'video_url' => $item['video_url']]);
-    }
-
-    // เลือก adapter จาก model ที่ใช้สร้างงานนี้ — งานก่อน kie-video-adapter (video_model_id NULL)
-    // ยิงผ่าน /jobs/createTask เสมอ จึงใช้ model ปัจจุบันกับ adapter market
-    $pollModelId = (string)($item['video_model_id'] ?? '');
-    $isLegacyJob = $pollModelId === '';
-    if ($isLegacyJob) {
-        $vidSettingStmt = $db->prepare('SELECT ai_content_video_model_id FROM company_settings WHERE tenant_id = ?');
-        $vidSettingStmt->execute([$tenantId]);
-        $pollModelId = (string)($vidSettingStmt->fetchColumn() ?: '');
-    }
+    // ยิงและบันทึกผลให้ครบแม้ผู้ใช้ปิดแท็บ — ไม่งั้นอาจมีงานที่ kie รับแล้ว (เสีย credit) แต่ระบบไม่ได้จด job_id
+    ignore_user_abort(true);
+    set_time_limit(0);
+    $item = _loadVideoItem($db, $itemId, $tenantId);
     try {
-        $videoModel = kieVideoLoadModel($db, $pollModelId);
+        $result = videoGenerateClips($db, $item, $tenantId, $sceneIds);
     } catch (RuntimeException $e) {
-        error_log('[video-status] ' . $e->getMessage() . ' | item=' . $itemId);
         jsonError($e->getMessage(), 422);
     }
-    if ($isLegacyJob) $videoModel['video']['api'] = 'market';
+    $result['state'] = videoItemState($db, _loadVideoItem($db, $itemId, $tenantId), $tenantId);
+    jsonResponse($result);
+}
 
-    $poll = kieVideoPoll($videoModel, $item['video_job_id']);
+// ─── CLIP-STATUS ─────────────────────────────────────────────────────────────
+// frontend poll ทุก 5 วิ ขณะมีคลิป generating — poll kie + ดาวน์โหลดภายในงบเวลา แล้วคืนสถานะล่าสุด
+// (cron video-clips-sync ทำงานเดียวกันเมื่อผู้ใช้ปิดแท็บ — ใช้ lock + conditional update ร่วมกัน)
+if ($action === 'clip-status' && $method === 'GET') {
+    $itemId = (string)($_GET['item_id'] ?? '');
+    if ($itemId === '') jsonError('Missing item_id');
+    $item = _loadVideoItem($db, $itemId, $tenantId);
+    videoPollItemClips($db, $item, $tenantId, 20);
+    jsonResponse(videoItemState($db, $item, $tenantId));
+}
 
-    if ($poll['status'] === 'success') {
-        $localUrl = kieVideoDownload($poll['url'], $itemId, $item['video_job_id']);
-        if ($localUrl === null) {
-            // kie คิด credit ไปแล้ว — ห้ามตั้ง failed (ผู้ใช้จะกดสร้างใหม่แล้วเสีย credit ซ้ำ)
-            // คงสถานะ generating ไว้ให้ poll รอบหน้าลองดาวน์โหลดใหม่
-            jsonResponse(['status' => 'generating', 'video_job_id' => $item['video_job_id']]);
-        }
-        $db->prepare('UPDATE content_items SET video_gen_status=?, video_url=?, updated_at=NOW() WHERE id=? AND tenant_id=?')
-           ->execute(['done', $localUrl, $itemId, $tenantId]);
-        jsonResponse(['status' => 'done', 'video_url' => $localUrl]);
+// ─── COMBINE-VIDEO ───────────────────────────────────────────────────────────
+if ($action === 'combine-video' && $method === 'POST') {
+    $body = getRequestBody();
+    $itemId = (string)($body['item_id'] ?? '');
+    if ($itemId === '') jsonError('Missing item_id');
+    $item = _loadVideoItem($db, $itemId, $tenantId);
+    try {
+        $res = videoRunCombine($db, $item, $tenantId);
+    } catch (VideoCombineException $e) {
+        jsonError($e->getMessage() . ($e->reasons ? ' — ' . implode(' · ', $e->reasons) : ''), $e->httpCode);
     }
-
-    if ($poll['status'] === 'failed') {
-        $db->prepare('UPDATE content_items SET video_gen_status=?, updated_at=NOW() WHERE id=? AND tenant_id=?')
-           ->execute(['failed', $itemId, $tenantId]);
-        jsonResponse(['status' => 'failed', 'error' => $poll['error']]);
-    }
-
-    jsonResponse(['status' => 'generating', 'video_job_id' => $item['video_job_id']]);
+    $res['state'] = videoItemState($db, _loadVideoItem($db, $itemId, $tenantId), $tenantId);
+    jsonResponse($res);
 }
 
 // ─── ANALYZE-PRODUCT-IMAGE ────────────────────────────────────────────────────

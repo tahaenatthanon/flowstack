@@ -1,4 +1,5 @@
-import { Image, AlertCircle, RefreshCw, Loader2, Sparkles, Wand2 } from 'lucide-react';
+import { Image, AlertCircle, RefreshCw, Loader2, Sparkles, Wand2, Clapperboard, AlertTriangle } from 'lucide-react';
+import type { VideoSceneState } from '@/components/content/types';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { useState } from 'react';
@@ -43,9 +44,67 @@ export function NarrationField({ index, value, onChange, disabled = false, durat
   );
 }
 
+/**
+ * สถานะคลิปวิดีโอของฉาก (multi-clip-video): ยังไม่มี / กำลังสร้าง / พร้อมใช้ / ล้มเหลว / ล้าสมัย
+ * ปุ่มสร้าง/ลองใหม่เปิด dialog ยืนยัน credit ของ parent — ปุ่มสลับภาพ/คลิปไม่เรียก API
+ */
+function ClipStatus({ clip, index, showingClip, canToggle, onToggle, readOnly, blockedReason, onGenerate }: {
+  clip: VideoSceneState;
+  index: number;
+  showingClip: boolean;
+  canToggle: boolean;
+  onToggle: () => void;
+  readOnly: boolean;
+  blockedReason: string | null;
+  onGenerate?: () => void;
+}) {
+  const latestFailed = clip.latest?.status === 'failed';
+  const label = clip.generating ? 'กำลังสร้างคลิป'
+    : clip.stale ? 'คลิปล้าสมัย'
+    : clip.active_clip ? 'คลิปพร้อมใช้'
+    : latestFailed ? 'สร้างคลิปไม่สำเร็จ'
+    : 'ยังไม่มีคลิป';
+  const tone = clip.generating ? 'text-muted-foreground'
+    : clip.stale ? 'text-amber-600 dark:text-amber-400'
+    : clip.active_clip ? 'text-emerald-600'
+    : latestFailed ? 'text-destructive' : 'text-muted-foreground';
+  const buttonLabel = clip.stale ? 'สร้างคลิปฉากนี้ใหม่' : latestFailed ? 'ลองใหม่' : 'สร้างคลิปฉากนี้';
+  const showButton = !readOnly && !!onGenerate && clip.needs_generation;
+  const disabledReason = blockedReason ?? (!clip.ready ? clip.not_ready_reasons.join(' · ') : null);
+
+  return (
+    <div className="space-y-1 rounded-md border bg-muted/10 px-2 py-1.5" data-testid={`clip-status-${index}`}>
+      <div className="flex items-center justify-between gap-2">
+        <span className={cn('text-[11px] font-medium flex items-center gap-1', tone)}>
+          {clip.generating ? <Loader2 className="h-3 w-3 animate-spin" /> : clip.stale ? <AlertTriangle className="h-3 w-3" /> : <Clapperboard className="h-3 w-3" />}
+          {label}
+        </span>
+        {canToggle && (
+          <button type="button" className="text-[10px] underline text-muted-foreground hover:text-foreground" onClick={onToggle}>
+            {showingClip ? 'ดูภาพ' : 'ดูคลิป'}
+          </button>
+        )}
+      </div>
+      {clip.stale && <p className="text-[10px] text-amber-600 dark:text-amber-400">ล้าสมัย — {clip.stale_reasons.join(', ')}</p>}
+      {latestFailed && clip.latest?.error && <p className="text-[10px] text-destructive">{clip.latest.error}</p>}
+      {clip.retry_hint && <p className="text-[10px] text-amber-600 dark:text-amber-400">{clip.retry_hint}</p>}
+      {showButton && (
+        <>
+          <Button variant="outline" size="sm" className="w-full h-7 text-[11px]" disabled={!!disabledReason} onClick={onGenerate}>
+            <Clapperboard className="h-3 w-3 mr-1" />{buttonLabel}
+          </Button>
+          {disabledReason && <p className="text-[10px] text-muted-foreground">{disabledReason}</p>}
+        </>
+      )}
+    </div>
+  );
+}
+
 export type SceneImageStatus = 'none' | 'done' | 'failed';
 
 export interface Scene {
+  /** id ถาวรของฉาก — คลิปวิดีโออ้างอิงฉากด้วย id นี้ (multi-clip-video) ห้ามหายตอนบันทึก */
+  id?: string;
   visual_prompt?: string;
   video_prompt?: string;
   /** บทพากย์ภาษาไทยของฉาก (≤ 100 ตัวอักษร เพื่อพูดจบใน 8 วินาที) */
@@ -57,7 +116,7 @@ export interface Scene {
   image_gen_error?: string | null;
 }
 
-// Backward-compatible derive rule (mirrors _deriveSceneImageStatus() in api/brand-content.php)
+// Backward-compatible derive rule (mirrors _deriveSceneImageStatus() in api/lib/video-clips.php)
 // — scenes saved before image_gen_status existed must not be misread as "none".
 export function deriveSceneImageStatus(scene: Scene): SceneImageStatus {
   if (scene.image_gen_status) return scene.image_gen_status;
@@ -80,6 +139,10 @@ export default function SceneCards({
   narrationDrafts,
   onNarrationChange,
   showNarration = true,
+  clipStates,
+  onGenerateClip,
+  clipBlockedReason,
+  clipsReadOnly = false,
 }: {
   itemId: string;
   scenes: Scene[];
@@ -98,11 +161,21 @@ export default function SceneCards({
   onNarrationChange?: (index: number, value: string) => void;
   /** false = ไม่แสดงช่องบทพากย์ในการ์ด (ContentCardDialog แก้บทพากย์ที่ "ลำดับฉาก" แทน — มีที่แก้ที่เดียว) */
   showNarration?: boolean;
+  /** สถานะคลิปวิดีโอต่อ scene.id (จาก video-state) — ไม่ส่ง = ไม่แสดงส่วนคลิป */
+  clipStates?: Record<string, VideoSceneState>;
+  /** เปิด dialog ยืนยัน credit ของฉากนี้ (ไม่ยิงเองโดยตรง) */
+  onGenerateClip?: (sceneId: string) => void;
+  /** เหตุผลที่ห้ามกดสร้างคลิปชั่วคราว เช่น ฟอร์มยังไม่บันทึก / ไม่มี URL สาธารณะ */
+  clipBlockedReason?: string | null;
+  /** หน้ารีวิว — ดูคลิปได้ แต่ไม่มีปุ่มสร้าง/ลองใหม่ */
+  clipsReadOnly?: boolean;
 }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [retryingSceneIndex, setRetryingSceneIndex] = useState<number | null>(null);
   const [writingPromptIndex, setWritingPromptIndex] = useState<number | null>(null);
+  // การ์ดที่ผู้ใช้สลับกลับไปดูภาพ (ค่าเริ่มต้นแสดงคลิปเมื่อมี) — สลับแค่ฝั่งหน้าจอ ไม่เรียก API
+  const [showImageFor, setShowImageFor] = useState<Set<number>>(new Set());
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['content', 'items'] });
@@ -162,15 +235,25 @@ export default function SceneCards({
         const isWritingPrompt = writingPromptIndex === idx;
         const isStale = !!staleImageIndexes?.has(idx);
         const isRegenerating = regeneratingIndex === idx;
+        const clip = scene.id ? clipStates?.[scene.id] : undefined;
+        const clipUrl = clip?.active_clip?.clip_url ?? null;
+        const showClip = !!clipUrl && !showImageFor.has(idx);
+        const toggleMedia = () => setShowImageFor(prev => {
+          const next = new Set(prev);
+          if (next.has(idx)) next.delete(idx); else next.add(idx);
+          return next;
+        });
         return (
-          <div key={idx} className="rounded-lg border overflow-hidden">
+          <div key={idx} className="rounded-lg border overflow-hidden" data-testid={`scene-card-${idx}`}>
             <div className="flex items-center justify-between px-3 py-2 bg-muted/10 border-b">
               <span className="text-xs font-semibold">Scene {idx + 1}</span>
               {status === 'done' && <span className="text-[10px] text-emerald-600 font-medium">พร้อมใช้</span>}
               {status === 'failed' && <span className="text-[10px] text-destructive font-medium">ล้มเหลว</span>}
               {status === 'none' && <span className="text-[10px] text-muted-foreground">ยังไม่ได้สร้างภาพ</span>}
             </div>
-            {scene.image_url ? (
+            {showClip ? (
+              <video src={clipUrl!} controls className="w-full h-32 bg-black object-contain" data-testid={`scene-clip-${idx}`} />
+            ) : scene.image_url ? (
               <img src={scene.image_url} alt={`Scene ${idx + 1}`} className="w-full h-32 object-cover" />
             ) : (
               <div className="w-full h-32 bg-muted/20 flex items-center justify-center">
@@ -178,6 +261,11 @@ export default function SceneCards({
               </div>
             )}
             <div className="p-3 space-y-2">
+              {clip && (
+                <ClipStatus clip={clip} index={idx} showingClip={showClip} canToggle={!!clipUrl} onToggle={toggleMedia}
+                  readOnly={clipsReadOnly} blockedReason={clipBlockedReason ?? null}
+                  onGenerate={onGenerateClip && scene.id ? () => onGenerateClip(scene.id!) : undefined} />
+              )}
               {status === 'failed' && scene.image_gen_error && (
                 <div className="flex items-start gap-1.5 text-[11px] text-destructive">
                   <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />

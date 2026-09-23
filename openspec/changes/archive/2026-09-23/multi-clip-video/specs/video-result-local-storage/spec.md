@@ -1,10 +1,4 @@
-# video-result-local-storage Specification
-
-## Purpose
-
-กำหนดการดาวน์โหลดคลิปวิดีโอผลลัพธ์จาก kie.ai (URL ชั่วคราว) มาเก็บใน `uploads/content/videos/` บันทึกลง `content_video_clips.clip_url` การดาวน์โหลดต่อจาก `.part` ด้วย HTTP Range และพฤติกรรมเมื่อดาวน์โหลดไม่สำเร็จ — ที่มา: change `kie-video-adapter`, แก้ไขโดย `multi-clip-video`
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: ดาวน์โหลดวิดีโอผลลัพธ์มาเก็บในระบบ
 เมื่อ `clip-status` หรือ cron `video-clips-sync` พบว่างานสร้างคลิปสำเร็จ ระบบ SHALL ดาวน์โหลดไฟล์จาก URL ผลลัพธ์ของ kie.ai มาเก็บที่ `uploads/content/videos/` ด้วยชื่อไฟล์ที่มี `content_items.id` และ `taskId` (กันชื่อซ้ำ) แล้วบันทึก path ภายในรูปแบบ `/uploads/content/videos/<ชื่อไฟล์>.mp4` ลง `content_video_clips.clip_url` — SHALL ไม่บันทึก URL ภายนอกของ kie.ai และ SHALL ไม่เขียน `content_items.video_url` (ซึ่งเป็นของวิดีโอรวมเท่านั้น)

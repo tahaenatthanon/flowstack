@@ -34,6 +34,10 @@ export interface ContentItem {
   /** อัตราส่วน/ความละเอียดวิดีโอ — เลือกตอนสร้างแล้วล็อก */
   video_aspect_ratio?: string | null;
   video_resolution?: string | null;
+  /** ป้ายในรายการ (multi-clip-video): คลิปพร้อมใช้ / จำนวน Active Scene / สถานะวิดีโอรวม — เฉพาะ type='video' */
+  video_clips_ready?: number;
+  video_clips_total?: number;
+  video_combined_status?: 'none' | 'done' | 'stale';
   day_label?: string | null;
   scheduled_date?: string | null;
   plan_title?: string | null;
@@ -702,3 +706,69 @@ export function getPublishDefaultText(
 export const PLATFORM_MAP: Record<string, { label: string; color: string }> = Object.fromEntries(
   Object.keys(PLATFORM_CATALOG).map(key => [key, { label: getPlatformLabel(key), color: getPlatformColorClass(key) }])
 );
+
+// ─── วิดีโอหลายคลิป (multi-clip-video) — shape ของ action video-state ──────────
+// backend: api/lib/video-clips.php videoItemState() / api/lib/video-combine.php videoCombineState()
+
+export interface VideoClipSummary {
+  id: string;
+  status: 'generating' | 'done' | 'failed';
+  clip_url: string | null;
+  error: string | null;
+  credits_estimated: number | null;
+  credits_actual: number | null;
+  /** คลิปที่ย้ายมาจากวิดีโอเดิม (ก่อนมีระบบหลายคลิป) */
+  migrated: boolean;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export interface VideoSceneState {
+  scene_id: string;
+  index: number;
+  ready: boolean;
+  not_ready_reasons: string[];
+  narration_length: number;
+  narration_too_long: boolean;
+  /** คลิปที่ใช้งาน = generation ล่าสุดที่ done */
+  active_clip: VideoClipSummary | null;
+  /** generation ล่าสุด (อาจ generating/failed) */
+  latest: VideoClipSummary | null;
+  generating: boolean;
+  stale: boolean;
+  stale_reasons: string[];
+  needs_generation: boolean;
+  retry_hint: string | null;
+}
+
+export interface VideoCombineState {
+  can_combine: boolean;
+  reasons: string[];
+  /** null = ไม่ได้ตรวจ */
+  ffmpeg_ok: boolean | null;
+  combining: boolean;
+  latest: { id: string; video_url: string; created_at: string; stale: boolean; stale_reasons: string[] } | null;
+  last_failed: { error: string | null; created_at: string } | null;
+}
+
+export interface VideoItemState {
+  item_id: string;
+  aspect_ratio: string;
+  resolution: string;
+  model: { id: string; name: string; credits_per_clip: number | null } | null;
+  model_error: string | null;
+  public_url_ok: boolean;
+  scenes: VideoSceneState[];
+  counts: { ready: number; total: number };
+  any_generating: boolean;
+  can_generate_all: boolean;
+  generate_all_reasons: string[];
+  scenes_to_generate: string[];
+  combine: VideoCombineState;
+}
+
+export interface GenerateClipsResult {
+  results: Array<{ scene_id: string; index: number | null; status: 'submitted' | 'skipped' | 'failed'; reason: string | null }>;
+  summary: { submitted: number; skipped: number; failed: number };
+  state: VideoItemState;
+}

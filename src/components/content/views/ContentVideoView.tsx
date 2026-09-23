@@ -1,12 +1,12 @@
-import { Play, ChevronDown, ChevronRight, Loader2, Image, Video, RefreshCw, Clapperboard } from 'lucide-react';
+import { Play, ChevronDown, ChevronRight, Loader2, Image, Video, Clapperboard } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useState, useEffect, useRef } from 'react';
+import { useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
 import { apiFetch } from '@/lib/api';
 import DOMPurify from 'dompurify';
 import type { ContentItem, ArticleContent } from '@/components/content/types';
-import { VideoSpecBadge } from '@/components/content/AspectRatioPicker';
+import VideoClipsPanel, { useVideoClips } from '@/components/content/VideoClipsPanel';
 import CopyButton from './CopyButton';
 import SceneCards from '@/components/content/SceneCards';
 import { cn } from '@/lib/utils';
@@ -49,39 +49,13 @@ export default function ContentVideoView({
   const isApproval = context === 'approval';
   const [showSections, setShowSections] = useState(true);
   const [generatingScenes, setGeneratingScenes] = useState(false);
-  const [generatingVideo, setGeneratingVideo] = useState(false);
-  const [pollingVideo, setPollingVideo] = useState(false);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // ค่าจริงที่ใช้ถูก derive ทีหลัง (หลัง art.scripts พร้อมใช้) จาก effectiveActivePlatform
   // ด้านล่าง — เก็บแค่ค่าที่ผู้ใช้เลือกเอง (ถ้ามี) ไว้ในนี้
   const [activePlatform, setActivePlatform] = useState<string>('');
 
-  // Poll video status when generating
-  useEffect(() => {
-    if (item.video_gen_status === 'generating' && item.video_job_id) {
-      setPollingVideo(true);
-      pollRef.current = setInterval(async () => {
-        try {
-          const res = await apiFetch(`/brand-content.php?action=video-status&item_id=${item.id}`);
-          if (res.status === 'done') {
-            clearInterval(pollRef.current!);
-            setPollingVideo(false);
-            qc.invalidateQueries({ queryKey: ['content', 'items'] });
-            toast({ title: 'สร้างวิดีโอสำเร็จ!' });
-          } else if (res.status === 'failed') {
-            clearInterval(pollRef.current!);
-            setPollingVideo(false);
-            qc.invalidateQueries({ queryKey: ['content', 'items'] });
-            toast({ title: 'สร้างวิดีโอไม่สำเร็จ', description: res.error, variant: 'destructive' });
-          }
-        } catch { /* ignore poll errors */ }
-      }, 5000);
-      return () => { if (pollRef.current) clearInterval(pollRef.current); };
-    }
-  }, [item.video_gen_status, item.video_job_id, item.id]);
-
-  // Cleanup poll on unmount
-  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+  // หน้ารีวิวดูได้อย่างเดียว (multi-clip-video) — ดูคลิปรายฉาก/วิดีโอรวมได้ แต่ไม่มีปุ่มที่ยิง kie.ai หรือรวมคลิป
+  const video = useVideoClips(item.id);
+  const clipStates = useMemo(() => Object.fromEntries((video.state?.scenes ?? []).map(s => [s.scene_id, s])), [video.state]);
 
   const handleGenerateScenes = async () => {
     setGeneratingScenes(true);
@@ -101,28 +75,6 @@ export default function ContentVideoView({
     }
   };
 
-  const handleGenerateVideo = async () => {
-    setGeneratingVideo(true);
-    toast({ title: 'กำลังส่งสร้างวิดีโอ...', description: 'ระบบกำลังประมวลผลวิดีโอในพื้นหลัง' });
-    try {
-      const res = await apiFetch('/brand-content.php?action=generate-video', {
-        method: 'POST',
-        // อัตราส่วน/ความละเอียดอ่านจาก content item ฝั่ง backend (ล็อกตั้งแต่ตอนสร้าง)
-        body: JSON.stringify({ item_id: item.id }),
-      });
-      qc.invalidateQueries({ queryKey: ['content', 'items'] });
-      if (res.status === 'done') {
-        toast({ title: 'สร้างวิดีโอสำเร็จ!' });
-      } else {
-        toast({ title: 'ส่งคำขอสร้างวิดีโอแล้ว', description: 'กำลังสร้าง — รอสักครู่แล้วรีเฟรช' });
-      }
-    } catch (e: any) {
-      toast({ title: 'สร้างวิดีโอไม่สำเร็จ', description: e.message, variant: 'destructive' });
-    } finally {
-      setGeneratingVideo(false);
-    }
-  };
-
   let art: ArticleContent | null = null;
   let parseError = false;
   if (item.article_content) {
@@ -131,7 +83,6 @@ export default function ContentVideoView({
 
   if (!art) {
     const hasVideo = !!item.video_url;
-    const isGenerating = item.video_gen_status === 'generating' || pollingVideo;
 
     return (
       <div className="rounded-xl border border-dashed bg-muted/10 py-16 text-center text-muted-foreground">
@@ -141,12 +92,6 @@ export default function ContentVideoView({
             <p className="font-medium">วิดีโอพร้อมเล่น</p>
             <video src={item.video_url!} controls className="max-w-full mx-auto rounded-lg max-h-96"
               poster={item.generated_image_url || undefined} />
-          </div>
-        ) : isGenerating ? (
-          <div className="space-y-3">
-            <Loader2 className="h-10 w-10 mx-auto animate-spin text-muted-foreground" />
-            <p className="font-medium">กำลังสร้างวิดีโอ...</p>
-            <p className="text-xs">ระบบกำลังประมวลผล — หน้านี้จะอัปเดตอัตโนมัติเมื่อเสร็จ</p>
           </div>
         ) : (
           <>
@@ -163,11 +108,6 @@ export default function ContentVideoView({
               {generatingScenes ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Image className="h-3.5 w-3.5 mr-1.5" />}
               สร้างภาพทุกฉาก
             </Button>
-            <Button variant="default" size="sm" disabled={generatingVideo || isGenerating}
-              onClick={handleGenerateVideo}>
-              {generatingVideo ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Video className="h-3.5 w-3.5 mr-1.5" />}
-              {isGenerating ? 'กำลังสร้าง...' : 'สร้างวิดีโอ'}
-            </Button>
           </div>
         )}
       </div>
@@ -175,9 +115,6 @@ export default function ContentVideoView({
   }
 
   const videoScenes = Array.isArray(art?.scenes) ? art.scenes : [];
-  // Phase 2: ใช้จริงแค่ scene แรก — เงื่อนไขพร้อมสร้างวิดีโอคือ scene แรกต้องมี
-  // video_prompt เท่านั้น ไม่บังคับทุก scene มีภาพอีกต่อไป (ดู video-generation-mode-detection)
-  const firstSceneVideoPromptReady = !!videoScenes[0]?.video_prompt?.trim();
 
   // Sub-tab แสดงเฉพาะ platform ที่มี script อยู่จริง (ตรงกับ platform ที่เลือกไว้บน
   // content item) แทนรายชื่อ hardcode ตายตัว — ดู
@@ -189,23 +126,11 @@ export default function ContentVideoView({
 
   return (
     <div className="space-y-6">
-      {/* Video player */}
+      {/* วิดีโอรวมล่าสุด (content_items.video_url) */}
       {item.video_url ? (
         <div className="rounded-xl overflow-hidden border bg-black">
           <video src={item.video_url} controls className="w-full max-h-96"
             poster={item.generated_image_url || undefined} />
-        </div>
-      ) : item.video_gen_status === 'generating' || pollingVideo ? (
-        <div className="rounded-xl border border-dashed bg-muted/10 py-12 text-center">
-          <Loader2 className="h-8 w-8 mx-auto mb-3 animate-spin text-muted-foreground" />
-          <p className="font-medium text-muted-foreground">กำลังสร้างวิดีโอ...</p>
-          <p className="text-xs text-muted-foreground mt-1">ระบบจะอัปเดตอัตโนมัติเมื่อเสร็จ</p>
-          {pollingVideo && (
-            <div className="flex items-center justify-center gap-1.5 mt-2 text-xs text-muted-foreground">
-              <RefreshCw className="h-3 w-3 animate-spin" />
-              กำลังตรวจสอบสถานะ...
-            </div>
-          )}
         </div>
       ) : (
         /* Cover / preview when no video yet */
@@ -324,7 +249,11 @@ export default function ContentVideoView({
           <Clapperboard className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm font-semibold">ฉากวิดีโอ{videoScenes.length > 0 ? ` (${videoScenes.length})` : ''}</span>
         </div>
-        <SceneCards itemId={item.id} scenes={videoScenes} readOnly={isApproval} />
+        <SceneCards itemId={item.id} scenes={videoScenes} readOnly={isApproval}
+          clipStates={clipStates} clipsReadOnly />
+        <div className="px-4 pb-4">
+          <VideoClipsPanel video={video} readOnly aspectRatio={item.video_aspect_ratio} resolution={item.video_resolution} />
+        </div>
       </div>
 
       {/* Hashtags */}
@@ -349,15 +278,6 @@ export default function ContentVideoView({
               {generatingScenes ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Image className="h-3.5 w-3.5 mr-1.5" />}
               สร้างภาพทุกฉาก
             </Button>
-            <VideoSpecBadge aspectRatio={item.video_aspect_ratio} resolution={item.video_resolution} />
-            <Button variant="default" size="sm" disabled={generatingVideo || pollingVideo || !firstSceneVideoPromptReady}
-              onClick={handleGenerateVideo} title={!firstSceneVideoPromptReady ? 'กรุณาเขียน Video Prompt ของ Scene แรกก่อน' : undefined}>
-              {generatingVideo ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Video className="h-3.5 w-3.5 mr-1.5" />}
-              {item.video_gen_status === 'generating' || pollingVideo ? 'กำลังสร้าง...' : 'สร้างวิดีโอ'}
-            </Button>
-            {!firstSceneVideoPromptReady && videoScenes.length > 0 && (
-              <span className="text-xs text-destructive">กรุณาเขียน Video Prompt ของ Scene แรกก่อนสร้างวิดีโอ</span>
-            )}
           </>
         )}
       </div>

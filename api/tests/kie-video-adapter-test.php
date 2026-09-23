@@ -167,13 +167,75 @@ $p1 = kieVideoComposePrompt('slow push-in on a laptop.', 'คุณกำลั�
 $pass = $p1 === 'slow push-in on a laptop. A Thai narrator speaks in Thai, clearly and naturally: "คุณกำลังจ่ายค่า AI ซ้ำซ้อนอยู่หรือเปล่า?"';
 record('TC25', 'มีบทพากย์ → ต่อท้ายคำสั่งพูดไทย + บทตรงตัว', 'video_prompt. A Thai narrator … "บท"', $p1, $pass); tally($pass);
 
-$p2 = kieVideoComposePrompt('pan left to right', '   ');
-$pass = $p2 === 'pan left to right';
-record('TC26', 'บทพากย์ว่าง → video_prompt เดิม', 'pan left to right', $p2, $pass); tally($pass);
+// multi-clip-video: ฉากไม่มีบทพากย์ขอแค่เสียงบรรยากาศ ห้ามมีเสียงพูด (กัน model แต่งบทพูดเอง)
+$p2 = kieVideoComposePrompt('pan left to right.', '   ');
+$pass = $p2 === 'pan left to right. Ambient sound and natural background audio only — no speech, no dialogue, no narration.';
+record('TC26', 'บทพากย์ว่าง → video_prompt + คำสั่งเสียงบรรยากาศ ไม่มีเสียงพูด', 'pan left to right. Ambient sound … no narration.', $p2, $pass); tally($pass);
 
 $p3 = kieVideoComposePrompt('zoom in', 'เขาบอกว่า "ลองเลย" สิ');
 $pass = str_ends_with($p3, ': "เขาบอกว่า "ลองเลย" สิ"');
 record('TC27', 'บทพากย์มีเครื่องหมายคำพูด → คงไว้ตรงตัว ไม่แปลง/ไม่ตัด', 'ลงท้ายด้วยบทเดิมครบ', $p3, $pass); tally($pass);
+
+// ═══════════════════ Submit: error ระดับบัญชี vs ระดับฉาก (multi-clip-video) ═
+$kind = function (mixed $decoded, int $http = 200): string {
+    try { kieVideoParseSubmit($decoded, '', $http); return 'ok'; }
+    catch (KieVideoAccountException $e) { return 'account:' . $e->getCode(); }
+    catch (RuntimeException $e) { return 'scene'; }
+};
+$k = [
+    $kind(['code' => 402, 'msg' => 'Credits insufficient']),
+    $kind(['code' => 401, 'msg' => 'Unauthorized']),
+    $kind(null, 429),
+    $kind(['code' => 422, 'msg' => 'prompt flagged']),
+    $kind(['code' => 500, 'msg' => 'Internal Error']),
+    $kind(['code' => 200, 'data' => ['taskId' => 't1']]),
+];
+$pass = $k === ['account:402', 'account:401', 'account:429', 'scene', 'scene', 'ok'];
+record('TC28', 'แยก error ระดับบัญชี (401/402/429 body หรือ HTTP) กับระดับฉาก (422/500)', 'account:402/account:401/account:429/scene/scene/ok', implode('/', $k), $pass); tally($pass);
+
+$p = kieVideoParsePoll('market', $mDone);
+$pv = kieVideoParsePoll('veo', ['code' => 200, 'data' => ['successFlag' => 1, 'response' => ['resultUrls' => ['https://x/a.mp4']]]]);
+$pass = ($p['credits'] ?? null) === 28 && !isset($pv['credits']);
+record('TC29', 'market success อ่าน creditsConsumed / veo ไม่มี', '28 / ไม่มี', var_export($p['credits'] ?? null, true) . ' / ' . (isset($pv['credits']) ? 'มี' : 'ไม่มี'), $pass); tally($pass);
+
+// ═══════════════════ Download: ต่อจาก .part ด้วย Range (multi-clip-video) ══
+$srcDir = sys_get_temp_dir() . '/kie-range-src-' . bin2hex(random_bytes(4));
+$dlDir  = sys_get_temp_dir() . '/kie-range-dl-' . bin2hex(random_bytes(4));
+mkdir($srcDir); mkdir($dlDir);
+$src = $srcDir . '/clip.mp4';
+file_put_contents($src, random_bytes(300 * 1024));
+$srcHash = md5_file($src);
+$port = 8700 + random_int(0, 200);
+$server = proc_open([PHP_BINARY, '-S', '127.0.0.1:' . $port, __DIR__ . '/fixtures/range-server.php'],
+    [0 => ['pipe', 'r'], 1 => ['file', 'NUL', 'w'], 2 => ['file', 'NUL', 'w']], $pipes);
+for ($i = 0; $i < 50 && !@fsockopen('127.0.0.1', $port, $en, $es, 0.1); $i++) usleep(100000);
+$url = fn(string $mode) => 'http://127.0.0.1:' . $port . '/?mode=' . $mode . '&f=' . rawurlencode($src);
+
+// slow + งบ 1 วิ → ได้บางส่วน, .part ค้างไว้; รอบสองต่อจนครบ
+$r1 = kieVideoDownload($url('slow'), 'itemR', 'taskR', $dlDir, 1);
+$partSize = is_file($dlDir . '/itemR_taskR.mp4.part') ? filesize($dlDir . '/itemR_taskR.mp4.part') : 0;
+$r2 = kieVideoDownload($url('range'), 'itemR', 'taskR', $dlDir);
+$okHash = is_file($dlDir . '/itemR_taskR.mp4') && md5_file($dlDir . '/itemR_taskR.mp4') === $srcHash;
+$pass = $r1 === null && $partSize > 0 && $partSize < 300 * 1024 && $r2 === '/uploads/content/videos/itemR_taskR.mp4' && $okHash;
+record('TC30', 'หมดงบเวลากลางทาง → เก็บ .part แล้วรอบถัดไปโหลดต่อจนไฟล์ตรงต้นฉบับ', "null + part>0 / path + md5 ตรง", var_export($r1, true) . " part={$partSize} / " . var_export($r2, true) . ' md5=' . ($okHash ? 'ตรง' : 'ไม่ตรง'), $pass); tally($pass);
+
+// เซิร์ฟเวอร์ไม่รองรับ Range (ตอบ 200) → เริ่มใหม่ ไม่ต่อท้ายซ้ำ
+file_put_contents($dlDir . '/itemN_taskN.mp4.part', substr(file_get_contents($src), 0, 100 * 1024));
+$r = kieVideoDownload($url('norange'), 'itemN', 'taskN', $dlDir);
+$okHash = is_file($dlDir . '/itemN_taskN.mp4') && md5_file($dlDir . '/itemN_taskN.mp4') === $srcHash;
+$pass = $r === '/uploads/content/videos/itemN_taskN.mp4' && $okHash;
+record('TC31', 'มี .part แต่เซิร์ฟเวอร์ไม่รองรับ Range → เริ่มใหม่ ไฟล์ตรงต้นฉบับ', 'path + md5 ตรง', var_export($r, true) . ' md5=' . ($okHash ? 'ตรง' : 'ไม่ตรง'), $pass); tally($pass);
+
+// .part ครบแล้ว (รอบก่อนโหลดครบแต่ rename ไม่ทัน) → 416 → rename เป็นไฟล์จริง
+copy($src, $dlDir . '/itemF_taskF.mp4.part');
+$r = kieVideoDownload($url('range'), 'itemF', 'taskF', $dlDir);
+$okHash = is_file($dlDir . '/itemF_taskF.mp4') && md5_file($dlDir . '/itemF_taskF.mp4') === $srcHash;
+$pass = $r === '/uploads/content/videos/itemF_taskF.mp4' && $okHash;
+record('TC32', '.part ครบแล้ว → 416 → ถือว่าเสร็จ', 'path + md5 ตรง', var_export($r, true) . ' md5=' . ($okHash ? 'ตรง' : 'ไม่ตรง'), $pass); tally($pass);
+
+proc_terminate($server); proc_close($server);
+array_map('unlink', glob($dlDir . '/*')); @rmdir($dlDir);
+array_map('unlink', glob($srcDir . '/*')); @rmdir($srcDir);
 
 // ═══════════════════ Load model จาก DB local (ต้องรัน migration แล้ว) ═════
 $db = getDB();

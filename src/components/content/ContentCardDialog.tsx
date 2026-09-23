@@ -13,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import type { PlanItem } from '@/components/content/types';
 import { getCanonicalContentType, PLATFORM_MAP, platformsNeedScriptSections } from '@/components/content/types';
-import { VideoSpecBadge } from '@/components/content/AspectRatioPicker';
+import VideoClipsPanel, { useVideoClips } from '@/components/content/VideoClipsPanel';
 import { getThaiDayName, formatThaiDate } from './calendarUtils';
 import { CalendarDays, Save, Trash2, Sparkles, ImagePlus, RefreshCw, Loader2, Image as ImageIcon, FileText, Hash, Lightbulb, Clapperboard, MessageSquare, Share2, BookOpen, ChevronDown, Video, Play, Send, ShieldCheck } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
@@ -102,7 +102,6 @@ export function ContentCardDialog({
   const [selectedRefUrls, setSelectedRefUrls] = useState<string[]>([]);
   const [localImageUrl, setLocalImageUrl] = useState<string | null>(null);
   const [imageViewerOpen, setImageViewerOpen] = useState(false);
-  const [generatingVideo, setGeneratingVideo] = useState(false);
   const [generatingScenes, setGeneratingScenes] = useState(false);
   // "ลำดับฉาก" (visuals) แก้ไขได้ — draft ก่อนมี scenes, รวมบันทึกกับปุ่ม "บันทึก" หลัก
   const [visualsDraft, setVisualsDraft] = useState<string[] | null>(null);
@@ -620,49 +619,6 @@ export function ContentCardDialog({
     }
   };
 
-  const handleGenerateVideo = async () => {
-    if (!existingItem?.id) return;
-    setGeneratingVideo(true);
-    try {
-      const res: any = await apiFetch('/brand-content.php?action=generate-video', {
-        method: 'POST',
-        // อัตราส่วน/ความละเอียดอ่านจาก content item ฝั่ง backend (ล็อกตั้งแต่ตอนสร้าง)
-        body: JSON.stringify({ item_id: existingItem.id }),
-      });
-      qc.invalidateQueries({ queryKey: ['content', 'items'] });
-      qc.invalidateQueries({ queryKey: ['content', 'plans'] });
-      if (res?.status === 'done') {
-        toast({ title: 'สร้างวิดีโอสำเร็จ!' });
-      } else {
-        toast({ title: 'ส่งคำขอสร้างวิดีโอแล้ว', description: 'กำลังสร้าง — วิดีโอจะแสดงที่นี่เมื่อเสร็จ' });
-      }
-    } catch (e: any) {
-      toast({ title: 'สร้างวิดีโอไม่สำเร็จ', description: e.message, variant: 'destructive' });
-    } finally {
-      setGeneratingVideo(false);
-    }
-  };
-
-  // Poll สถานะวิดีโอระหว่างกำลังสร้าง (แบบเดียวกับ ContentVideoView) — เมื่อเสร็จ/ล้มเหลว
-  // invalidate รายการคอนเทนต์ให้ existingItem ได้ video_url/สถานะใหม่ แล้วหยุด poll
-  const videoPollItemId = existingItem?.video_gen_status === 'generating' && existingItem?.video_job_id ? existingItem.id : null;
-  useEffect(() => {
-    if (!videoPollItemId) return;
-    const timer = setInterval(async () => {
-      try {
-        const res: any = await apiFetch(`/brand-content.php?action=video-status&item_id=${videoPollItemId}`);
-        if (res?.status === 'done' || res?.status === 'failed') {
-          clearInterval(timer);
-          qc.invalidateQueries({ queryKey: ['content', 'items'] });
-          qc.invalidateQueries({ queryKey: ['content', 'plans'] });
-          if (res.status === 'done') toast({ title: 'สร้างวิดีโอสำเร็จ!' });
-          else toast({ title: 'สร้างวิดีโอไม่สำเร็จ', description: res.error, variant: 'destructive' });
-        }
-      } catch { /* poll รอบถัดไปจะลองใหม่ */ }
-    }, 5000);
-    return () => clearInterval(timer);
-  }, [videoPollItemId, qc, toast]);
-
   const handleRegenerateScene = async (index: number) => {
     if (!existingItem?.id) return;
     const ok = await confirm({
@@ -711,9 +667,19 @@ export function ContentCardDialog({
   const dateLocked = !!existingItem?.has_published_platform;
 
   const scenes = (articleData?.scenes ?? []) as any[];
-  // Phase 2: ใช้จริงแค่ scene แรก — พร้อมสร้างวิดีโอเมื่อ scene แรกมี video_prompt
-  // เท่านั้น ไม่บังคับทุก scene มีภาพอีกต่อไป (ดู video-generation-mode-detection)
-  const firstSceneVideoPromptReady = !!scenes[0]?.video_prompt?.trim();
+
+  // วิดีโอหลายคลิป (multi-clip-video) — สถานะคลิปรายฉาก + วิดีโอรวม จาก video-state
+  const video = useVideoClips(isVideo && existingItem?.id ? existingItem.id : null);
+  const clipStates = useMemo(
+    () => Object.fromEntries((video.state?.scenes ?? []).map(s => [s.scene_id, s])),
+    [video.state],
+  );
+  // ปุ่มที่ใช้ credit ต้องไม่ทำงานกับข้อมูลที่ยังไม่บันทึก (backend อ่านค่าจาก DB — คลิปจะพูดบทเก่า)
+  const clipBlockedReason = isDirty
+    ? 'กรุณาบันทึกก่อนสร้างคลิป'
+    : video.state && !video.state.public_url_ok
+      ? 'ระบบยังไม่มี URL สาธารณะ — kie.ai เข้าถึงภาพฉากไม่ได้'
+      : video.state?.model_error ?? null;
 
   return (
     <>
@@ -1065,19 +1031,6 @@ export function ContentCardDialog({
                       <Clapperboard className="h-4 w-4" />
                       วิดีโอ
                     </Label>
-                    {existingItem?.video_url ? (
-                      <div className="mt-2 rounded-lg overflow-hidden border bg-muted/20">
-                        <video src={existingItem.video_url} controls className="w-full max-h-48"
-                          poster={displayImageUrl ?? undefined} />
-                      </div>
-                    ) : existingItem?.video_gen_status === 'generating' ? (
-                      <div className="flex items-center gap-2 text-[11px] text-muted-foreground py-2 mt-1">
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />กำลังสร้างวิดีโอ...
-                      </div>
-                    ) : !firstSceneVideoPromptReady ? (
-                      <p className="text-[11px] text-muted-foreground mt-1">ต้องเขียน Video Prompt ของ Scene แรกก่อน จึงจะสามารถสร้างวิดีโอได้</p>
-                    ) : null}
-
                     {/* ลำดับฉาก — แก้ไขได้ เฉพาะก่อนมี scenes (backend ไม่อ่าน visuals อีกต่อไปหลังมี scenes) */}
                     {visuals.length > 0 && scenes.length === 0 && (
                       <div className="mt-3 space-y-1.5">
@@ -1141,7 +1094,10 @@ export function ContentCardDialog({
                             videoPromptDrafts={scenesVideoPromptDraft}
                             onVideoPromptChange={(i, value) => setScenesVideoPromptDraft(prev => ({ ...prev, [i]: value }))}
                             onVideoPromptGenerated={(i) => setScenesVideoPromptDraft(prev => { const next = { ...prev }; delete next[i]; return next; })}
-                            showNarration={false} />
+                            showNarration={false}
+                            clipStates={clipStates}
+                            onGenerateClip={id => video.requestGenerate([id])}
+                            clipBlockedReason={clipBlockedReason} />
                         </div>
                       </>
                     )}
@@ -1149,12 +1105,12 @@ export function ContentCardDialog({
                     <Button variant="outline" size="sm" className="w-full gap-1.5 mt-3" disabled={generatingScenes || !existingItem?.id} onClick={handleGenerateScenes}>
                       {generatingScenes ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />กำลังสร้างภาพทุกฉาก...</> : <><ImageIcon className="h-3.5 w-3.5" />สร้างภาพทุกฉาก</>}
                     </Button>
-                    <div className="flex items-center justify-center mt-2">
-                      <VideoSpecBadge aspectRatio={existingItem?.video_aspect_ratio} resolution={existingItem?.video_resolution} />
-                    </div>
-                    <Button variant="outline" size="sm" className="w-full gap-1.5 mt-2" disabled={generatingVideo || existingItem?.video_gen_status === 'generating' || !existingItem?.id || !firstSceneVideoPromptReady} onClick={handleGenerateVideo}>
-                      {generatingVideo ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />กำลังสร้าง...</> : existingItem?.video_url ? <><RefreshCw className="h-3.5 w-3.5" />สร้างวิดีโอใหม่</> : <><Clapperboard className="h-3.5 w-3.5" />สร้างวิดีโอด้วย AI</>}
-                    </Button>
+                    {existingItem?.id && (
+                      <div className="mt-3">
+                        <VideoClipsPanel video={video} blockedReason={isDirty ? 'กรุณาบันทึกก่อนสร้างคลิป' : null}
+                          aspectRatio={existingItem.video_aspect_ratio} resolution={existingItem.video_resolution} />
+                      </div>
+                    )}
                   </div>
                   )}
                 </div>

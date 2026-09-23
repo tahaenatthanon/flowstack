@@ -1,10 +1,4 @@
-# video-generation-provider-contract Specification
-
-## Purpose
-
-กำหนด request/response contract ระหว่างการสร้างคลิปรายฉาก (`generate-clips`, `clip-status`, cron `video-clips-sync` ใน `api/brand-content.php` / `api/lib/video-clips.php`) กับ kie.ai ผ่าน adapter `api/lib/kie-video.php` ที่เลือก endpoint ตามตระกูลของ model (`features.video.api`): `veo` ใช้ `POST /api/v1/veo/generate` + `GET /api/v1/veo/record-info` ส่วน `market` (Seedance) ใช้ `POST /api/v1/jobs/createTask` + `GET /api/v1/jobs/recordInfo` — 1 คำขอ kie ต่อ 1 ฉาก (แก้ไขโดย change `multi-clip-video`)
-
-## Requirements
+## ADDED Requirements
 
 ### Requirement: ยิงคลิปรายฉากไปยัง endpoint ตามตระกูล model
 action `generate-clips` (`api/brand-content.php`) SHALL ยิงแต่ละฉากผ่าน adapter `api/lib/kie-video.php` โดยเลือก endpoint ตาม `features.video.api` ของ model ที่เลือกตาม capability `video-clip-generation`:
@@ -75,3 +69,33 @@ action `clip-status` และ cron `video-clips-sync` SHALL poll คลิป�
 #### Scenario: แอดมินเปลี่ยน model ระหว่างรอ
 - **WHEN** คลิปเริ่มด้วย `veo3_lite` แล้วแอดมินเปลี่ยน model เป็น Seedance
 - **THEN** ระบบ SHALL poll คลิปนั้นด้วย adapter `veo` ตาม `model_id` ของคลิป
+
+## REMOVED Requirements
+
+### Requirement: `generate-video` ยิงไปยัง endpoint จริงของ kie.ai
+**Reason**: `generate-video` ที่ยิงแค่ฉากแรกถูกแทนด้วย `generate-clips` ที่ยิงรายฉาก
+**Migration**: ใช้ requirement "ยิงคลิปรายฉากไปยัง endpoint ตามตระกูล model" — frontend เรียก `generate-clips` พร้อม `scene_ids`
+
+### Requirement: Payload ใช้ scene แรกเท่านั้น พร้อมเลือกโหมดอัตโนมัติตามตระกูล model
+**Reason**: ยิงทุกฉากแบบ image-to-video เสมอ ไม่มีโหมด text-to-video ของฉากแรกอีกต่อไป
+**Migration**: ใช้ requirement "Payload ของคลิปรายฉาก"
+
+### Requirement: Validation ใหม่ — scene แรกต้องมี video_prompt
+**Reason**: เงื่อนไขความพร้อมใช้กับทุกฉาก ไม่ใช่เฉพาะฉากแรก
+**Migration**: ดู requirement "เงื่อนไขความพร้อมของฉากก่อนสร้างคลิป" ใน capability `video-clip-generation`
+
+### Requirement: Scene แรกที่สร้างภาพล้มเหลว ไม่ fallback ไป text-to-video
+**Reason**: ทุกฉากต้องมีภาพ `done` ก่อนสร้างคลิป จึงไม่มี fallback ไป text-to-video ในทุกกรณี
+**Migration**: ดู requirement "เงื่อนไขความพร้อมของฉากก่อนสร้างคลิป" ใน capability `video-clip-generation`
+
+### Requirement: อ่าน `taskId` จาก response และบันทึก model ที่ใช้
+**Reason**: `taskId` และ model บันทึกต่อคลิปใน `content_video_clips` แทน `content_items.video_job_id`
+**Migration**: ใช้ requirement "อ่าน `taskId` ของคลิป" — `content_items.video_job_id` ไม่ถูกใช้แล้ว
+
+### Requirement: `video-status` poll ตามตระกูล model ที่บันทึกไว้
+**Reason**: `video-status` ถูกแทนด้วย `clip-status` และ cron `video-clips-sync` ที่ poll รายคลิป
+**Migration**: ใช้ requirement "poll คลิปตามตระกูล model ของคลิป"
+
+### Requirement: Response contract ที่ frontend เห็นไม่เปลี่ยนแปลง
+**Reason**: frontend เปลี่ยนไปใช้ `video-state` / `generate-clips` / `clip-status` / `combine-video` ซึ่งมี response ใหม่
+**Migration**: ดู capability `video-clips-ui` — player ของคลิปและวิดีโอรวมยังเล่นไฟล์จาก path ภายใน `/uploads/content/videos/...`

@@ -397,6 +397,21 @@ export default function ContentListTab() {
                       )}>
                         {isVideo ? '🎬 วิดีโอ' : '📝 บทความ'}
                       </span>
+                      {/* multi-clip-video: คลิปพร้อมใช้/จำนวนฉาก (นับเฉพาะฉากปัจจุบัน) + สถานะวิดีโอรวม */}
+                      {isVideo && (item.video_clips_total ?? 0) > 0 && (
+                        <span data-testid={`list-clip-badge-${item.id}`} className={cn('text-[11px] px-1.5 py-0 rounded font-medium',
+                          item.video_clips_ready === item.video_clips_total
+                            ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
+                            : 'bg-muted text-muted-foreground')}>
+                          คลิป {item.video_clips_ready ?? 0}/{item.video_clips_total}
+                        </span>
+                      )}
+                      {isVideo && item.video_combined_status === 'done' && (
+                        <span className="text-[11px] px-1.5 py-0 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-medium">วิดีโอรวม ✓</span>
+                      )}
+                      {isVideo && item.video_combined_status === 'stale' && (
+                        <span className="text-[11px] px-1.5 py-0 rounded bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 font-medium">วิดีโอรวม ⚠ ล้าสมัย</span>
+                      )}
                       {getItemPlatforms(item).map(platform => {
                         const pc = getPlatformColors(platform);
                         return (

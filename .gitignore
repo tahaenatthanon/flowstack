@@ -100,3 +100,5 @@ migrations.zip
 .claude/
 
 ai-context
+# สำรองข้อมูลจากสคริปต์ย้ายข้อมูล (มีเนื้อหาคอนเทนต์)
+database/backups/*.json

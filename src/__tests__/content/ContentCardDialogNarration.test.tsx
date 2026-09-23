@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ContentCardDialog } from '@/components/content/ContentCardDialog';
 import type { PlanItem } from '@/components/content/types';
 import { apiFetch } from '@/lib/api';
+import { makeVideoState } from './videoStateFixture';
 
 /**
  * spec: video-creation-options / content-video-ui-section — "ลำดับฉากแก้ไขบทพากย์ได้ใต้แต่ละฉาก"
@@ -45,7 +46,10 @@ function renderDialog(existingItem: PlanItem, onSave = vi.fn(async () => {})) {
 
 const narrationFields = () => screen.queryAllByLabelText(/^บทพากย์ฉากที่ \d+$/);
 
-beforeEach(() => { vi.clearAllMocks(); });
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(apiFetch).mockImplementation(async (url: string) => (String(url).includes('video-state') ? makeVideoState() : {}));
+});
 
 describe('ContentCardDialog — บทพากย์ใน "ลำดับฉาก"', () => {
   it('ก่อนมี scenes: แสดงบทพากย์ใต้แต่ละฉาก และบันทึกลง visuals[i].narration โดย visual/motion เดิมไม่เปลี่ยน', async () => {

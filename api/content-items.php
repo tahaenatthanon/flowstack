@@ -62,6 +62,7 @@ if ($method === 'GET') {
                       ci.video_url,
                       ci.video_aspect_ratio,
                       ci.video_resolution,
+                      ci.video_model_id,
                       ci.seo_title,
                       ci.seo_score,
                       ci.aeo_score,
@@ -117,6 +118,24 @@ if ($method === 'GET') {
             $item['approval_rounds'] = $roundsByItem[$item['id']] ?? [];
         }
         unset($item);
+
+        // ป้าย "คลิป X/N" / สถานะวิดีโอรวม (multi-clip-video) — โหลดคลิปและวิดีโอรวมของทุก item วิดีโอ
+        // ในหน้าแบบ batch ครั้งเดียว แล้วคำนวณด้วย videoItemState() ตัวเดียวกับ action video-state
+        $videoItemIds = array_column(array_filter($items, fn($i) => ($i['type'] ?? '') === 'video'), 'id');
+        if ($videoItemIds) {
+            require_once __DIR__ . '/lib/video-clips.php';
+            $clipsByItem    = videoLoadClips($db, $tenantId, $videoItemIds);
+            $combinesByItem = videoLoadCombines($db, $tenantId, $videoItemIds);
+            foreach ($items as &$item) {
+                if (($item['type'] ?? '') !== 'video') continue;
+                $vs = videoItemState($db, $item, $tenantId, $clipsByItem[$item['id']] ?? [], $combinesByItem[$item['id']] ?? [], false);
+                $latest = $vs['combine']['latest'];
+                $item['video_clips_ready']     = $vs['counts']['ready'];
+                $item['video_clips_total']     = $vs['counts']['total'];
+                $item['video_combined_status'] = !$latest ? 'none' : ($latest['stale'] ? 'stale' : 'done');
+            }
+            unset($item);
+        }
     }
 
     jsonResponse($items);

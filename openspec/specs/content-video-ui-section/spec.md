@@ -9,26 +9,8 @@
 - **WHEN** ผู้ใช้เปิด dialog แก้ไข content item
 - **THEN** เห็นหัวข้อ "วิดีโอ" ใต้ "ภาพประกอบ" พร้อมข้อมูลสถานะวิดีโอ (ยังไม่มี, กำลังสร้าง, พร้อมเล่น) — icon เป็น `Clapperboard`
 
-### Requirement: Video section has AI generation button with slate icon
-หัวข้อ "วิดีโอ" SHALL มีปุ่ม "สร้างวิดีโอด้วย AI" ที่ใช้ไอคอน `Clapperboard` และเรียกใช้ endpoint `/brand-content.php?action=generate-video`
-
-#### Scenario: Click generate video button
-- **WHEN** ผู้ใช้คลิก "สร้างวิดีโอด้วย AI"
-- **THEN** ระบบส่งคำขอสร้างวิดีโอไปยัง backend และแสดง loading state จนกว่าจะเสร็จ
-
-### Requirement: Video section displays video status with helpful description
-หัวข้อ "วิดีโอ" SHALL แสดงสถานะปัจจุบันของวิดีโอ: ยังไม่มีวิดีโอ → แสดงข้อความแนะนำให้เขียนหรือ AI เขียน Video Prompt ของ scene แรกก่อน (ไม่ใช่ข้อความเดิมที่บอกให้สร้างภาพก่อน เพราะไม่บังคับต้องมีภาพอีกต่อไป) และปุ่มสร้าง, กำลังสร้าง → แสดง loader, พร้อมเล่น → แสดง video player
-
-#### Scenario: ยังไม่มี video_prompt ของ scene แรก
-- **WHEN** content item ยังไม่มี `video_url`, ไม่ได้กำลังสร้าง, และ `scenes[0].video_prompt` ว่างเปล่า
-- **THEN** ระบบแสดงข้อความแนะนำให้เขียนหรือกด "AI เขียน Video Prompt" ของ scene แรกก่อน — SHALL ไม่แสดงข้อความเดิม "ต้องมี scene ที่สร้างภาพแล้วอย่างน้อย 1 ฉากก่อนสร้างวิดีโอ" อีกต่อไป
-
-#### Scenario: พร้อมเล่น
-- **WHEN** content item มี `video_url` และ `video_gen_status === 'done'`
-- **THEN** ระบบแสดง video player แบบ inline (ไม่เปลี่ยนจากพฤติกรรมเดิม)
-
 ### Requirement: เลือกสัดส่วนวิดีโอก่อนสร้าง
-หัวข้อ "วิดีโอ" SHALL แสดงอัตราส่วนวิดีโอและความละเอียดวิดีโอของ content item เป็น badge อ่านอย่างเดียว เช่น `9:16 · 1080p` (NULL → `9:16 · 720p`) โดยมีรูปสี่เหลี่ยมขนาดเล็กตามอัตราส่วนจริงนำหน้า (component เดียวกับตัวเลือกตอนสร้างคอนเทนต์) พร้อม tooltip "อัตราส่วนวิดีโอ · ความละเอียดวิดีโอ (กำหนดตอนสร้างคอนเทนต์)" — SHALL ไม่มี selector สัดส่วนหรือความละเอียดในหัวข้อวิดีโออีกต่อไป เพราะค่าถูกเลือกและล็อกตั้งแต่ตอนสร้างคอนเทนต์ (ดู capability `video-creation-options`) — คำขอ `generate-video` SHALL ส่งแค่ `item_id`
+หัวข้อ "วิดีโอ" SHALL แสดงอัตราส่วนวิดีโอและความละเอียดวิดีโอของ content item เป็น badge อ่านอย่างเดียว เช่น `9:16 · 1080p` (NULL → `9:16 · 720p`) โดยมีรูปสี่เหลี่ยมขนาดเล็กตามอัตราส่วนจริงนำหน้า (component เดียวกับตัวเลือกตอนสร้างคอนเทนต์) พร้อม tooltip "อัตราส่วนวิดีโอ · ความละเอียดวิดีโอ (กำหนดตอนสร้างคอนเทนต์)" — SHALL ไม่มี selector สัดส่วนหรือความละเอียดในหัวข้อวิดีโอ เพราะค่าถูกเลือกและล็อกตั้งแต่ตอนสร้างคอนเทนต์ (ดู capability `video-creation-options`) — คำขอ `generate-clips` SHALL ไม่มี `aspect_ratio` หรือ `resolution`
 
 #### Scenario: แสดง badge
 - **WHEN** ผู้ใช้เปิดหัวข้อ "วิดีโอ" ของคอนเทนต์ที่ `video_aspect_ratio = '16:9'`, `video_resolution = '1080p'`
@@ -38,9 +20,9 @@
 - **WHEN** ผู้ใช้เปิดหัวข้อ "วิดีโอ" ของคอนเทนต์ที่ยังไม่มีสองค่านี้
 - **THEN** SHALL เห็น badge `9:16 · 720p`
 
-#### Scenario: กดสร้างวิดีโอ
-- **WHEN** ผู้ใช้กด "สร้างวิดีโอด้วย AI"
-- **THEN** คำขอที่ส่งไป backend SHALL มีแค่ `item_id` — SHALL ไม่มี `aspect_ratio` หรือ `resolution`
+#### Scenario: กดยืนยันสร้างคลิป
+- **WHEN** ผู้ใช้ยืนยันสร้างคลิปใน dialog ยืนยัน credit
+- **THEN** คำขอที่ส่งไป backend SHALL มี `item_id` และ `scene_ids` — SHALL ไม่มี `aspect_ratio` หรือ `resolution`
 
 ### Requirement: ปุ่ม "AI เขียน Video Prompt" ต่อ scene ที่ยังว่าง
 แต่ละ scene card ที่ `video_prompt` ว่างเปล่า SHALL มีปุ่ม "AI เขียน Video Prompt" ที่เรียก action `generate-scene-video-prompt` — ปุ่มนี้ SHALL แสดงในทุก scene (ไม่จำกัดแค่ scene แรก) เพื่อความสอดคล้องกับ scene card อื่นที่ใช้ component เดียวกัน
@@ -136,21 +118,6 @@ Scene cards SHALL แสดงใน**ทั้งสองจุด**ที่�
 - **WHEN** ผู้ใช้เปิด `ContentVideoView` ไม่ว่า content item จะมี scene อยู่แล้วหรือยังไม่มี
 - **THEN** เห็นปุ่ม "สร้างภาพทุกฉาก" เพียงปุ่มเดียวในแถบปุ่มด้านล่าง (ไม่มีปุ่มที่สองซ้อนอยู่ใน scene cards ด้านบน)
 
-### Requirement: Dialog แก้ไขคอนเทนต์ติดตามสถานะวิดีโอจนเสร็จ
-`ContentCardDialog` SHALL poll `video-status` ทุก 5 วินาทีเมื่อ content item มี `video_gen_status = 'generating'` และมี `video_job_id` — เมื่อได้ `done` หรือ `failed` SHALL หยุด poll, invalidate รายการคอนเทนต์ให้ dialog แสดงสถานะใหม่ และแจ้งผลด้วย toast ภาษาไทย — SHALL ไม่ poll เมื่อไม่ได้กำลังสร้าง ข้อมูลที่ส่งเข้า dialog (`PlanItem`) SHALL มี `video_gen_status`, `video_url`, `video_job_id` และ API รายการคอนเทนต์ (`content-items.php`) SHALL ส่งฟิลด์เหล่านี้กลับมา
-
-#### Scenario: สร้างเสร็จระหว่างเปิด dialog
-- **WHEN** ผู้ใช้กด "สร้างวิดีโอด้วย AI" ใน dialog แล้วรอ
-- **THEN** dialog SHALL poll `video-status` จนได้ `done` แล้วแสดง video player และ toast "สร้างวิดีโอสำเร็จ!" โดยผู้ใช้ไม่ต้องรีเฟรชเอง
-
-#### Scenario: สร้างล้มเหลว
-- **WHEN** `video-status` ตอบ `{"status": "failed", "error": "..."}`
-- **THEN** dialog SHALL หยุด poll และแสดง toast "สร้างวิดีโอไม่สำเร็จ" พร้อมข้อความ error
-
-#### Scenario: ไม่ได้กำลังสร้าง
-- **WHEN** content item มี `video_gen_status` เป็น `done`, `failed` หรือ `none`
-- **THEN** dialog SHALL ไม่เรียก `video-status`
-
 ### Requirement: ลำดับฉากแก้ไขบทพากย์ได้ใต้แต่ละฉาก
 ในหัวข้อ "วิดีโอ" ของ `ContentCardDialog` ช่อง "ลำดับฉาก" SHALL แสดงช่อง "บทพากย์" (`narration`) แก้ไขได้ใต้คำบรรยายภาพของแต่ละฉาก พร้อมตัวนับตัวอักษร เพื่อให้อ่านเป็น storyboard (ภาพ + บทพูด) ได้ในที่เดียว — เมื่อเกิน 100 ตัวอักษร SHALL แสดงคำเตือนภาษาไทยว่าอาจพูดไม่จบใน 8 วินาที (ไม่บล็อกการบันทึก)
 - **ก่อนมี scenes**: ค่า SHALL มาจากและบันทึกลง `article_content.visuals[i].narration` ผ่านปุ่ม "บันทึก" หลัก (entry แบบ string SHALL ถูกแปลงเป็น object `{visual, narration}` เมื่อมีบทพากย์) — `_visualsToScenes` คัดลอกไปยัง scene เมื่อสร้างภาพ
@@ -172,3 +139,10 @@ Scene cards SHALL แสดงใน**ทั้งสองจุด**ที่�
 #### Scenario: บทพากย์ยาวเกิน
 - **WHEN** บทพากย์ของฉากยาว 130 ตัวอักษร
 - **THEN** SHALL แสดงตัวนับ `130/100` และคำเตือนว่าอาจพูดไม่จบใน 8 วินาที
+
+### Requirement: การบันทึกฉากใน dialog คง `scene.id`
+เมื่อ `ContentCardDialog` บันทึก `article_content` หรือเรียก `update-scene` ระบบ SHALL คง `id` ของทุกฉากไว้ตามเดิม — SHALL ไม่ลบ ไม่สร้างใหม่ และไม่สลับ `id` ระหว่างฉาก เพราะคลิปอ้างอิงฉากด้วย `scene.id`
+
+#### Scenario: บันทึก dialog หลังแก้บทพากย์
+- **WHEN** ผู้ใช้แก้บทพากย์ของฉาก 2 แล้วกด "บันทึก"
+- **THEN** `scenes[*].id` ทุกฉากหลังบันทึก SHALL เท่ากับก่อนบันทึก และคลิปของทุกฉาก SHALL ยังผูกกับฉากเดิม

@@ -4,8 +4,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import ContentVideoView, { allVideoScenesHaveImages } from '@/components/content/views/ContentVideoView';
 import type { ContentItem } from '@/components/content/types';
 import { apiFetch } from '@/lib/api';
+import { makeClip, makeSceneState, makeVideoState } from './videoStateFixture';
 
-vi.mock('@/lib/api', () => ({ apiFetch: vi.fn(async () => ({ status: 'generating', video_job_id: 't1' })) }));
+vi.mock('@/lib/api', () => ({ apiFetch: vi.fn(async () => ({})) }));
 
 function wrap(ui: React.ReactElement) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -117,29 +118,45 @@ describe('ContentVideoView — badge อัตราส่วน/ความล
     }),
   };
 
-  beforeEach(() => { vi.mocked(apiFetch).mockClear(); });
+  beforeEach(() => {
+    vi.mocked(apiFetch).mockReset();
+    vi.mocked(apiFetch).mockImplementation(async (url: string) => (String(url).includes('video-state') ? makeVideoState() : {}));
+  });
 
-  it('แสดง badge จากค่าของ item และไม่มีปุ่มเลือกอัตราส่วน/ความละเอียด', () => {
+  it('แสดง badge จากค่าของ item และไม่มีปุ่มเลือกอัตราส่วน/ความละเอียด', async () => {
     wrap(<ContentVideoView item={readyItem} />);
-    expect(screen.getByTestId('video-spec-badge').textContent).toContain('16:9 · 1080p');
+    expect((await screen.findByTestId('video-spec-badge')).textContent).toContain('16:9 · 1080p');
     expect(screen.getByTestId('aspect-shape-16:9')).toBeTruthy();
     for (const name of ['9:16', '16:9', '720p', '1080p', 'Auto']) {
       expect(screen.queryByRole('button', { name })).toBeNull();
     }
   });
 
-  it('คอนเทนต์เก่าไม่มีค่า → badge 9:16 · 720p', () => {
+  it('คอนเทนต์เก่าไม่มีค่า → badge 9:16 · 720p', async () => {
     wrap(<ContentVideoView item={{ ...readyItem, video_aspect_ratio: null, video_resolution: null }} />);
-    expect(screen.getByTestId('video-spec-badge').textContent).toContain('9:16 · 720p');
+    expect((await screen.findByTestId('video-spec-badge')).textContent).toContain('9:16 · 720p');
   });
 
-  it('กดสร้างวิดีโอ → คำขอมีแค่ item_id', async () => {
-    wrap(<ContentVideoView item={readyItem} />);
-    fireEvent.click(screen.getByRole('button', { name: 'สร้างวิดีโอ' }));
-    await waitFor(() => expect(apiFetch).toHaveBeenCalled());
-    const [url, init] = vi.mocked(apiFetch).mock.calls[0];
-    expect(url).toContain('action=generate-video');
-    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ item_id: readyItem.id });
+  // spec: video-clips-ui — "หน้ารีวิวดูได้อย่างเดียว"
+  it('หน้ารีวิว: เห็นคลิป/ตัวนับ/วิดีโอรวม แต่ไม่มีปุ่มสร้างคลิป ลองใหม่ หรือสร้างวิดีโอรวม', async () => {
+    const withIds = { ...readyItem, article_content: JSON.stringify({ ...JSON.parse(readyItem.article_content!), scenes: JSON.parse(readyItem.article_content!).scenes.map((s: object, i: number) => ({ ...s, id: `sc_${i}` })) }) };
+    vi.mocked(apiFetch).mockImplementation(async (url: string) => (String(url).includes('video-state') ? makeVideoState({
+      scenes: [
+        makeSceneState(0, { active_clip: makeClip(), latest: makeClip(), needs_generation: false }),
+        makeSceneState(1, { latest: makeClip({ id: 'c2', status: 'failed', clip_url: null, error: 'nsfw' }) }),
+      ],
+      combine: { can_combine: false, reasons: ['ฉาก 2 ยังไม่มีคลิป'], ffmpeg_ok: true, combining: false,
+        latest: { id: 'cb1', video_url: '/uploads/content/videos/x_combined.mp4', created_at: '', stale: true, stale_reasons: ['ฉาก 2 มีคลิปใหม่'] }, last_failed: null },
+    }) : {}));
+    wrap(<ContentVideoView item={withIds} />);
+    expect((await screen.findByTestId('video-clips-counter')).textContent).toBe('คลิป 1/2');
+    expect(screen.getByTestId('scene-clip-0')).toBeTruthy();
+    expect(screen.getByText('nsfw')).toBeTruthy();
+    expect(screen.getByTestId('combined-player')).toBeTruthy();
+    for (const name of [/สร้างคลิปทุกฉาก/, /สร้างคลิปฉากนี้/, /ลองใหม่/, /สร้างวิดีโอรวม/, /^สร้างวิดีโอ$/]) {
+      expect(screen.queryByRole('button', { name })).toBeNull();
+    }
+    expect(vi.mocked(apiFetch).mock.calls.some(([u]) => /generate-clips|combine-video/.test(String(u)))).toBe(false);
   });
 
   it('scene card แสดงบทพากย์ ตัวนับ และคำเตือนเมื่อเกิน 100 ตัวอักษร', () => {
