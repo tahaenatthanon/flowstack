@@ -172,6 +172,8 @@ export default function ContentDetailView({
     video_gen_status: item.video_gen_status ?? null,
     video_url: item.video_url ?? null,
     video_job_id: item.video_job_id ?? null,
+    video_aspect_ratio: item.video_aspect_ratio ?? null,
+    video_resolution: item.video_resolution ?? null,
   };
 
   const handleEditSave = async (data: {

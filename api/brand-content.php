@@ -159,6 +159,8 @@ function _visualsToScenes(array $visuals): array {
         return [
             'visual_prompt'     => $prompt,
             'video_prompt'      => $motion,
+            'narration'         => $isObj ? trim((string)($v['narration'] ?? '')) : '',
+            'duration_sec'      => $isObj && (int)($v['duration_sec'] ?? 0) > 0 ? (int)$v['duration_sec'] : KIE_VIDEO_TARGET_CLIP_SEC,
             'shot'              => $shot,
             'image_gen_status'  => 'none',
         ];
@@ -178,22 +180,32 @@ function _deriveSceneImageStatus(array $scene): string {
 // Generate an image for a single scene and return it with image_url/image_gen_status/
 // image_gen_error set. Shared by the bulk generate-scene-images loop and the
 // single-scene retry action so both stay in sync.
-function _generateOneSceneImage(array $scene, int $idx, string $modelName, string $baseUrl, string $apiKey, string $itemId, string $enrichSuffix): array {
+// $aspectRatio = content_items.video_aspect_ratio ('9:16' | '16:9') — ภาพฉากคือเฟรมแรกของคลิป
+// จึงสร้างตามอัตราส่วนวิดีโอ (ไม่ครอปภาพที่ได้ ถ้า model คืนผิดสัดส่วน Veo/Seedance ปรับเองได้)
+function _generateOneSceneImage(array $scene, int $idx, string $modelName, string $baseUrl, string $apiKey, string $itemId, string $enrichSuffix, string $aspectRatio = '9:16'): array {
     $vp = $scene['visual_prompt'] ?? '';
     if (empty($vp)) {
         $scene['image_gen_status'] = 'failed';
         $scene['image_gen_error'] = 'no visual_prompt';
         return $scene;
     }
+    $aspectRatio = kieVideoNormalizeAspect($aspectRatio);
 
     $fullPrompt = $vp . $enrichSuffix;
     if (!empty($scene['shot'])) $fullPrompt = $scene['shot'] . ' — ' . $fullPrompt;
 
-    $isKiloScene = (stripos($baseUrl, 'kilo') !== false);
-    if (!$isKiloScene) {
-        $payload = ['model' => $modelName, 'prompt' => $fullPrompt, 'n' => 1, 'size' => '1024x1024'];
+    $isKiloScene       = (stripos($baseUrl, 'kilo') !== false);
+    $isOpenRouterScene = (stripos($baseUrl, 'openrouter') !== false);
+    if ($isOpenRouterScene) {
+        // OpenRouter Image API — รับ aspect_ratio รูปแบบเดียวกันทุก model, คืน data[0].b64_json
+        $payload = ['model' => $modelName, 'prompt' => $fullPrompt, 'aspect_ratio' => $aspectRatio, 'n' => 1];
+        $ch = curl_init($baseUrl . '/images');
+    } elseif (!$isKiloScene) {
+        $payload = ['model' => $modelName, 'prompt' => $fullPrompt, 'n' => 1, 'size' => $aspectRatio === '16:9' ? '1536x1024' : '1024x1536'];
         $ch = curl_init($baseUrl . '/images/generations');
     } else {
+        // Kilo (chat completions) ไม่มีพารามิเตอร์ขนาดภาพ — บอกอัตราส่วนใน prompt
+        $fullPrompt .= $aspectRatio === '16:9' ? ', horizontal 16:9 landscape composition' : ', vertical 9:16 portrait composition';
         $sceneMsg = 'Generate an image based on this description. Return ONLY the image, no text explanation: ' . $fullPrompt;
         $payload = [
             'model' => $modelName,
@@ -217,7 +229,7 @@ function _generateOneSceneImage(array $scene, int $idx, string $modelName, strin
     $imgUrl = null;
     if (!$isKiloScene) {
         if (isset($dec['data'][0]['url'])) $imgUrl = $dec['data'][0]['url'];
-        elseif (isset($dec['data'][0]['b64_json'])) $imgUrl = 'data:image/png;base64,' . $dec['data'][0]['b64_json'];
+        elseif (isset($dec['data'][0]['b64_json'])) $imgUrl = 'data:' . ($dec['data'][0]['media_type'] ?? 'image/png') . ';base64,' . $dec['data'][0]['b64_json'];
     } else {
         if (!empty($dec['choices'][0]['message']['images'])) {
             $imgData = $dec['choices'][0]['message']['images'][0];
@@ -430,13 +442,6 @@ function normalizeImageStyle(mixed $raw): string {
     return $style; // custom free-text style, used verbatim
 }
 
-/** Normalize requested video duration to seconds. */
-function normalizeVideoDuration(mixed $raw): int {
-    $duration = (int)$raw;
-    $allowed = [15, 30, 60, 180, 600];
-    return in_array($duration, $allowed, true) ? $duration : 60;
-}
-
 /** Build explicit Video Script Style instructions from the selected style.
  * Returns '' for "ai" so the model picks the style itself from the content. */
 function videoScriptStyleInstruction(string $style): string {
@@ -449,10 +454,22 @@ function videoScriptStyleInstruction(string $style): string {
     };
 }
 
-/** Build explicit Video Duration instructions. */
+/** Build explicit Video Duration instructions — วิดีโอสร้างเป็นคลิปฉากละ 8 วินาที จำนวนฉากตาม videoSceneCount(). */
 function videoDurationInstruction(int $duration): string {
-    $minutes = $duration >= 60 ? round($duration / 60, 1) . ' นาที' : $duration . ' วินาที';
-    return "ความยาวเป้าหมาย {$duration} วินาที ({$minutes}). ปริมาณบทพูด จังหวะ เนื้อหา จำนวนฉาก และ duration ของแต่ละฉากต้องสอดคล้องกับความยาวนี้ โดยเวลารวมของ scenes ควรใกล้เคียง {$duration} วินาที และห้ามใช้ความยาวเริ่มต้นแบบตายตัว 60 วินาทีเมื่อผู้ใช้เลือกค่าอื่น";
+    $scenes = videoSceneCount($duration);
+    $clip   = KIE_VIDEO_TARGET_CLIP_SEC;
+    $total  = $scenes * $clip;
+    return "ความยาวเป้าหมาย {$duration} วินาที วิดีโอจะถูกสร้างเป็นคลิปฉากละ {$clip} วินาที ดังนั้น visuals ต้องมี EXACTLY {$scenes} ฉาก (รวมประมาณ {$total} วินาที) ไม่มากหรือน้อยกว่านี้ " .
+        "ทุกฉากมี duration_sec = {$clip} และมี key narration (บทพากย์ภาษาไทยของฉากนั้น ไม่เกิน 100 ตัวอักษร เพื่อให้พูดจบใน {$clip} วินาที) " .
+        "ใส่ narration เฉพาะฉากที่ควรมีเสียงพูด ฉากที่เน้นโชว์ภาพ/สินค้า/เปลี่ยนจังหวะให้ใส่ narration เป็น \"\" ได้ เพื่อให้จังหวะวิดีโอเป็นธรรมชาติ " .
+        "แต่ฉากแรก (Hook) และฉากสุดท้าย (CTA) ต้องมี narration เสมอ — narration ที่มีเรียงกันต้องเล่าเรื่องต่อเนื่องเป็นบทบรรยายเดียว — ปริมาณบทพูด จังหวะ และเนื้อหาของ scripts ต้องสอดคล้องกับความยาวนี้ด้วย";
+}
+
+/** บอก AI ว่าวิดีโอเป็นแนวตั้งหรือแนวนอน เพื่อจัดองค์ประกอบภาพของแต่ละฉาก */
+function videoAspectInstruction(string $aspect): string {
+    return $aspect === '16:9'
+        ? 'วิดีโอแนวนอน 16:9 (YouTube/เว็บไซต์) — อธิบายภาพแต่ละฉากให้จัดองค์ประกอบแบบแนวนอน กว้าง เห็นบริบทรอบตัวแบบ'
+        : 'วิดีโอแนวตั้ง 9:16 (TikTok/Reels/Shorts) — อธิบายภาพแต่ละฉากให้จัดองค์ประกอบแบบแนวตั้ง ตัวแบบอยู่กลางภาพ เว้นพื้นที่ด้านบน/ล่าง';
 }
 
 /** Build an explicit Article writing instruction from the selected tone.
@@ -1024,6 +1041,9 @@ if ($action === 'generate-plan' && $method === 'POST') {
     $scriptStyle     = normalizeVideoScriptStyle($body['script_style'] ?? 'ai');
     $imageStyle      = normalizeImageStyle($body['image_style'] ?? 'ai');
     $durationSeconds = normalizeVideoDuration($body['duration'] ?? 60);
+    // อัตราส่วน/ความละเอียดวิดีโอ เลือกตอนสร้างแล้วล็อก (บันทึกเฉพาะ type=video)
+    $videoAspectRatio = kieVideoNormalizeAspect($body['aspect_ratio'] ?? null);
+    $videoResolution  = kieVideoNormalizeResolution($body['resolution'] ?? null);
     // Backward compat: accept single platform string
     if (empty($platforms) && !empty($body['platform'])) $platforms = [$body['platform']];
     // Normalize platform list to a clean array of strings
@@ -1084,10 +1104,13 @@ if ($action === 'generate-plan' && $method === 'POST') {
     if ($niche !== '') $sysParts[] = "## Niche Constraint\n{$niche}\n\nUse this Niche to specialize the content. Keep the user's Topic as the primary subject and do not replace it with the Niche.";
     if ($language === 'english') $sysParts[] = "## Language Constraint\nWrite the generated content in English. Keep the user's Topic unchanged as the source topic.";
     if ($type === 'video') {
+        // ขั้นนี้สร้างแค่ topic / caption / image_brief — สคริปต์และฉาก (พร้อมบทพากย์) สร้างใน generate-article
+        // ซึ่งอ่าน duration_sec จาก content item เอง จึงไม่ส่ง videoDurationInstruction ที่นี่ (เคยทำให้ AI ยัดสคริปต์ลง caption)
         $sysParts[] = "## Video Configuration (selected by user)\nScript Style: {$scriptStyle}\n" .
             "SCRIPT STYLE REQUIREMENT: " . videoScriptStyleInstruction($scriptStyle) . "\n" .
-            "DURATION REQUIREMENT: " . videoDurationInstruction($durationSeconds) . "\n" .
-            "These settings are hard content requirements and must affect the generated script. Do not replace them with Trigger, Skill, or model defaults.";
+            "Target video length: {$durationSeconds} seconds\n" .
+            "Use these settings only to set the topic angle and the tone of the caption. Do not replace them with Trigger, Skill, or model defaults.\n" .
+            "CAPTION RULE: caption คือแคปชั่นสำหรับโพสต์โซเชียลเท่านั้น (ข้อความโปรย + hashtag) ห้ามใส่สคริปต์วิดีโอ รายการฉาก เวลา (เช่น 0:00-0:10) หรือหัวข้อ Visual / Voiceover / บทพากย์ ลงใน caption เด็ดขาด เพราะสคริปต์และฉากจะถูกสร้างในขั้นตอนถัดไป";
     }
     $imageStyleInstr = imageStyleInstruction($imageStyle);
     if ($imageStyleInstr !== '') {
@@ -1353,8 +1376,8 @@ if ($action === 'generate-plan' && $method === 'POST') {
         // source_topic must never be empty — see content_plan_item_source_topic()
         // for the Direct-mode-vs-legacy-mode resolution rule.
         $itemSourceTopic = content_plan_item_source_topic($originalTopic, $item['topic'] ?? null);
-        $db->prepare('INSERT INTO content_items (id, tenant_id, title, source_topic, type, tone, script_style, duration_sec, status, created_by, plan_item_id, plan_id, platform, platforms, scheduled_date, caption, image_brief, image_style) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-           ->execute([$ciId, $tenantId, $item['topic'] ?? '', $itemSourceTopic, $type, $type === 'article' ? $tone : null, $type === 'video' ? $scriptStyle : null, $type === 'video' ? $durationSeconds : null, 'draft', $userId, $itemId, $planId, $item['platform'] ?? '', $platformsJson, $item['scheduled_date'] ?? null, $item['caption'] ?? '', $item['image_brief'] ?? '', $imageStyle]);
+        $db->prepare('INSERT INTO content_items (id, tenant_id, title, source_topic, type, tone, script_style, duration_sec, video_aspect_ratio, video_resolution, status, created_by, plan_item_id, plan_id, platform, platforms, scheduled_date, caption, image_brief, image_style) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+           ->execute([$ciId, $tenantId, $item['topic'] ?? '', $itemSourceTopic, $type, $type === 'article' ? $tone : null, $type === 'video' ? $scriptStyle : null, $type === 'video' ? $durationSeconds : null, $type === 'video' ? $videoAspectRatio : null, $type === 'video' ? $videoResolution : null, 'draft', $userId, $itemId, $planId, $item['platform'] ?? '', $platformsJson, $item['scheduled_date'] ?? null, $item['caption'] ?? '', $item['image_brief'] ?? '', $imageStyle]);
     }
 
     $stmt = $db->prepare('SELECT * FROM content_plans WHERE id=? AND tenant_id=?');
@@ -1835,7 +1858,7 @@ if ($action === 'generate-scene-images' && $method === 'POST') {
     $itemId = $body['item_id'] ?? null;
     if (!$itemId) jsonError('Missing item_id');
 
-    $itemStmt = $db->prepare('SELECT id, title, article_content, image_style FROM content_items WHERE id=? AND tenant_id=?');
+    $itemStmt = $db->prepare('SELECT id, title, article_content, image_style, video_aspect_ratio FROM content_items WHERE id=? AND tenant_id=?');
     $itemStmt->execute([$itemId, $tenantId]);
     $item = $itemStmt->fetch();
     if (!$item) jsonError('��辺 content item', 404);
@@ -1919,7 +1942,7 @@ if ($action === 'generate-scene-images' && $method === 'POST') {
             continue;
         }
 
-        $scene = _generateOneSceneImage($scene, $idx, $modelName, $baseUrl, $apiKey, $itemId, $enrichSuffix);
+        $scene = _generateOneSceneImage($scene, $idx, $modelName, $baseUrl, $apiKey, $itemId, $enrichSuffix, (string)($item['video_aspect_ratio'] ?? '9:16'));
         if (($scene['image_gen_status'] ?? '') === 'done') {
             $results[] = ['scene_index' => $idx, 'status' => 'done', 'image_url' => $scene['image_url']];
         } else {
@@ -1964,6 +1987,9 @@ if ($action === 'update-scene' && $method === 'POST') {
     if (array_key_exists('visual_prompt', $body)) {
         $scenes[$sceneIndex]['visual_prompt'] = trim((string)$body['visual_prompt']);
     }
+    if (array_key_exists('narration', $body)) {
+        $scenes[$sceneIndex]['narration'] = trim((string)$body['narration']);
+    }
 
     $ac['scenes'] = $scenes;
     $db->prepare('UPDATE content_items SET article_content=?, updated_at=NOW() WHERE id=? AND tenant_id=?')
@@ -1979,7 +2005,7 @@ if ($action === 'generate-scene-image' && $method === 'POST') {
     $sceneIndex = isset($body['scene_index']) ? (int)$body['scene_index'] : null;
     if (!$itemId || $sceneIndex === null) jsonError('Missing item_id or scene_index');
 
-    $itemStmt = $db->prepare('SELECT id, article_content, image_style FROM content_items WHERE id=? AND tenant_id=?');
+    $itemStmt = $db->prepare('SELECT id, article_content, image_style, video_aspect_ratio FROM content_items WHERE id=? AND tenant_id=?');
     $itemStmt->execute([$itemId, $tenantId]);
     $item = $itemStmt->fetch();
     if (!$item) jsonError('ไม่พบ content item', 404);
@@ -1998,7 +2024,7 @@ if ($action === 'generate-scene-image' && $method === 'POST') {
     $retryEnrichSuffix = imageStyleSuffix($retrySceneImageStyle);
     if ($retryEnrichSuffix !== '') $retryEnrichSuffix = ', ' . $retryEnrichSuffix;
 
-    $scenes[$sceneIndex] = _generateOneSceneImage($scenes[$sceneIndex], $sceneIndex, $modelName, $baseUrl, $apiKey, $itemId, $retryEnrichSuffix);
+    $scenes[$sceneIndex] = _generateOneSceneImage($scenes[$sceneIndex], $sceneIndex, $modelName, $baseUrl, $apiKey, $itemId, $retryEnrichSuffix, (string)($item['video_aspect_ratio'] ?? '9:16'));
 
     $ac['scenes'] = $scenes;
     $db->prepare('UPDATE content_items SET article_content=?, updated_at=NOW() WHERE id=? AND tenant_id=?')
@@ -2014,7 +2040,7 @@ if ($action === 'generate-scene-video-prompt' && $method === 'POST') {
     $sceneIndex = isset($body['scene_index']) ? (int)$body['scene_index'] : null;
     if (!$itemId || $sceneIndex === null) jsonError('Missing item_id or scene_index');
 
-    $itemStmt = $db->prepare('SELECT id, title, article_content, image_style FROM content_items WHERE id=? AND tenant_id=?');
+    $itemStmt = $db->prepare('SELECT id, title, article_content, image_style, video_aspect_ratio FROM content_items WHERE id=? AND tenant_id=?');
     $itemStmt->execute([$itemId, $tenantId]);
     $item = $itemStmt->fetch();
     if (!$item) jsonError('ไม่พบ content item', 404);
@@ -2744,10 +2770,12 @@ if ($action === 'generate-article') {
     if ($isVideo) {
         $storedScriptStyle = normalizeVideoScriptStyle($item['script_style'] ?? 'ai');
         $storedDuration = normalizeVideoDuration($item['duration_sec'] ?? 60);
+        $storedAspect = kieVideoNormalizeAspect($item['video_aspect_ratio'] ?? null);
         $baseCtx .= "Video Script Style (selected by user): {$storedScriptStyle}\n" .
             "SCRIPT STYLE REQUIREMENT: " . videoScriptStyleInstruction($storedScriptStyle) . "\n" .
             "Video Duration (selected by user): {$storedDuration} seconds\n" .
-            "DURATION REQUIREMENT: " . videoDurationInstruction($storedDuration) . "\n\n";
+            "DURATION REQUIREMENT: " . videoDurationInstruction($storedDuration) . "\n" .
+            "VIDEO ASPECT RATIO: " . videoAspectInstruction($storedAspect) . "\n\n";
     }
     if ($researchBrief && $researchJob) {
         $selectedKeywords = array_values(array_filter($researchKeywords, static fn(array $row): bool => (int)($row['is_selected'] ?? 0) === 1));
@@ -2823,7 +2851,7 @@ if ($action === 'generate-article') {
                    '"headlines":{"viral_clickbait":[{"title":"หัวข้อ hook","hook":"ประโยคเปิด"}],"storytelling":[{"title":"หัวข้อ","hook":"hook"}],"educational":[{"title":"หัวข้อ","hook":"hook"}]},' .
                    '"scripts":' . $scriptSchema . ',' .
                    $videoScriptSectionsSchema .
-                   '"visuals":[{"visual":"Scene 1: คำอธิบายภาพ/การถ่าย","motion":"คำสั่งการเคลื่อนไหวกล้อง/subject ของฉากนี้ สำหรับใช้สร้างวิดีโอ เช่น กล้อง zoom เข้าช้าๆ, pan ซ้ายไปขวา"},{"visual":"Scene 2: คำอธิบายภาพ/การถ่าย","motion":"คำสั่งการเคลื่อนไหวของฉากนี้"}, "... (จำนวน scene ตามความเหมาะสมของเนื้อหา ไม่บังคับตายตัว)"],' .
+                   '"visuals":[{"visual":"Scene 1: คำอธิบายภาพ/การถ่าย","motion":"คำสั่งการเคลื่อนไหวกล้อง/subject ของฉากนี้ สำหรับใช้สร้างวิดีโอ เช่น กล้อง zoom เข้าช้าๆ, pan ซ้ายไปขวา","narration":"บทพากย์ Hook ภาษาไทย ไม่เกิน 100 ตัวอักษร","duration_sec":' . KIE_VIDEO_TARGET_CLIP_SEC . '},{"visual":"Scene 2: คำอธิบายภาพ/การถ่าย","motion":"คำสั่งการเคลื่อนไหวของฉากนี้","narration":"บทพากย์ต่อจากฉากก่อน หรือ \"\" ถ้าฉากนี้เน้นโชว์ภาพไม่ต้องพูด","duration_sec":' . KIE_VIDEO_TARGET_CLIP_SEC . '}, "... (ต้องมีครบ EXACTLY ' . videoSceneCount($storedDuration) . ' ฉาก ตาม DURATION REQUIREMENT ฉากสุดท้ายเป็น CTA ที่มี narration)"],' .
                    '"structured_data":{"@context":"https://schema.org","@type":"VideoObject","name":"...","description":"..."},' .
                    '"hashtags":["#hashtag1","#hashtag2","... (จำนวน hashtag ตามความเหมาะสมของเนื้อหา ไม่บังคับตายตัว)"]}' . "\n\nSEO Checklist Requirements (single source of truth):\n{$seoRequirementsText}\n\nAEO Checklist Requirements (single source of truth):\n" . aeo_generation_requirements() . "\n\n{$platformScriptGuidance}";
     } else {
@@ -3695,14 +3723,15 @@ if ($action === 'generate-video' && $method === 'POST') {
     $itemId = $body['item_id'] ?? null;
     if (!$itemId) jsonError('Missing item_id');
 
-    // Seedance ไม่รองรับ Auto — รับแค่ 9:16 | 16:9 และ 720p | 1080p (ค่าอื่นใช้ค่าเริ่มต้น)
-    $aspectRatio = kieVideoNormalizeAspect($body['aspect_ratio'] ?? null);
-    $resolution  = kieVideoNormalizeResolution($body['resolution'] ?? null);
-
-    $itemStmt = $db->prepare('SELECT id, title, article_content FROM content_items WHERE id=? AND tenant_id=?');
+    $itemStmt = $db->prepare('SELECT id, title, article_content, video_aspect_ratio, video_resolution FROM content_items WHERE id=? AND tenant_id=?');
     $itemStmt->execute([$itemId, $tenantId]);
     $item = $itemStmt->fetch();
-    if (!$item) jsonError('��辺 content item', 404);
+    if (!$item) jsonError('ไม่พบ content item', 404);
+
+    // อัตราส่วน/ความละเอียดวิดีโอเลือกตอนสร้างคอนเทนต์แล้วล็อก — อ่านจาก content item เท่านั้น
+    // (ไม่รับจาก request) NULL/ค่าที่ไม่รู้จัก → 9:16 / 720p
+    $aspectRatio = kieVideoNormalizeAspect($item['video_aspect_ratio'] ?? null);
+    $resolution  = kieVideoNormalizeResolution($item['video_resolution'] ?? null);
 
     $ac = json_decode($item['article_content'] ?? '{}', true);
     $scenes = $ac['scenes'] ?? [];
@@ -3759,7 +3788,8 @@ if ($action === 'generate-video' && $method === 'POST') {
 
     try {
         $taskId = kieVideoSubmit($videoModel, [
-            'prompt'       => $firstVideoPrompt,
+            // video_prompt + บทพากย์ของฉาก (ถ้ามี) — ให้ Veo/Seedance พูดบทพากย์ภาษาไทยในคลิปเอง
+            'prompt'       => kieVideoComposePrompt($firstVideoPrompt, (string)($firstScene['narration'] ?? '')),
             'aspect_ratio' => $aspectRatio,
             'resolution'   => $resolution,
             'image_url'    => $sceneImageUrl,

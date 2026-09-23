@@ -124,16 +124,45 @@ describe('QuickCreateDialog direct generation mode', () => {
     fireEvent.click(await screen.findByRole('button', { name: /วีดีโอสคริปต์/ }));
     fireEvent.change(await screen.findByPlaceholderText(/5 วิธีใช้ AI สร้างรายได้/), { target: { value: 'AI Automation' } });
     fireEvent.click(screen.getByRole('button', { name: /VSL/ }));
-    fireEvent.click(screen.getByRole('button', { name: '3min' }));
+    fireEvent.click(screen.getByRole('button', { name: '90s' }));
+    fireEvent.click(screen.getByRole('radio', { name: /16:9/ }));
+    fireEvent.click(screen.getByRole('radio', { name: '1080p' }));
     fireEvent.click(screen.getByRole('button', { name: /สร้างวีดีโอสคริปต์/ }));
 
     await waitFor(() => expect(findBody(bodies, 'action=generate-plan')).toBeTruthy());
     const plan = findBody(bodies, 'action=generate-plan')!;
     expect(plan.script_style).toBe('vsl');
-    expect(plan.duration).toBe(180);
+    expect(plan.duration).toBe(90);
+    expect(plan.aspect_ratio).toBe('16:9');
+    expect(plan.resolution).toBe('1080p');
     expect(plan.trigger_command).toBe('AI Automation [VIDEO]');
     expect(plan.trigger_command).not.toContain('[script:');
     expect(plan.trigger_command).not.toContain('[duration:');
+  });
+
+  // spec: video-creation-options — ความยาว 4 ค่า + อัตราส่วน/ความละเอียดวิดีโอค่าเริ่มต้น 9:16 / 720p
+  it('ตัวเลือกวิดีโอ: ความยาว 30s/45s/60s/90s, ชื่อหัวข้อชัดเจน และส่งค่าเริ่มต้น 9:16 / 720p', async () => {
+    const bodies = mockApi();
+    renderDialog();
+
+    fireEvent.click(await screen.findByRole('button', { name: /วีดีโอสคริปต์/ }));
+    expect(screen.getByText('ความยาววิดีโอ')).toBeTruthy();
+    expect(screen.getByText('อัตราส่วนวิดีโอ')).toBeTruthy();
+    expect(screen.getByText('ความละเอียดวิดีโอ')).toBeTruthy();
+    for (const d of ['30s', '45s', '60s', '90s']) expect(screen.getByRole('button', { name: d })).toBeTruthy();
+    for (const d of ['15s', '3min', '10min+']) expect(screen.queryByRole('button', { name: d })).toBeNull();
+    expect(screen.getByText('≈56 วิ · 7 ฉาก')).toBeTruthy();
+    expect(screen.getByTestId('aspect-shape-16:9')).toBeTruthy();
+    expect(screen.getByTestId('aspect-shape-9:16')).toBeTruthy();
+
+    fireEvent.change(await screen.findByPlaceholderText(/5 วิธีใช้ AI สร้างรายได้/), { target: { value: 'AI Automation' } });
+    fireEvent.click(screen.getByRole('button', { name: /สร้างวีดีโอสคริปต์/ }));
+
+    await waitFor(() => expect(findBody(bodies, 'action=generate-plan')).toBeTruthy());
+    const plan = findBody(bodies, 'action=generate-plan')!;
+    expect(plan.duration).toBe(60);
+    expect(plan.aspect_ratio).toBe('9:16');
+    expect(plan.resolution).toBe('720p');
   });
 
   it('ใช้ Original User Topic เป็น seed ของ Research ไม่ใช่ topic ที่ AI เขียนใหม่', async () => {

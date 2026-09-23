@@ -9,8 +9,10 @@ import type { ContentPlan } from '@/components/content/types';
 import {
   getTriggerDisplayLabel, PLATFORM_MAP,
   ARTICLE_TONE_OPTIONS, VIDEO_SCRIPT_STYLE_OPTIONS, VIDEO_DURATION_OPTIONS, VIDEO_DURATION_SECONDS,
-  IMAGE_STYLE_OPTIONS,
+  IMAGE_STYLE_OPTIONS, VIDEO_RESOLUTION_OPTIONS, videoDurationHint,
+  type VideoAspectRatio, type VideoResolution,
 } from '@/components/content/types';
+import AspectRatioPicker from '@/components/content/AspectRatioPicker';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -37,7 +39,9 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
     autoSkillIds: [] as string[], contextIds: [] as string[], language: '', openSettings: false,
     tone: 'ai' as 'ai' | 'friendly' | 'formal' | 'educational' | 'storytelling',
     scriptStyle: 'ai' as 'ai' | 'hook-story' | 'educational' | 'storytelling' | 'vsl',
-    duration: '60s' as '15s' | '30s' | '60s' | '3min' | '10min+',
+    duration: '60s' as typeof VIDEO_DURATION_OPTIONS[number],
+    aspectRatio: '9:16' as VideoAspectRatio,
+    resolution: '720p' as VideoResolution,
     imageStyle: 'ai' as string,
     imageStyleCustomText: '',
   });
@@ -212,7 +216,7 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
             image_style: topicConfig.imageStyle === 'custom' ? topicConfig.imageStyleCustomText.trim() : topicConfig.imageStyle,
             ...(topicConfig.contentType === 'article'
               ? { tone: topicConfig.tone }
-              : { script_style: topicConfig.scriptStyle, duration: VIDEO_DURATION_SECONDS[topicConfig.duration] }),
+              : { script_style: topicConfig.scriptStyle, duration: VIDEO_DURATION_SECONDS[topicConfig.duration], aspect_ratio: topicConfig.aspectRatio, resolution: topicConfig.resolution }),
           }),
         });
 
@@ -371,7 +375,7 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
                         {item.contentType === 'article' ? (
                           <span className="rounded-full border bg-background px-2 py-0.5 font-medium">{ARTICLE_TONE_OPTIONS.find(o => o.value === item.tone)?.label ?? item.tone}</span>
                         ) : (
-                          <span className="rounded-full border bg-background px-2 py-0.5 font-medium">{VIDEO_SCRIPT_STYLE_OPTIONS.find(o => o.value === item.scriptStyle)?.label ?? item.scriptStyle} · {item.duration}</span>
+                          <span className="rounded-full border bg-background px-2 py-0.5 font-medium">{VIDEO_SCRIPT_STYLE_OPTIONS.find(o => o.value === item.scriptStyle)?.label ?? item.scriptStyle} · {item.duration} · {item.aspectRatio} · {item.resolution}</span>
                         )}
                         <span className={cn('rounded-full border bg-background px-2 py-0.5 font-medium', item.triggerIds.length === 0 && 'opacity-50')}>Trigger: {item.triggerIds.length}</span>
                         <span className={cn('rounded-full border bg-background px-2 py-0.5 font-medium', item.skillIds.length === 0 && 'opacity-50')}>Skill: {item.skillIds.length}</span>
@@ -457,8 +461,8 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
                                 </div>
                               </div>
                               <div className="space-y-1.5">
-                                <Label>ความยาววีดีโอ</Label>
-                                <div className="flex gap-2 flex-wrap">
+                                <Label>ความยาววิดีโอ</Label>
+                                <div className="flex gap-2 flex-wrap items-center">
                                   {VIDEO_DURATION_OPTIONS.map(d => (
                                     <button key={d} type="button" onClick={() => setTopics(rows => rows.map((row, i) => i === index ? { ...row, duration: d } : row))}
                                       className={cn('px-3 py-1.5 rounded-lg border text-xs font-medium transition-all',
@@ -466,6 +470,26 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
                                           ? 'border-primary bg-primary/10 text-primary'
                                           : 'border-border hover:bg-muted')}>
                                       {d}
+                                    </button>
+                                  ))}
+                                  <span className="text-[11px] text-muted-foreground">{videoDurationHint(VIDEO_DURATION_SECONDS[item.duration])}</span>
+                                </div>
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label>อัตราส่วนวิดีโอ</Label>
+                                <AspectRatioPicker compact value={item.aspectRatio} onChange={v => setTopics(rows => rows.map((row, i) => i === index ? { ...row, aspectRatio: v } : row))} />
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label>ความละเอียดวิดีโอ</Label>
+                                <div className="flex gap-2 flex-wrap" role="radiogroup" aria-label="ความละเอียดวิดีโอ">
+                                  {VIDEO_RESOLUTION_OPTIONS.map(opt => (
+                                    <button key={opt.value} type="button" role="radio" aria-checked={item.resolution === opt.value} title={opt.desc}
+                                      onClick={() => setTopics(rows => rows.map((row, i) => i === index ? { ...row, resolution: opt.value } : row))}
+                                      className={cn('px-3 py-1.5 rounded-lg border text-xs font-medium transition-all',
+                                        item.resolution === opt.value
+                                          ? 'border-primary bg-primary/10 text-primary'
+                                          : 'border-border hover:bg-muted')}>
+                                      {opt.label}
                                     </button>
                                   ))}
                                 </div>
@@ -612,7 +636,7 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
                           {item.contentType === 'article' ? (
                             <span className="rounded-full border bg-background px-2 py-0.5 font-medium">{ARTICLE_TONE_OPTIONS.find(o => o.value === item.tone)?.label ?? item.tone}</span>
                           ) : (
-                            <span className="rounded-full border bg-background px-2 py-0.5 font-medium">{VIDEO_SCRIPT_STYLE_OPTIONS.find(o => o.value === item.scriptStyle)?.label ?? item.scriptStyle} · {item.duration}</span>
+                            <span className="rounded-full border bg-background px-2 py-0.5 font-medium">{VIDEO_SCRIPT_STYLE_OPTIONS.find(o => o.value === item.scriptStyle)?.label ?? item.scriptStyle} · {item.duration} · {item.aspectRatio} · {item.resolution}</span>
                           )}
                           <span className="rounded-full border bg-background px-2 py-0.5 font-medium">Trigger: {item.triggerIds.length}</span>
                           <span className="rounded-full border bg-background px-2 py-0.5 font-medium">Skill: {item.skillIds.length}</span>

@@ -5,12 +5,52 @@ import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
 import { apiFetch } from '@/lib/api';
+import { cn } from '@/lib/utils';
+
+/** บทพากย์ฉาก 8 วินาที — ภาษาไทยพูดได้ราว 12.7 ตัวอักษร/วินาที (วัดจาก TTS จริง) */
+export const NARRATION_MAX_CHARS = 100;
+
+/**
+ * ช่องแก้บทพากย์ของฉาก + ตัวนับตัวอักษร + คำเตือนเมื่อยาวเกิน (ไม่บล็อกการบันทึก)
+ * ใช้ร่วมกันระหว่าง "ลำดับฉาก" ใน ContentCardDialog และ scene card ใน ContentVideoView
+ */
+export function NarrationField({ index, value, onChange, disabled = false, durationSec }: {
+  index: number;
+  value: string;
+  onChange?: (value: string) => void;
+  disabled?: boolean;
+  durationSec?: number;
+}) {
+  const length = [...value].length;
+  const tooLong = length > NARRATION_MAX_CHARS;
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] text-muted-foreground">🎙 บทพากย์</span>
+        <span data-testid={`narration-count-${index}`}
+          className={cn('text-[10px]', tooLong ? 'text-amber-600 dark:text-amber-400 font-medium' : 'text-muted-foreground')}>
+          {length}/{NARRATION_MAX_CHARS}
+        </span>
+      </div>
+      <Textarea value={value} disabled={disabled} aria-label={`บทพากย์ฉากที่ ${index + 1}`}
+        onChange={e => onChange?.(e.target.value)}
+        placeholder="บทพากย์ภาษาไทยของฉากนี้ (ผู้บรรยายในวิดีโอจะพูดตามนี้) — เว้นว่างได้ถ้าฉากนี้ไม่ต้องพูด"
+        className="min-h-[48px] text-xs resize-y" />
+      {tooLong && (
+        <p className="text-[10px] text-amber-600 dark:text-amber-400">บทพากย์ยาวเกิน {NARRATION_MAX_CHARS} ตัวอักษร อาจพูดไม่จบใน {durationSec ?? 8} วินาที</p>
+      )}
+    </div>
+  );
+}
 
 export type SceneImageStatus = 'none' | 'done' | 'failed';
 
 export interface Scene {
   visual_prompt?: string;
   video_prompt?: string;
+  /** บทพากย์ภาษาไทยของฉาก (≤ 100 ตัวอักษร เพื่อพูดจบใน 8 วินาที) */
+  narration?: string;
+  duration_sec?: number;
   shot?: string;
   image_url?: string | null;
   image_gen_status?: SceneImageStatus;
@@ -37,6 +77,9 @@ export default function SceneCards({
   videoPromptDrafts,
   onVideoPromptChange,
   onVideoPromptGenerated,
+  narrationDrafts,
+  onNarrationChange,
+  showNarration = true,
 }: {
   itemId: string;
   scenes: Scene[];
@@ -50,6 +93,11 @@ export default function SceneCards({
   onVideoPromptChange?: (index: number, value: string) => void;
   /** เรียกหลัง AI เขียน video_prompt สำเร็จ ให้ parent เคลียร์ draft ทิ้งเพื่อกลับไปอ่านค่าที่ persist แล้วจาก scene */
   onVideoPromptGenerated?: (index: number) => void;
+  /** ค่า draft ของบทพากย์ต่อ scene index — ควบคุมจาก parent แบบเดียวกับ videoPromptDrafts */
+  narrationDrafts?: Record<number, string>;
+  onNarrationChange?: (index: number, value: string) => void;
+  /** false = ไม่แสดงช่องบทพากย์ในการ์ด (ContentCardDialog แก้บทพากย์ที่ "ลำดับฉาก" แทน — มีที่แก้ที่เดียว) */
+  showNarration?: boolean;
 }) {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -109,6 +157,7 @@ export default function SceneCards({
       {scenes.map((scene, idx) => {
         const status = deriveSceneImageStatus(scene);
         const videoPromptDraft = videoPromptDrafts?.[idx] ?? scene.video_prompt ?? '';
+        const narrationDraft = narrationDrafts?.[idx] ?? scene.narration ?? '';
         const isRetrying = retryingSceneIndex === idx;
         const isWritingPrompt = writingPromptIndex === idx;
         const isStale = !!staleImageIndexes?.has(idx);
@@ -156,6 +205,10 @@ export default function SceneCards({
                   placeholder="คำสั่งการเคลื่อนไหว/มุมกล้องของฉากนี้..."
                   className="min-h-[70px] text-xs resize-y" />
               </div>
+              {showNarration && (
+                <NarrationField index={idx} value={narrationDraft} disabled={readOnly}
+                  durationSec={scene.duration_sec} onChange={v => onNarrationChange?.(idx, v)} />
+              )}
               {!readOnly && (
                 <Button variant="outline" size="sm" className="w-full" disabled={isWritingPrompt}
                   onClick={() => handleWriteVideoPrompt(idx)}>

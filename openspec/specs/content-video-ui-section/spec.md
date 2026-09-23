@@ -28,19 +28,19 @@
 - **THEN** ระบบแสดง video player แบบ inline (ไม่เปลี่ยนจากพฤติกรรมเดิม)
 
 ### Requirement: เลือกสัดส่วนวิดีโอก่อนสร้าง
-หัวข้อ "วิดีโอ" SHALL มี selector สัดส่วนวิดีโอ (`9:16` / `16:9`) และ selector ความละเอียด (`720p` / `1080p`) ก่อนกดปุ่ม "สร้างวิดีโอด้วย AI" — ค่าที่เลือก SHALL ถูกส่งไปกับคำขอ `generate-video` เป็น `aspect_ratio` และ `resolution` — SHALL ไม่มีตัวเลือก `Auto` — SHALL ไม่ persist ค่าเหล่านี้ลงฐานข้อมูลใน change นี้ (change A1 จะย้ายไปเก็บที่ content item)
+หัวข้อ "วิดีโอ" SHALL แสดงอัตราส่วนวิดีโอและความละเอียดวิดีโอของ content item เป็น badge อ่านอย่างเดียว เช่น `9:16 · 1080p` (NULL → `9:16 · 720p`) โดยมีรูปสี่เหลี่ยมขนาดเล็กตามอัตราส่วนจริงนำหน้า (component เดียวกับตัวเลือกตอนสร้างคอนเทนต์) พร้อม tooltip "อัตราส่วนวิดีโอ · ความละเอียดวิดีโอ (กำหนดตอนสร้างคอนเทนต์)" — SHALL ไม่มี selector สัดส่วนหรือความละเอียดในหัวข้อวิดีโออีกต่อไป เพราะค่าถูกเลือกและล็อกตั้งแต่ตอนสร้างคอนเทนต์ (ดู capability `video-creation-options`) — คำขอ `generate-video` SHALL ส่งแค่ `item_id`
 
-#### Scenario: เลือกสัดส่วนและความละเอียดแล้วกดสร้าง
-- **WHEN** ผู้ใช้เลือก "16:9" และ "1080p" แล้วกด "สร้างวิดีโอด้วย AI"
-- **THEN** คำขอที่ส่งไป backend SHALL มี `aspect_ratio: "16:9"` และ `resolution: "1080p"`
+#### Scenario: แสดง badge
+- **WHEN** ผู้ใช้เปิดหัวข้อ "วิดีโอ" ของคอนเทนต์ที่ `video_aspect_ratio = '16:9'`, `video_resolution = '1080p'`
+- **THEN** SHALL เห็น badge `16:9 · 1080p` และไม่มีปุ่มเลือกสัดส่วนหรือความละเอียด
 
-#### Scenario: ค่าเริ่มต้นของ selector
-- **WHEN** ผู้ใช้เปิดหัวข้อ "วิดีโอ" ครั้งแรกโดยยังไม่เคยเลือก
-- **THEN** selector สัดส่วน SHALL แสดง `9:16` และ selector ความละเอียด SHALL แสดง `720p`
+#### Scenario: คอนเทนต์เก่า
+- **WHEN** ผู้ใช้เปิดหัวข้อ "วิดีโอ" ของคอนเทนต์ที่ยังไม่มีสองค่านี้
+- **THEN** SHALL เห็น badge `9:16 · 720p`
 
-#### Scenario: ไม่มีตัวเลือก Auto
-- **WHEN** ผู้ใช้เปิด selector สัดส่วน
-- **THEN** SHALL มีแค่ `9:16` และ `16:9`
+#### Scenario: กดสร้างวิดีโอ
+- **WHEN** ผู้ใช้กด "สร้างวิดีโอด้วย AI"
+- **THEN** คำขอที่ส่งไป backend SHALL มีแค่ `item_id` — SHALL ไม่มี `aspect_ratio` หรือ `resolution`
 
 ### Requirement: ปุ่ม "AI เขียน Video Prompt" ต่อ scene ที่ยังว่าง
 แต่ละ scene card ที่ `video_prompt` ว่างเปล่า SHALL มีปุ่ม "AI เขียน Video Prompt" ที่เรียก action `generate-scene-video-prompt` — ปุ่มนี้ SHALL แสดงในทุก scene (ไม่จำกัดแค่ scene แรก) เพื่อความสอดคล้องกับ scene card อื่นที่ใช้ component เดียวกัน
@@ -150,3 +150,25 @@ Scene cards SHALL แสดงใน**ทั้งสองจุด**ที่�
 #### Scenario: ไม่ได้กำลังสร้าง
 - **WHEN** content item มี `video_gen_status` เป็น `done`, `failed` หรือ `none`
 - **THEN** dialog SHALL ไม่เรียก `video-status`
+
+### Requirement: ลำดับฉากแก้ไขบทพากย์ได้ใต้แต่ละฉาก
+ในหัวข้อ "วิดีโอ" ของ `ContentCardDialog` ช่อง "ลำดับฉาก" SHALL แสดงช่อง "บทพากย์" (`narration`) แก้ไขได้ใต้คำบรรยายภาพของแต่ละฉาก พร้อมตัวนับตัวอักษร เพื่อให้อ่านเป็น storyboard (ภาพ + บทพูด) ได้ในที่เดียว — เมื่อเกิน 100 ตัวอักษร SHALL แสดงคำเตือนภาษาไทยว่าอาจพูดไม่จบใน 8 วินาที (ไม่บล็อกการบันทึก)
+- **ก่อนมี scenes**: ค่า SHALL มาจากและบันทึกลง `article_content.visuals[i].narration` ผ่านปุ่ม "บันทึก" หลัก (entry แบบ string SHALL ถูกแปลงเป็น object `{visual, narration}` เมื่อมีบทพากย์) — `_visualsToScenes` คัดลอกไปยัง scene เมื่อสร้างภาพ
+- **หลังมี scenes**: ค่า SHALL มาจากและบันทึกลง `scenes[i].narration` ผ่าน `update-scene` เมื่อกดปุ่ม "บันทึก" หลัก
+- scene card ใน `ContentCardDialog` SHALL ไม่แสดงช่องบทพากย์ซ้ำ (มีที่แก้ที่เดียว) — scene card ใน `ContentVideoView` (หน้าอนุมัติ ไม่มีลำดับฉาก) SHALL แสดงบทพากย์พร้อมตัวนับต่อไป
+
+#### Scenario: แก้บทพากย์ก่อนสร้างภาพ
+- **WHEN** คอนเทนต์ยังไม่มี scenes และผู้ใช้แก้บทพากย์ของฉากที่ 2 ในลำดับฉากแล้วกด "บันทึก"
+- **THEN** `article_content.visuals[1].narration` SHALL เป็นค่าใหม่ และ `visual`/`motion` เดิมของฉากนั้นไม่เปลี่ยน
+
+#### Scenario: แก้บทพากย์หลังสร้างภาพ
+- **WHEN** คอนเทนต์มี scenes แล้วและผู้ใช้แก้บทพากย์ของฉากที่ 1 ในลำดับฉากแล้วกด "บันทึก"
+- **THEN** ระบบ SHALL เรียก `update-scene` พร้อม `narration` ของฉากนั้น
+
+#### Scenario: ไม่มีช่องบทพากย์ซ้ำใน dialog
+- **WHEN** คอนเทนต์มี scenes และผู้ใช้เปิด dialog แก้ไข
+- **THEN** ช่องบทพากย์ SHALL อยู่ใต้แต่ละฉากในลำดับฉากเท่านั้น — scene card SHALL แสดงภาพและ Video Prompt แต่ไม่มีช่องบทพากย์
+
+#### Scenario: บทพากย์ยาวเกิน
+- **WHEN** บทพากย์ของฉากยาว 130 ตัวอักษร
+- **THEN** SHALL แสดงตัวนับ `130/100` และคำเตือนว่าอาจพูดไม่จบใน 8 วินาที

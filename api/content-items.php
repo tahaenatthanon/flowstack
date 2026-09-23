@@ -60,6 +60,8 @@ if ($method === 'GET') {
                       ci.video_gen_status,
                       ci.video_job_id,
                       ci.video_url,
+                      ci.video_aspect_ratio,
+                      ci.video_resolution,
                       ci.seo_title,
                       ci.seo_score,
                       ci.aeo_score,

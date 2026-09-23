@@ -153,6 +153,28 @@ flock($held, LOCK_UN); fclose($held);
 array_map('unlink', glob($tmpDir . '/*'));
 if (is_dir($tmpDir)) @rmdir($tmpDir);
 
+// ═══════════════════ ความยาว / จำนวนฉาก (video-creation-options) ═════════
+$counts = array_map('videoSceneCount', [30, 45, 60, 90]);
+$pass = $counts === [4, 6, 7, 11];
+record('TC23', 'videoSceneCount 30/45/60/90', '4/6/7/11', implode('/', $counts), $pass); tally($pass);
+
+$norm = [normalizeVideoDuration(30), normalizeVideoDuration('45'), normalizeVideoDuration(90), normalizeVideoDuration(180), normalizeVideoDuration(15), normalizeVideoDuration(null)];
+$pass = $norm === [30, 45, 90, 60, 60, 60];
+record('TC24', 'normalizeVideoDuration รับแค่ 30/45/60/90', '30/45/90/60/60/60', implode('/', $norm), $pass); tally($pass);
+
+// ═══════════════════ prompt + บทพากย์ (video-creation-options) ═══════════
+$p1 = kieVideoComposePrompt('slow push-in on a laptop.', 'คุณกำลังจ่ายค่า AI ซ้ำซ้อนอยู่หรือเปล่า?');
+$pass = $p1 === 'slow push-in on a laptop. A Thai narrator speaks in Thai, clearly and naturally: "คุณกำลังจ่ายค่า AI ซ้ำซ้อนอยู่หรือเปล่า?"';
+record('TC25', 'มีบทพากย์ → ต่อท้ายคำสั่งพูดไทย + บทตรงตัว', 'video_prompt. A Thai narrator … "บท"', $p1, $pass); tally($pass);
+
+$p2 = kieVideoComposePrompt('pan left to right', '   ');
+$pass = $p2 === 'pan left to right';
+record('TC26', 'บทพากย์ว่าง → video_prompt เดิม', 'pan left to right', $p2, $pass); tally($pass);
+
+$p3 = kieVideoComposePrompt('zoom in', 'เขาบอกว่า "ลองเลย" สิ');
+$pass = str_ends_with($p3, ': "เขาบอกว่า "ลองเลย" สิ"');
+record('TC27', 'บทพากย์มีเครื่องหมายคำพูด → คงไว้ตรงตัว ไม่แปลง/ไม่ตัด', 'ลงท้ายด้วยบทเดิมครบ', $p3, $pass); tally($pass);
+
 // ═══════════════════ Load model จาก DB local (ต้องรัน migration แล้ว) ═════
 $db = getDB();
 $liteId = $db->query("SELECT id FROM ai_models WHERE provider_id='provider-kieai' AND model_id='veo3_lite'")->fetchColumn();

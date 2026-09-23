@@ -10,8 +10,10 @@ import type { ContentPlan } from '@/components/content/types';
 import {
   getTriggerDisplayLabel, PLATFORM_MAP,
   ARTICLE_TONE_OPTIONS, VIDEO_SCRIPT_STYLE_OPTIONS, VIDEO_DURATION_OPTIONS, VIDEO_DURATION_SECONDS,
-  IMAGE_STYLE_OPTIONS,
+  IMAGE_STYLE_OPTIONS, VIDEO_RESOLUTION_OPTIONS, videoDurationHint,
+  type VideoAspectRatio, type VideoResolution,
 } from '@/components/content/types';
+import AspectRatioPicker from '@/components/content/AspectRatioPicker';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -33,7 +35,9 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
   const [scriptStyle, setScriptStyle] = useState<'ai' | 'hook-story' | 'educational' | 'storytelling' | 'vsl'>('ai');
   const [imageStyle, setImageStyle]   = useState<string>('ai');
   const [imageStyleCustomText, setImageStyleCustomText] = useState('');
-  const [duration, setDuration]       = useState<'15s' | '30s' | '60s' | '3min' | '10min+'>('60s');
+  const [duration, setDuration]       = useState<typeof VIDEO_DURATION_OPTIONS[number]>('60s');
+  const [aspectRatio, setAspectRatio] = useState<VideoAspectRatio>('9:16');
+  const [resolution, setResolution]   = useState<VideoResolution>('720p');
   const [selTriggerIds, setSelTriggerIds] = useState<string[]>([]);
   const [selSkillIds, setSelSkillIds]   = useState<string[]>([]);
   const [autoSkillIds, setAutoSkillIds] = useState<string[]>([]);
@@ -57,7 +61,7 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
 
   const handleReset = () => {
     setContentType(null); setTopic(''); setSelPlatforms([]); setTone('ai');
-    setScriptStyle('ai'); setDuration('60s'); setImageStyle('ai'); setImageStyleCustomText('');
+    setScriptStyle('ai'); setDuration('60s'); setAspectRatio('9:16'); setResolution('720p'); setImageStyle('ai'); setImageStyleCustomText('');
     setSelTriggerIds([]); setSelSkillIds([]); setAutoSkillIds([]); setSelContextIds([]);
     setTriggerSearch(''); setSkillSearch(''); setStep('type'); setDoneTitle('');
   };
@@ -128,7 +132,7 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
           image_style: imageStyle === 'custom' ? imageStyleCustomText.trim() : imageStyle,
           ...(contentType === 'article'
             ? { tone }
-            : { script_style: scriptStyle, duration: VIDEO_DURATION_SECONDS[duration] }),
+            : { script_style: scriptStyle, duration: VIDEO_DURATION_SECONDS[duration], aspect_ratio: aspectRatio, resolution }),
         }),
       });
       if (cancelledRef.current) {
@@ -203,7 +207,7 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
       : 'ทั้งหมด';
     const styleLabel = contentType === 'article'
       ? ARTICLE_TONE_OPTIONS.find(opt => opt.value === tone)?.label ?? tone
-      : `${VIDEO_SCRIPT_STYLE_OPTIONS.find(opt => opt.value === scriptStyle)?.label ?? scriptStyle} · ${duration}`;
+      : `${VIDEO_SCRIPT_STYLE_OPTIONS.find(opt => opt.value === scriptStyle)?.label ?? scriptStyle} · ${duration} · ${aspectRatio} · ${resolution}`;
     return `หัวข้อ: "${topic.trim()}" · แพลตฟอร์ม: ${platformLabel} · ${styleLabel} — AI จะใช้เวลาประมาณ 30-60 วินาที`;
   };
 
@@ -393,8 +397,8 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
                   </div>
                 </div>
                 <div className="space-y-1.5">
-                  <Label>ความยาววีดีโอ</Label>
-                  <div className="flex gap-2 flex-wrap">
+                  <Label>ความยาววิดีโอ</Label>
+                  <div className="flex gap-2 flex-wrap items-center">
                     {VIDEO_DURATION_OPTIONS.map(d => (
                       <button key={d} type="button" onClick={() => setDuration(d)}
                         className={cn('px-3 py-1.5 rounded-lg border text-xs font-medium transition-all',
@@ -404,7 +408,28 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
                         {d}
                       </button>
                     ))}
+                    <span className="text-[11px] text-muted-foreground">{videoDurationHint(VIDEO_DURATION_SECONDS[duration])}</span>
                   </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>อัตราส่วนวิดีโอ</Label>
+                  <AspectRatioPicker value={aspectRatio} onChange={setAspectRatio} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>ความละเอียดวิดีโอ</Label>
+                  <div className="flex gap-2 flex-wrap" role="radiogroup" aria-label="ความละเอียดวิดีโอ">
+                    {VIDEO_RESOLUTION_OPTIONS.map(opt => (
+                      <button key={opt.value} type="button" role="radio" aria-checked={resolution === opt.value}
+                        title={opt.desc} onClick={() => setResolution(opt.value)}
+                        className={cn('px-3 py-1.5 rounded-lg border text-xs font-medium transition-all',
+                          resolution === opt.value
+                            ? 'border-primary bg-primary/10 text-primary'
+                            : 'border-border hover:bg-muted')}>
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">อัตราส่วนและความละเอียดแก้ไขภายหลังไม่ได้</p>
                 </div>
               </>
             )}

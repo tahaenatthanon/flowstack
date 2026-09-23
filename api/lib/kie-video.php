@@ -16,6 +16,22 @@ const KIE_VIDEO_RESOLUTIONS   = ['720p', '1080p'];
 // จึงใช้ 8 วิเป็นความยาวเป้าหมายของทุกตระกูล
 const KIE_VIDEO_TARGET_CLIP_SEC = 8;
 
+// ── ความยาววิดีโอ / จำนวนฉาก (video-creation-options) ─────────────────────────
+// ตัวเลือกความยาวที่ผู้ใช้เลือกได้ — ทุกฉากยาว KIE_VIDEO_TARGET_CLIP_SEC (8 วิ) ไม่ขึ้นกับ model
+// เพื่อให้สคริปต์ใช้ได้กับทุก model วิดีโอที่เปิดใช้ แม้แอดมินเปลี่ยน model ภายหลัง
+const VIDEO_DURATIONS = [30, 45, 60, 90];
+
+/** Normalize requested video duration to seconds (30/45/60/90, อื่นๆ → 60). */
+function normalizeVideoDuration(mixed $raw): int {
+    $duration = (int)$raw;
+    return in_array($duration, VIDEO_DURATIONS, true) ? $duration : 60;
+}
+
+/** จำนวนฉาก = round(duration / 8) ปัดลงเมื่อห่างเท่ากัน → 30→4, 45→6, 60→7, 90→11 */
+function videoSceneCount(int $duration): int {
+    return max(1, (int)round($duration / KIE_VIDEO_TARGET_CLIP_SEC, 0, PHP_ROUND_HALF_DOWN));
+}
+
 function kieVideoNormalizeAspect(mixed $v): string {
     return in_array($v, KIE_VIDEO_ASPECT_RATIOS, true) ? $v : '9:16';
 }
@@ -39,6 +55,18 @@ function kieVideoClipDuration(array $video): int {
         return $best;
     }
     return $target;
+}
+
+/**
+ * ประกอบ prompt ที่ส่งให้ Veo/Seedance: video_prompt ของฉาก + คำสั่งให้ผู้บรรยายพูดบทพากย์ภาษาไทย
+ * ตรงตามที่บันทึกไว้ (ไม่แปล ไม่ตัดทอน) — ทดสอบแล้วว่า Veo 3.1 Lite พูดไทยได้ (video-creation-options 1.1)
+ * narration ว่าง → คืน video_prompt เดิม
+ */
+function kieVideoComposePrompt(string $videoPrompt, string $narration): string {
+    $videoPrompt = trim($videoPrompt);
+    $narration   = trim($narration);
+    if ($narration === '') return $videoPrompt;
+    return rtrim($videoPrompt, " .") . '. A Thai narrator speaks in Thai, clearly and naturally: "' . $narration . '"';
 }
 
 /**

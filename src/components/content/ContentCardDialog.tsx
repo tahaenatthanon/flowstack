@@ -8,11 +8,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { PlatformIcon } from '@/components/content/PlatformIcon';
 import { PlatformBadgeList } from '@/components/content/PlatformBadgeList';
-import SceneCards from '@/components/content/SceneCards';
+import SceneCards, { NarrationField } from '@/components/content/SceneCards';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import type { PlanItem } from '@/components/content/types';
-import { getCanonicalContentType, PLATFORM_MAP, platformsNeedScriptSections, VIDEO_ASPECT_RATIO_OPTIONS, VIDEO_RESOLUTION_OPTIONS } from '@/components/content/types';
+import { getCanonicalContentType, PLATFORM_MAP, platformsNeedScriptSections } from '@/components/content/types';
+import { VideoSpecBadge } from '@/components/content/AspectRatioPicker';
 import { getThaiDayName, formatThaiDate } from './calendarUtils';
 import { CalendarDays, Save, Trash2, Sparkles, ImagePlus, RefreshCw, Loader2, Image as ImageIcon, FileText, Hash, Lightbulb, Clapperboard, MessageSquare, Share2, BookOpen, ChevronDown, Video, Play, Send, ShieldCheck } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
@@ -103,14 +104,15 @@ export function ContentCardDialog({
   const [imageViewerOpen, setImageViewerOpen] = useState(false);
   const [generatingVideo, setGeneratingVideo] = useState(false);
   const [generatingScenes, setGeneratingScenes] = useState(false);
-  const [aspectRatio, setAspectRatio] = useState<string>('9:16');
-  const [resolution, setResolution] = useState<string>('720p');
   // "ลำดับฉาก" (visuals) แก้ไขได้ — draft ก่อนมี scenes, รวมบันทึกกับปุ่ม "บันทึก" หลัก
   const [visualsDraft, setVisualsDraft] = useState<string[] | null>(null);
+  // บทพากย์ของแต่ละฉากใน "ลำดับฉาก" ก่อนมี scenes — บันทึกลง article_content.visuals[i].narration
+  const [visualsNarrationDraft, setVisualsNarrationDraft] = useState<string[] | null>(null);
   // visual_prompt ต่อ scene (หลังมี scenes แล้ว) — key เป็น scene index
   const [scenesVisualPromptDraft, setScenesVisualPromptDraft] = useState<Record<number, string>>({});
   // video_prompt ต่อ scene — ไม่มีปุ่มบันทึกของตัวเองอีกต่อไป รวมกับปุ่ม "บันทึก" หลักเช่นกัน
   const [scenesVideoPromptDraft, setScenesVideoPromptDraft] = useState<Record<number, string>>({});
+  const [scenesNarrationDraft, setScenesNarrationDraft] = useState<Record<number, string>>({});
   // scene index ที่เพิ่งบันทึก visual_prompt ใหม่ แต่ภาพยังเป็นของเดิม
   const [staleImageIndexes, setStaleImageIndexes] = useState<Set<number>>(new Set());
   const [regeneratingSceneIndex, setRegeneratingSceneIndex] = useState<number | null>(null);
@@ -216,6 +218,7 @@ export function ContentCardDialog({
       let articleHtmlVal = '';
       let seoFieldsVal: SeoFields = emptySeoFields();
       let visualsVal: string[] = [];
+      let visualsNarrationVal: string[] = [];
       if (existingItem?.article_content) {
         try {
           const art = JSON.parse(existingItem.article_content);
@@ -233,15 +236,18 @@ export function ContentCardDialog({
                     : JSON.stringify(art.structured_data, null, 2))
                 : ''),
           };
-          const rawVisuals: Array<string | { visual?: string; motion?: string }> = Array.isArray(art.visuals) ? art.visuals : [];
+          const rawVisuals: Array<string | { visual?: string; motion?: string; narration?: string }> = Array.isArray(art.visuals) ? art.visuals : [];
           visualsVal = rawVisuals.map(v => (typeof v === 'string' ? v : (v?.visual ?? '')));
+          visualsNarrationVal = rawVisuals.map(v => (typeof v === 'string' ? '' : (v?.narration ?? '')));
         } catch { /* keep defaults */ }
       }
       setArticleHtml(articleHtmlVal);
       setSeoFields(seoFieldsVal);
       setVisualsDraft(visualsVal);
+      setVisualsNarrationDraft(visualsNarrationVal);
       setScenesVisualPromptDraft({});
       setScenesVideoPromptDraft({});
+      setScenesNarrationDraft({});
       setStaleImageIndexes(new Set());
 
       let scheduledDateVal = '';
@@ -261,14 +267,14 @@ export function ContentCardDialog({
       initialSnapshotRef.current = JSON.stringify({
         topic: topicVal, caption: captionVal, platforms: platformsVal, imageBrief: imageBriefVal,
         scheduledDate: scheduledDateVal, articleHtml: articleHtmlVal, seoFields: seoFieldsVal,
-        visuals: visualsVal, scenesVisualPrompt: {}, scenesVideoPrompt: {},
+        visuals: visualsVal, visualsNarration: visualsNarrationVal, scenesVisualPrompt: {}, scenesVideoPrompt: {}, scenesNarration: {},
       });
     }
   }, [open, existingItem, date]);
 
   const isDirty = JSON.stringify({
     topic, caption, platforms, imageBrief, scheduledDate, articleHtml, seoFields,
-    visuals: visualsDraft ?? [], scenesVisualPrompt: scenesVisualPromptDraft, scenesVideoPrompt: scenesVideoPromptDraft,
+    visuals: visualsDraft ?? [], visualsNarration: visualsNarrationDraft ?? [], scenesVisualPrompt: scenesVisualPromptDraft, scenesVideoPrompt: scenesVideoPromptDraft, scenesNarration: scenesNarrationDraft,
   }) !== initialSnapshotRef.current;
 
   const effectiveDate = date || (existingItem?.scheduled_date ? new Date(existingItem.scheduled_date + 'T00:00:00') : null);
@@ -282,6 +288,7 @@ export function ContentCardDialog({
       let updatedArticleContent: string | undefined;
       const changedVisualPromptIndexes: number[] = [];
       const changedVideoPromptIndexes: number[] = [];
+      const changedNarrationIndexes: number[] = [];
       if (existingItem?.article_content || articleHtml) {
         let art: Record<string, any> = {};
         if (existingItem?.article_content) {
@@ -295,10 +302,13 @@ export function ContentCardDialog({
         // รวม "ลำดับฉาก" ที่แก้ไข — แก้เฉพาะ .visual เก็บ .motion เดิมไว้ (เฉพาะ entry แบบ object)
         let updatedVisuals: any = art.visuals;
         if (visualsDraft) {
-          const rawVisuals: Array<string | { visual?: string; motion?: string }> = Array.isArray(art.visuals) ? art.visuals : [];
+          const rawVisuals: Array<string | { visual?: string; motion?: string; narration?: string }> = Array.isArray(art.visuals) ? art.visuals : [];
           updatedVisuals = visualsDraft.map((text, i) => {
             const orig = rawVisuals[i];
-            return orig && typeof orig === 'object' ? { ...orig, visual: text } : text;
+            const narration = visualsNarrationDraft?.[i] ?? (orig && typeof orig === 'object' ? orig.narration ?? '' : '');
+            if (orig && typeof orig === 'object') return { ...orig, visual: text, narration };
+            // entry แบบ string เดิม — แปลงเป็น object เฉพาะเมื่อมีบทพากย์ (ไม่เปลี่ยนรูปแบบข้อมูลโดยไม่จำเป็น)
+            return narration.trim() ? { visual: text, narration } : text;
           });
         }
         art = {
@@ -328,6 +338,12 @@ export function ContentCardDialog({
           const oldVal = scenesArr[i]?.video_prompt ?? '';
           if (newVal !== oldVal) changedVideoPromptIndexes.push(i);
         });
+        Object.keys(scenesNarrationDraft).forEach(key => {
+          const i = Number(key);
+          const newVal = scenesNarrationDraft[i];
+          const oldVal = scenesArr[i]?.narration ?? '';
+          if (newVal !== oldVal) changedNarrationIndexes.push(i);
+        });
       }
 
       await onSave({
@@ -349,12 +365,13 @@ export function ContentCardDialog({
 
       // บันทึก visual_prompt / video_prompt ของ scene ที่แก้ไขทีละฉาก ผ่าน update-scene เดิม
       // (รวม field ที่เปลี่ยนของ scene เดียวกันไว้ใน request เดียว)
-      const changedIndexSet = new Set([...changedVisualPromptIndexes, ...changedVideoPromptIndexes]);
+      const changedIndexSet = new Set([...changedVisualPromptIndexes, ...changedVideoPromptIndexes, ...changedNarrationIndexes]);
       if (existingItem?.id && changedIndexSet.size > 0) {
         for (const i of changedIndexSet) {
           const body: Record<string, any> = { item_id: existingItem.id, scene_index: i };
           if (changedVisualPromptIndexes.includes(i)) body.visual_prompt = scenesVisualPromptDraft[i];
           if (changedVideoPromptIndexes.includes(i)) body.video_prompt = scenesVideoPromptDraft[i];
+          if (changedNarrationIndexes.includes(i)) body.narration = scenesNarrationDraft[i];
           await apiFetch('/brand-content.php?action=update-scene', {
             method: 'POST',
             body: JSON.stringify(body),
@@ -371,7 +388,7 @@ export function ContentCardDialog({
       // อัปเดต snapshot ให้ isDirty กลับเป็น false หลังบันทึกสำเร็จ
       initialSnapshotRef.current = JSON.stringify({
         topic: topic.trim(), caption, platforms, imageBrief: imageBrief.trim(), scheduledDate, articleHtml, seoFields,
-        visuals: visualsDraft ?? [], scenesVisualPrompt: scenesVisualPromptDraft, scenesVideoPrompt: scenesVideoPromptDraft,
+        visuals: visualsDraft ?? [], visualsNarration: visualsNarrationDraft ?? [], scenesVisualPrompt: scenesVisualPromptDraft, scenesVideoPrompt: scenesVideoPromptDraft, scenesNarration: scenesNarrationDraft,
       });
 
       if (changedVisualPromptIndexes.length > 0) {
@@ -609,7 +626,8 @@ export function ContentCardDialog({
     try {
       const res: any = await apiFetch('/brand-content.php?action=generate-video', {
         method: 'POST',
-        body: JSON.stringify({ item_id: existingItem.id, aspect_ratio: aspectRatio, resolution }),
+        // อัตราส่วน/ความละเอียดอ่านจาก content item ฝั่ง backend (ล็อกตั้งแต่ตอนสร้าง)
+        body: JSON.stringify({ item_id: existingItem.id }),
       });
       qc.invalidateQueries({ queryKey: ['content', 'items'] });
       qc.invalidateQueries({ queryKey: ['content', 'plans'] });
@@ -1071,13 +1089,21 @@ export function ContentCardDialog({
                           {(visualsDraft ?? []).map((text, i) => (
                             <div key={i} className="flex gap-2 items-start">
                               <span className="text-[11px] text-muted-foreground/60 tabular-nums w-4 shrink-0 pt-2">{i + 1}.</span>
-                              <Textarea value={text}
-                                onChange={e => setVisualsDraft(prev => {
-                                  const next = [...(prev ?? [])];
-                                  next[i] = e.target.value;
-                                  return next;
-                                })}
-                                className="min-h-[50px] text-xs resize-y flex-1" />
+                              <div className="flex-1 space-y-1.5">
+                                <Textarea value={text}
+                                  onChange={e => setVisualsDraft(prev => {
+                                    const next = [...(prev ?? [])];
+                                    next[i] = e.target.value;
+                                    return next;
+                                  })}
+                                  className="min-h-[50px] text-xs resize-y" />
+                                <NarrationField index={i} value={visualsNarrationDraft?.[i] ?? ''}
+                                  onChange={v => setVisualsNarrationDraft(prev => {
+                                    const next = [...(prev ?? [])];
+                                    next[i] = v;
+                                    return next;
+                                  })} />
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -1095,9 +1121,14 @@ export function ContentCardDialog({
                             {scenes.map((s, i) => (
                               <div key={i} className="flex gap-2 items-start">
                                 <span className="text-[11px] text-muted-foreground/60 tabular-nums w-4 shrink-0 pt-2">{i + 1}.</span>
-                                <Textarea value={scenesVisualPromptDraft[i] ?? s.visual_prompt ?? ''}
-                                  onChange={e => setScenesVisualPromptDraft(prev => ({ ...prev, [i]: e.target.value }))}
-                                  className="min-h-[50px] text-xs resize-y flex-1" />
+                                <div className="flex-1 space-y-1.5">
+                                  <Textarea value={scenesVisualPromptDraft[i] ?? s.visual_prompt ?? ''}
+                                    onChange={e => setScenesVisualPromptDraft(prev => ({ ...prev, [i]: e.target.value }))}
+                                    className="min-h-[50px] text-xs resize-y" />
+                                  <NarrationField index={i} value={scenesNarrationDraft[i] ?? s.narration ?? ''}
+                                    durationSec={s.duration_sec}
+                                    onChange={v => setScenesNarrationDraft(prev => ({ ...prev, [i]: v }))} />
+                                </div>
                               </div>
                             ))}
                           </div>
@@ -1109,7 +1140,8 @@ export function ContentCardDialog({
                             regeneratingIndex={regeneratingSceneIndex}
                             videoPromptDrafts={scenesVideoPromptDraft}
                             onVideoPromptChange={(i, value) => setScenesVideoPromptDraft(prev => ({ ...prev, [i]: value }))}
-                            onVideoPromptGenerated={(i) => setScenesVideoPromptDraft(prev => { const next = { ...prev }; delete next[i]; return next; })} />
+                            onVideoPromptGenerated={(i) => setScenesVideoPromptDraft(prev => { const next = { ...prev }; delete next[i]; return next; })}
+                            showNarration={false} />
                         </div>
                       </>
                     )}
@@ -1117,23 +1149,8 @@ export function ContentCardDialog({
                     <Button variant="outline" size="sm" className="w-full gap-1.5 mt-3" disabled={generatingScenes || !existingItem?.id} onClick={handleGenerateScenes}>
                       {generatingScenes ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />กำลังสร้างภาพทุกฉาก...</> : <><ImageIcon className="h-3.5 w-3.5" />สร้างภาพทุกฉาก</>}
                     </Button>
-                    <div className="flex items-center gap-1 border rounded-md p-0.5 mt-2 w-full">
-                      {VIDEO_ASPECT_RATIO_OPTIONS.map(opt => (
-                        <button key={opt.value} type="button" title={opt.desc} onClick={() => setAspectRatio(opt.value)}
-                          className={cn('flex-1 px-2 py-1 rounded text-[11px] font-medium transition-colors',
-                            aspectRatio === opt.value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted')}>
-                          {opt.value}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="flex items-center gap-1 border rounded-md p-0.5 mt-2 w-full" aria-label="ความละเอียดวิดีโอ">
-                      {VIDEO_RESOLUTION_OPTIONS.map(opt => (
-                        <button key={opt.value} type="button" title={opt.desc} onClick={() => setResolution(opt.value)}
-                          className={cn('flex-1 px-2 py-1 rounded text-[11px] font-medium transition-colors',
-                            resolution === opt.value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted')}>
-                          {opt.label}
-                        </button>
-                      ))}
+                    <div className="flex items-center justify-center mt-2">
+                      <VideoSpecBadge aspectRatio={existingItem?.video_aspect_ratio} resolution={existingItem?.video_resolution} />
                     </div>
                     <Button variant="outline" size="sm" className="w-full gap-1.5 mt-2" disabled={generatingVideo || existingItem?.video_gen_status === 'generating' || !existingItem?.id || !firstSceneVideoPromptReady} onClick={handleGenerateVideo}>
                       {generatingVideo ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />กำลังสร้าง...</> : existingItem?.video_url ? <><RefreshCw className="h-3.5 w-3.5" />สร้างวิดีโอใหม่</> : <><Clapperboard className="h-3.5 w-3.5" />สร้างวิดีโอด้วย AI</>}

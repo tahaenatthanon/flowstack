@@ -101,44 +101,52 @@ describe('ContentVideoView', () => {
   });
 });
 
-// spec: kie-video-adapter / content-video-ui-section — "เลือกสัดส่วนวิดีโอก่อนสร้าง"
-describe('ContentVideoView — สัดส่วนและความละเอียดวิดีโอ', () => {
+// spec: video-creation-options / content-video-ui-section — อัตราส่วน/ความละเอียดวิดีโอล็อกตั้งแต่ตอนสร้าง
+describe('ContentVideoView — badge อัตราส่วน/ความละเอียดวิดีโอ และบทพากย์', () => {
   const readyItem: ContentItem = {
     ...mockVideoItem,
+    video_aspect_ratio: '16:9',
+    video_resolution: '1080p',
     article_content: JSON.stringify({
       title: 'พร้อมสร้างวิดีโอ',
       scripts: { tiktok: 'Hook' },
-      scenes: [{ visual_prompt: 'แก้วชาไทย', video_prompt: 'slow push-in', image_gen_status: 'none' }],
+      scenes: [
+        { visual_prompt: 'แก้วชาไทย', video_prompt: 'slow push-in', narration: 'ชาไทยแก้วนี้หอมมาก', image_gen_status: 'none' },
+        { visual_prompt: 'ร้านกาแฟ', video_prompt: 'pan', narration: 'ก'.repeat(130), image_gen_status: 'none' },
+      ],
     }),
   };
 
   beforeEach(() => { vi.mocked(apiFetch).mockClear(); });
 
-  it('ไม่มีตัวเลือก Auto และมีตัวเลือกความละเอียด 720p / 1080p', () => {
+  it('แสดง badge จากค่าของ item และไม่มีปุ่มเลือกอัตราส่วน/ความละเอียด', () => {
     wrap(<ContentVideoView item={readyItem} />);
-    expect(screen.queryByRole('button', { name: 'Auto' })).toBeNull();
-    expect(screen.getByRole('button', { name: '9:16' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '16:9' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '720p' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '1080p' })).toBeTruthy();
+    expect(screen.getByTestId('video-spec-badge').textContent).toContain('16:9 · 1080p');
+    expect(screen.getByTestId('aspect-shape-16:9')).toBeTruthy();
+    for (const name of ['9:16', '16:9', '720p', '1080p', 'Auto']) {
+      expect(screen.queryByRole('button', { name })).toBeNull();
+    }
   });
 
-  it('ค่าเริ่มต้นส่ง 9:16 / 720p', async () => {
+  it('คอนเทนต์เก่าไม่มีค่า → badge 9:16 · 720p', () => {
+    wrap(<ContentVideoView item={{ ...readyItem, video_aspect_ratio: null, video_resolution: null }} />);
+    expect(screen.getByTestId('video-spec-badge').textContent).toContain('9:16 · 720p');
+  });
+
+  it('กดสร้างวิดีโอ → คำขอมีแค่ item_id', async () => {
     wrap(<ContentVideoView item={readyItem} />);
     fireEvent.click(screen.getByRole('button', { name: 'สร้างวิดีโอ' }));
     await waitFor(() => expect(apiFetch).toHaveBeenCalled());
     const [url, init] = vi.mocked(apiFetch).mock.calls[0];
     expect(url).toContain('action=generate-video');
-    expect(JSON.parse((init as RequestInit).body as string)).toMatchObject({ aspect_ratio: '9:16', resolution: '720p' });
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ item_id: readyItem.id });
   });
 
-  it('เลือก 16:9 + 1080p แล้วคำขอส่งค่าที่เลือก', async () => {
+  it('scene card แสดงบทพากย์ ตัวนับ และคำเตือนเมื่อเกิน 100 ตัวอักษร', () => {
     wrap(<ContentVideoView item={readyItem} />);
-    fireEvent.click(screen.getByRole('button', { name: '16:9' }));
-    fireEvent.click(screen.getByRole('button', { name: '1080p' }));
-    fireEvent.click(screen.getByRole('button', { name: 'สร้างวิดีโอ' }));
-    await waitFor(() => expect(apiFetch).toHaveBeenCalled());
-    const [, init] = vi.mocked(apiFetch).mock.calls[0];
-    expect(JSON.parse((init as RequestInit).body as string)).toMatchObject({ aspect_ratio: '16:9', resolution: '1080p' });
+    expect(screen.getByDisplayValue('ชาไทยแก้วนี้หอมมาก')).toBeTruthy();
+    expect(screen.getByTestId('narration-count-0').textContent).toBe('18/100');
+    expect(screen.getByTestId('narration-count-1').textContent).toBe('130/100');
+    expect(screen.getAllByText(/อาจพูดไม่จบใน 8 วินาที/)).toHaveLength(1);
   });
 });

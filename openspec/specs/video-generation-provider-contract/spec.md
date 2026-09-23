@@ -26,7 +26,9 @@
 - **THEN** ระบบ SHALL คืน error ภาษาไทยว่าต้องเลือก model วิดีโอในหน้า AI Settings — SHALL ไม่ยิง API
 
 ### Requirement: Payload ใช้ scene แรกเท่านั้น พร้อมเลือกโหมดอัตโนมัติตามตระกูล model
-`generate-video` SHALL ใช้ scene แรก (index 0) ของ `article_content.scenes` เท่านั้น prompt SHALL มาจาก `video_prompt` ของ scene แรก `aspect_ratio` SHALL มาจากคำขอและรับเฉพาะ `9:16` | `16:9` (ค่าอื่นใช้ `9:16`) `resolution` SHALL มาจากคำขอและรับเฉพาะ `720p` | `1080p` (ค่าอื่นใช้ `720p`) โหมด image-to-video/text-to-video SHALL เลือกตาม `image_gen_status` ของ scene แรก (`failed` → ไม่ยิง API, ดู requirement "Scene แรกที่สร้างภาพล้มเหลว")
+`generate-video` SHALL ใช้ scene แรก (index 0) ของ `article_content.scenes` เท่านั้น `aspect_ratio` SHALL มาจาก `content_items.video_aspect_ratio` (NULL หรือค่าที่ไม่ใช่ `9:16` | `16:9` → `9:16`) และ `resolution` SHALL มาจาก `content_items.video_resolution` (NULL หรือค่าที่ไม่ใช่ `720p` | `1080p` → `720p`) — SHALL ไม่อ่าน `aspect_ratio` / `resolution` จากคำขอ โหมด image-to-video/text-to-video SHALL เลือกตาม `image_gen_status` ของ scene แรก (`failed` → ไม่ยิง API, ดู requirement "Scene แรกที่สร้างภาพล้มเหลว")
+
+prompt SHALL ประกอบจาก `video_prompt` ของ scene แรก และถ้า `narration` ของ scene แรกไม่ว่าง SHALL ต่อท้ายด้วยคำสั่งให้ผู้บรรยายพูดบทนั้นเป็นภาษาไทย โดยใส่บทพากย์ในเครื่องหมายคำพูดตรงตามที่บันทึกไว้ (ไม่แปล ไม่ตัดทอน) — ถ้า `narration` ว่าง prompt SHALL เป็น `video_prompt` อย่างเดียวเหมือนเดิม
 
 Payload ต่อตระกูล:
 - `veo`: `{prompt, model, aspect_ratio, resolution, duration: 8}` — `done` → เพิ่ม `imageUrls: [absolute image_url]`; `none` → เพิ่ม `generationType: "TEXT_2_VIDEO"`
@@ -52,13 +54,21 @@ Payload ต่อตระกูล:
 - **WHEN** model คือ `bytedance/seedance-2-5` และ scene แรกมีภาพสำเร็จ
 - **THEN** `input.first_frame_url` SHALL เป็น string absolute URL ของภาพ
 
-#### Scenario: คำขอส่ง Auto มา
-- **WHEN** คำขอส่ง `aspect_ratio: "Auto"`
-- **THEN** ระบบ SHALL ใช้ `9:16` แทน
+#### Scenario: สัดส่วนและความละเอียดมาจาก content item
+- **WHEN** content item มี `video_aspect_ratio = '16:9'`, `video_resolution = '1080p'` และคำขอส่ง `aspect_ratio: "9:16"`, `resolution: "720p"` มาด้วย
+- **THEN** payload SHALL ใช้ `16:9` และ `1080p` ตาม content item
 
-#### Scenario: ผู้ใช้เลือก 1080p
-- **WHEN** คำขอส่ง `resolution: "1080p"`
-- **THEN** payload SHALL มี `resolution: "1080p"` (สำหรับ `market` อยู่ใน `input`)
+#### Scenario: คอนเทนต์เก่าที่ยังไม่มีค่า
+- **WHEN** content item มี `video_aspect_ratio` และ `video_resolution` เป็น NULL
+- **THEN** payload SHALL ใช้ `9:16` และ `720p`
+
+#### Scenario: ฉากแรกมีบทพากย์
+- **WHEN** scene แรกมี `video_prompt = "กล้องซูมเข้าช้าๆ"` และ `narration = "คุณกำลังจ่ายค่า AI ซ้ำซ้อนอยู่หรือเปล่า?"`
+- **THEN** prompt ที่ส่ง SHALL มีทั้ง "กล้องซูมเข้าช้าๆ" และบทพากย์ในเครื่องหมายคำพูดตรงตามต้นฉบับ พร้อมคำสั่งให้พูดเป็นภาษาไทย
+
+#### Scenario: ฉากแรกไม่มีบทพากย์
+- **WHEN** scene แรกมี `narration` ว่างหรือไม่มี key นี้
+- **THEN** prompt ที่ส่ง SHALL เป็น `video_prompt` ของ scene แรกอย่างเดียว
 
 ### Requirement: Validation ใหม่ — scene แรกต้องมี video_prompt
 `generate-video` SHALL คืน error ถ้า scene แรกไม่มี `video_prompt` (ว่างเปล่าหรือไม่มี key) — SHALL ไม่ยิง API ไปหา kie.ai ด้วย prompt ว่างเปล่า

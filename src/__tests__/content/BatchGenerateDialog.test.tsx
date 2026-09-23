@@ -185,7 +185,7 @@ describe('BatchGenerateDialog — tone/script_style/duration ต่อหัว�
     expect(third.tone).toBe('friendly');
   });
 
-  it('หัวข้อ video ที่เปลี่ยนเป็น VSL + 3min → ส่ง script_style=vsl, duration=180', async () => {
+  it('หัวข้อ video ที่เปลี่ยนเป็น VSL + 90s + 16:9 + 1080p → ส่ง script_style=vsl, duration=90, aspect_ratio, resolution', async () => {
     const bodies = mockApi();
     renderDialog();
 
@@ -193,7 +193,9 @@ describe('BatchGenerateDialog — tone/script_style/duration ต่อหัว�
       contentType: 'video',
       after: row => {
         fireEvent.click(within(row).getByRole('button', { name: /VSL/ }));
-        fireEvent.click(within(row).getByRole('button', { name: '3min' }));
+        fireEvent.click(within(row).getByRole('button', { name: '90s' }));
+        fireEvent.click(within(row).getByRole('radio', { name: /16:9/ }));
+        fireEvent.click(within(row).getByRole('radio', { name: '1080p' }));
       },
     });
     await fillTopic(1, 'หัวข้อ 2');
@@ -204,7 +206,9 @@ describe('BatchGenerateDialog — tone/script_style/duration ต่อหัว�
     const [videoPlan] = findBodies(bodies, 'action=generate-plan');
     expect(videoPlan.type).toBe('video');
     expect(videoPlan.script_style).toBe('vsl');
-    expect(videoPlan.duration).toBe(180);
+    expect(videoPlan.duration).toBe(90);
+    expect(videoPlan.aspect_ratio).toBe('16:9');
+    expect(videoPlan.resolution).toBe('1080p');
     expect(videoPlan).not.toHaveProperty('tone');
   });
 

@@ -31,6 +31,9 @@ export interface ContentItem {
   script_style?: 'hook-story' | 'educational' | 'storytelling' | 'vsl' | null;
   /** Requested video duration in seconds */
   duration_sec?: number | null;
+  /** อัตราส่วน/ความละเอียดวิดีโอ — เลือกตอนสร้างแล้วล็อก */
+  video_aspect_ratio?: string | null;
+  video_resolution?: string | null;
   day_label?: string | null;
   scheduled_date?: string | null;
   plan_title?: string | null;
@@ -117,24 +120,45 @@ export const IMAGE_STYLE_OPTIONS = [
 ] as const;
 
 export const VIDEO_ASPECT_RATIO_OPTIONS = [
-  { value: '9:16', label: '9:16 แนวตั้ง', desc: 'TikTok · Reels · Shorts' },
-  { value: '16:9', label: '16:9 แนวนอน', desc: 'YouTube · เว็บไซต์' },
+  { value: '16:9', label: 'แนวนอน', desc: 'YouTube · เว็บไซต์' },
+  { value: '9:16', label: 'แนวตั้ง', desc: 'TikTok · Reels · Shorts' },
 ] as const;
+export type VideoAspectRatio = typeof VIDEO_ASPECT_RATIO_OPTIONS[number]['value'];
 
 export const VIDEO_RESOLUTION_OPTIONS = [
   { value: '720p', label: '720p', desc: 'ความละเอียดมาตรฐาน · ประหยัดกว่า' },
   { value: '1080p', label: '1080p', desc: 'ความละเอียดสูง (Full HD)' },
 ] as const;
+export type VideoResolution = typeof VIDEO_RESOLUTION_OPTIONS[number]['value'];
 
-export const VIDEO_DURATION_OPTIONS = ['15s', '30s', '60s', '3min', '10min+'] as const;
+/** อ่านค่าจาก content item — NULL/ค่าที่ไม่รู้จัก → ค่าเริ่มต้น (ตรงกับ kieVideoNormalize* ฝั่ง PHP) */
+export const normalizeVideoAspect = (v?: string | null): VideoAspectRatio => (v === '16:9' ? '16:9' : '9:16');
+export const normalizeVideoResolution = (v?: string | null): VideoResolution => (v === '1080p' ? '1080p' : '720p');
+
+export const VIDEO_DURATION_OPTIONS = ['30s', '45s', '60s', '90s'] as const;
 
 export const VIDEO_DURATION_SECONDS: Record<typeof VIDEO_DURATION_OPTIONS[number], number> = {
-  '15s': 15,
   '30s': 30,
+  '45s': 45,
   '60s': 60,
-  '3min': 180,
-  '10min+': 600,
+  '90s': 90,
 };
+
+/** วิดีโอสร้างเป็นคลิปฉากละ 8 วินาที (ตรงกับ KIE_VIDEO_TARGET_CLIP_SEC ฝั่ง PHP) */
+export const VIDEO_SCENE_SECONDS = 8;
+
+/** จำนวนฉาก = round(duration / 8) ปัดลงเมื่อห่างเท่ากัน → 30→4, 45→6, 60→7, 90→11 (ตรงกับ videoSceneCount() ฝั่ง PHP) */
+export function videoSceneCount(durationSec: number): number {
+  const exact = durationSec / VIDEO_SCENE_SECONDS;
+  const floor = Math.floor(exact);
+  return Math.max(1, exact - floor > 0.5 ? floor + 1 : floor);
+}
+
+/** ข้อความประกอบตัวเลือกความยาว เช่น "≈56 วิ · 7 ฉาก" */
+export function videoDurationHint(durationSec: number): string {
+  const scenes = videoSceneCount(durationSec);
+  return `≈${scenes * VIDEO_SCENE_SECONDS} วิ · ${scenes} ฉาก`;
+}
 
 export interface ContentPlan {
   id: string; title: string; week_start: string; status: string;
@@ -193,6 +217,8 @@ export interface PlanItem {
   video_gen_status?: string | null;
   video_url?: string | null;
   video_job_id?: string | null;
+  video_aspect_ratio?: string | null;
+  video_resolution?: string | null;
   /**
    * true = มีอย่างน้อย 1 แพลตฟอร์มใน `platforms` เผยแพร่สำเร็จแล้ว (content_publish_queue
    * หรือ content_schedules status='sent') — ต่างจาก content_items.status==='published'
