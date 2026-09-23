@@ -40,7 +40,7 @@ const SCRIPT_PLATFORMS = [
  *                         ต้องเป็นค่า $title ที่ dispatch_content() คำนวณแล้ว ไม่ใช่คอลัมน์ title ดิบ
  *                         (5 แถวมี article_content.title ต่างจากคอลัมน์ และเป็นค่าที่โพสต์จริงใช้)
  */
-function publish_html_to_text(string $html, string $dupTitle = ''): string {
+function publish_html_to_text(string $html, string|array $dupTitle = ''): string {
     if (trim($html) === '') {
         return '';
     }
@@ -49,10 +49,12 @@ function publish_html_to_text(string $html, string $dupTitle = ''): string {
     // dispatcher โซเชียลทุกตัวประกอบข้อความเป็น "$title\n\n$body" ถ้าไม่ตัด หัวเรื่องจะขึ้นสองครั้งติดกัน
     // ตัดเฉพาะตัวแรกและเฉพาะเมื่อตรงเป๊ะ — <h1> ที่ไม่ซ้ำเป็นเนื้อหาที่ผู้ใช้อนุมัติมา ห้ามลบ
     // เทียบแบบ normalize ทั้งสองฝั่ง ไม่เทียบสตริงดิบ เพราะ <h1> มักมี attribute และ entity ข้างใน
-    $dupTitle = trim($dupTitle);
-    if ($dupTitle !== '' && preg_match('/<h1\b[^>]*>(.*?)<\/h1>/is', $html, $m)) {
+    // รับได้หลายค่า (platform-post-text): โซเชียลเติม content_items.title แต่ <h1> ของบทความคือ
+    // article_content.title — ตรงค่าใดค่าหนึ่งก็ถือว่าซ้ำ
+    $dupTitles = array_values(array_filter(array_map('trim', (array)$dupTitle), static fn($t) => $t !== ''));
+    if ($dupTitles && preg_match('/<h1\b[^>]*>(.*?)<\/h1>/is', $html, $m)) {
         $h1Text = trim(html_entity_decode(strip_tags($m[1]), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
-        if ($h1Text === $dupTitle) {
+        if (in_array($h1Text, $dupTitles, true)) {
             $html = preg_replace('/<h1\b[^>]*>.*?<\/h1>/is', '', $html, 1);
         }
     }
@@ -79,6 +81,84 @@ function publish_html_to_text(string $html, string $dupTitle = ''): string {
     $text = preg_replace('/\n{3,}/', "\n\n", $text);        // บรรทัดว่างติดกันไม่เกินหนึ่งบรรทัด
 
     return trim($text);
+}
+
+// ── ข้อความโพสต์โซเชียล (platform-post-text) ──────────────────────────────────
+// platform ที่โพสต์ "หัวข้อ + ข้อความโพสต์ของ platform" — เว็บ/CMS ใช้บทความ HTML แทน
+const SOCIAL_POST_PLATFORMS = ['facebook', 'instagram', 'tiktok', 'lineoa', 'linkedin', 'twitter', 'youtube'];
+
+// คำกำกับต้นบรรทัดที่ AI เคยใส่ใน scripts[platform] — ต้องตรงกับ SCRIPT_DIRECTION_LINE_RE ใน
+// src/components/content/types.ts (ใช้ fixture ชุดเดียวกันในเทสต์ทั้งสองฝั่ง)
+const PUBLISH_DIRECTION_RE = '/^[ \t]*(?:post caption|caption\/reels|caption|professional post|post|ข้อความ line oa|hook(?:[ \t]*\d+[ \t]*วิ)?|scene[ \t]*\d+|section[ \t]*\d+|intro|outro|cta)[ \t]*[:：][ \t]*/imu';
+
+/** ตัดคำกำกับที่ต้นบรรทัดออก (ทุก platform) — บรรทัดที่เหลือว่างเพราะมีแต่คำกำกับถูกลบ, บรรทัดว่างไม่ซ้อน */
+function publish_strip_directions(string $text): string {
+    $text = str_replace(["\r\n", "\r"], "\n", $text);
+    $lines = explode("\n", $text);
+    $out = [];
+    foreach ($lines as $line) {
+        $hadLabel = preg_match(PUBLISH_DIRECTION_RE, $line) === 1;
+        $stripped = preg_replace(PUBLISH_DIRECTION_RE, '', $line);
+        if ($hadLabel && trim($stripped) === '') continue;
+        $out[] = rtrim($stripped);
+    }
+    return trim(preg_replace('/\n{3,}/', "\n\n", implode("\n", $out)));
+}
+
+/**
+ * ตรวจบทวิดีโอที่ปนในข้อความโพสต์ (Visual:/Voiceover:/timecode) — คืนเหตุผลภาษาไทย หรือ null ถ้าผ่าน
+ * ตรวจหลังตัดคำกำกับแล้ว: Scene N: ถูกตัดไปแล้ว แต่บทวิดีโอเต็มรูปแบบต้องให้คนแก้ ไม่ตัดทิ้งเงียบๆ
+ */
+function publish_screenplay_check(string $finalText, string $platform = ''): ?string {
+    // บรรทัดอาจนำด้วย bullet/เลขข้อ ("- Visual:", "• Voiceover:", "1) Shot:") — พบจริงในแคปชั่นเก่าของ 5121176a
+    $bullet = '(?:[-•*·▪➤>]+[ \t]*|\d+[.)][ \t]*)?';
+    $patterns = [
+        '/^[ \t]*' . $bullet . '(?:visual|voice[ \t]?over|narration|shot|บทพากย์|เสียงบรรยาย)[ \t]*[:：].*$/imu',
+        '/^[ \t]*' . $bullet . 'ฉากที่[ \t]*\d+[^\n]*/mu',      // "ฉากที่ 1 (8 วินาที)"
+        '/[\[(][ \t]*\d{1,2}:\d{2}[^\n]*/u',                    // timecode [0:00 / (0:15)
+        '/\[[ \t]*(?:hook|สคริปต์)[^\n]*/iu',                   // [Hook: 0-10s] / [สคริปต์วิดีโอสั้น …]
+    ];
+    foreach ($patterns as $re) {
+        if (preg_match($re, $finalText, $m)) {
+            $sample = mb_substr(trim($m[0]), 0, 40);
+            $label = $platform !== '' ? $platform : 'platform นี้';
+            return "ข้อความโพสต์มีบทวิดีโอปน (\"{$sample}\") กรุณาแก้ข้อความโพสต์ของ {$label} ก่อนเผยแพร่";
+        }
+    }
+    return null;
+}
+
+/**
+ * ข้อความโพสต์โซเชียลของ platform — จุดเดียวที่ทั้ง "ส่งเดี๋ยวนี้" และ cron ใช้ (ผ่าน dispatch_content)
+ *   title = content_items.title (ช่อง "หัวข้อ" ในฟอร์ม — ไม่ใช่ชื่อที่ AI ตั้ง)
+ *   body  = content_override ของคิวเดิม → scripts[platform] ที่ตัดคำกำกับ → caption → บทความแปลงเป็นข้อความ
+ * @return array{title: string, body: string, source: string}
+ */
+function publish_social_post_text(array $content, string $platform): array {
+    $platform = strtolower(trim($platform));
+    $title = trim((string)($content['title'] ?? ''));
+    $art = !empty($content['article_content']) ? json_decode((string)$content['article_content'], true) : null;
+    $art = is_array($art) ? $art : [];
+
+    $override = trim((string)($content['content_override'] ?? ''));
+    if ($override !== '') return ['title' => $title, 'body' => $override, 'source' => 'override'];
+
+    $script = $art['scripts'][$platform] ?? null;
+    if (is_string($script)) {
+        $script = publish_strip_directions($script);
+        if ($script !== '') return ['title' => $title, 'body' => $script, 'source' => 'script'];
+    }
+
+    $caption = trim((string)($content['caption'] ?? ''));
+    if ($caption !== '') return ['title' => $title, 'body' => $caption, 'source' => 'caption'];
+
+    $text = publish_html_to_text((string)($art['html'] ?? ''), [$title, (string)($art['title'] ?? '')]);
+    return ['title' => $title, 'body' => $text, 'source' => $text !== '' ? 'article' : 'empty'];
+}
+
+/** ข้อความสุดท้ายแบบที่ dispatcher โซเชียลจะประกอบ ("หัวข้อ\n\nข้อความ") — ใช้ตรวจ gate และแสดงตัวอย่าง */
+function publish_social_final_text(array $post): string {
+    return $post['title'] !== '' ? $post['title'] . "\n\n" . $post['body'] : $post['body'];
 }
 
 /**
@@ -293,9 +373,13 @@ function dispatch_content(string $platform, array $channel, array $content): arr
     // trim() ก่อนเทียบ เพื่อไม่ให้ caption ที่มีแต่ช่องว่างชนะ HTML ที่มีเนื้อหาจริง
     // caption ที่ถูกเลือกไม่ผ่านตัวแปลงเลย — ผู้ใช้พิมพ์อะไรได้อย่างนั้น รวมถึงเส้น
     // channel_overrides ที่ api/content-publish.php:179 ซึ่งตั้ง caption เป็นข้อความที่ผู้ใช้พิมพ์
-    $socialBody = trim($content['caption'] ?? '') !== ''
-        ? trim($content['caption'])
-        : publish_html_to_text($art['html'] ?? '', $title);
+    //
+    // platform-post-text: โซเชียลใช้ publish_social_post_text() จุดเดียว — หัวข้อ = content_items.title
+    // (ช่อง "หัวข้อ" ในฟอร์ม) และข้อความ = override ของคิวเดิม → scripts[platform] → caption → บทความ
+    // เว็บ/CMS ด้านล่างยังใช้ $title/$body เดิม (ชื่อบทความ + HTML)
+    $socialPost  = publish_social_post_text($content, $platform);
+    $socialTitle = $socialPost['title'];
+    $socialBody  = $socialPost['body'];
 
     // ฟิลด์ SEO/AEO สำหรับ Lotus Domino — อ่านจาก article_content JSON ก่อน แล้ว fallback ไปคอลัมน์ content_items
     // (ลำดับ fallback ตรงกับ inline handler เดิมใน brand-content.php)
@@ -311,12 +395,12 @@ function dispatch_content(string $platform, array $channel, array $content): arr
 
     return match($platform) {
         // โซเชียล → $socialBody (ข้อความล้วน)
-        'facebook'  => dispatch_facebook($channel, $creds, $title, $socialBody, $imgUrl),
-        'instagram' => dispatch_instagram($channel, $creds, $title, $socialBody, $imgUrl),
-        'tiktok'    => dispatch_tiktok($channel, $creds, $title, $socialBody),
-        'lineoa'    => dispatch_lineoa($channel, $creds, $title, $socialBody),
-        'linkedin'  => dispatch_linkedin($channel, $creds, $title, $socialBody, $imgUrl),
-        'twitter'   => dispatch_twitter($channel, $creds, $title, $socialBody),
+        'facebook'  => dispatch_facebook($channel, $creds, $socialTitle, $socialBody, $imgUrl),
+        'instagram' => dispatch_instagram($channel, $creds, $socialTitle, $socialBody, $imgUrl),
+        'tiktok'    => dispatch_tiktok($channel, $creds, $socialTitle, $socialBody),
+        'lineoa'    => dispatch_lineoa($channel, $creds, $socialTitle, $socialBody),
+        'linkedin'  => dispatch_linkedin($channel, $creds, $socialTitle, $socialBody, $imgUrl),
+        'twitter'   => dispatch_twitter($channel, $creds, $socialTitle, $socialBody),
         // เว็บ/CMS → $body (HTML เดิม) เพราะปลายทางเรนเดอร์ HTML เป็นบทความ
         'wordpress' => dispatch_wordpress($channel, $creds, $title, $body, $excerpt),
         'wix'       => dispatch_wix($channel, $creds, $title, $body),
@@ -410,6 +494,13 @@ function publish_via_central_flow(
     if (!empty($gate['blocked'])) {
         return ['success' => false, 'status' => 'blocked', 'error' => $gate['reason'] ?? 'ไม่ผ่าน Final Publish Gate'];
     }
+    // บทวิดีโอปนในข้อความโพสต์โซเชียล → ไม่โพสต์ (platform-post-text)
+    if (in_array($platform, SOCIAL_POST_PLATFORMS, true)) {
+        $screenplay = publish_screenplay_check(publish_social_final_text(publish_social_post_text($content, $platform)), $platform);
+        if ($screenplay !== null) {
+            return ['success' => false, 'status' => 'blocked', 'error' => $screenplay];
+        }
+    }
 
     $published = get_published_content_platforms($db, $tenantId, $contentId);
     if (in_array($platform, $published, true)) {
@@ -438,15 +529,13 @@ function publish_via_central_flow(
             return ['success' => false, 'status' => 'skipped', 'error' => "แพลตฟอร์ม {$platform} ของคอนเทนต์นี้เผยแพร่แล้ว"];
         }
 
-        $contentForChannel = $content;
+        // platform-post-text: เลิกรับข้อความแทนที่จากคำขอ (content-publish send_now / brand-content publish)
+        // — ข้อความที่โพสต์ต้องเป็นข้อความที่ผ่านการอนุมัติใน ContentCardDialog เท่านั้น
+        // พารามิเตอร์ $contentOverride คงไว้เพื่อไม่เปลี่ยน signature ของผู้เรียกเดิม (client เก่ายังส่งมาได้ไม่ error)
         if ($contentOverride !== null && trim($contentOverride) !== '') {
-            $contentForChannel['caption'] = trim($contentOverride);
-            $contentForChannel['article_content'] = json_encode([
-                'html' => trim($contentOverride),
-                'title' => $content['title'] ?? '',
-                'excerpt' => '',
-            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            error_log('[publish] ignored content_override from request | content=' . $contentId . ' | platform=' . $platform);
         }
+        $contentForChannel = $content;
 
         $queueId = generateUUID();
         $db->prepare(

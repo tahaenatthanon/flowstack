@@ -1,0 +1,13 @@
+[
+  { "name": "Facebook Post caption + CTA", "input": "Post caption: สนใจไหม\nCTA: ทักแชทเลย", "expected": "สนใจไหม\nทักแชทเลย" },
+  { "name": "Instagram Caption/Reels", "input": "Caption/Reels: รีลส์ใหม่มาแล้ว", "expected": "รีลส์ใหม่มาแล้ว" },
+  { "name": "LINE OA label ภาษาไทย", "input": "ข้อความ LINE OA: โปรโมชันวันนี้\nCTA: กดดูรายละเอียด", "expected": "โปรโมชันวันนี้\nกดดูรายละเอียด" },
+  { "name": "LinkedIn Professional post", "input": "Professional post: เราเปิดตัวบริการใหม่", "expected": "เราเปิดตัวบริการใหม่" },
+  { "name": "Twitter Post", "input": "Post: สั้นๆ ได้ใจความ", "expected": "สั้นๆ ได้ใจความ" },
+  { "name": "TikTok screenplay labels", "input": "Hook 3 วิ: เฮ้ยรู้ไหม\nScene 1: แสดงสินค้า\nScene 2: ลูกค้ายิ้ม\nCTA: กดติดตาม", "expected": "เฮ้ยรู้ไหม\nแสดงสินค้า\nลูกค้ายิ้ม\nกดติดตาม" },
+  { "name": "YouTube Intro/Section/Outro", "input": "Intro: สวัสดีครับ\nSection 2: รายละเอียด\nOutro: ลาก่อน", "expected": "สวัสดีครับ\nรายละเอียด\nลาก่อน" },
+  { "name": "ตัวพิมพ์เล็กใหญ่และโคลอนเต็มความกว้าง", "input": "POST CAPTION：ข้อความ\ncta : ทักเลย", "expected": "ข้อความ\nทักเลย" },
+  { "name": "คำกำกับกลางประโยคไม่ถูกตัด", "input": "ทำ CTA ให้ชัด: ช่วยเพิ่มยอด\nบทความนี้เล่า Scene 1: ของหนัง", "expected": "ทำ CTA ให้ชัด: ช่วยเพิ่มยอด\nบทความนี้เล่า Scene 1: ของหนัง" },
+  { "name": "บรรทัดที่เหลือแต่คำกำกับถูกลบ และบรรทัดว่างไม่ซ้อน", "input": "Post caption:\nย่อหน้าแรก\n\n\n\nCTA:\nย่อหน้าสอง", "expected": "ย่อหน้าแรก\n\nย่อหน้าสอง" },
+  { "name": "ข้อความที่ไม่มีคำกำกับไม่เปลี่ยน", "input": "เปลี่ยนวิธีจัดการ AI ในองค์กร\n\n- ศูนย์รวม AI\n- ควบคุมค่าใช้จ่าย", "expected": "เปลี่ยนวิธีจัดการ AI ในองค์กร\n\n- ศูนย์รวม AI\n- ควบคุมค่าใช้จ่าย" }
+]

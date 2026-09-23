@@ -2768,17 +2768,9 @@ if ($action === 'generate-article') {
         '- แต่ละ platform ต้องมีเนื้อหาที่ปรับให้เหมาะกับ platform นั้น ไม่ copy ข้าม platform แบบตรง ๆ',
         '- Topic, user seed, Research Brief, Brand Context และ Knowledge Base เป็น Source of Truth ห้ามเดาข้อเท็จจริง หรืออ้างงานวิจัย/สถิติ/แหล่งข้อมูลที่ไม่ได้อยู่ใน Source of Truth',
     ];
+    $platformScriptGuidanceLines[] = SCRIPTS_POST_READY_RULE;
     foreach ($scriptPlatforms as $scriptPlatform) {
-        $platformScriptGuidanceLines[] = match ($scriptPlatform) {
-            'youtube' => '- [youtube] เน้น intro ที่เข้าใจง่าย อธิบายหัวข้อเป็นลำดับ และ CTA ที่เหมาะกับ YouTube',
-            'facebook' => '- [facebook] เน้น opening caption ที่เข้าใจทันที และน้ำเสียงที่เหมาะกับ Facebook',
-            'instagram' => '- [instagram] เน้น Reels/caption hook ที่ดึงดูดและกระชับ',
-            'tiktok' => '- [tiktok] เน้น hook 3 วินาทีแรกและจังหวะที่กระชับ',
-            'lineoa' => '- [lineoa] เน้นข้อความสั้น กระชับ อ่านง่าย และ CTA ที่ชัดเจน',
-            'linkedin' => '- [linkedin] เน้น professional tone และเนื้อหาที่ให้คุณค่าเชิงวิชาชีพ',
-            'twitter' => '- [twitter] เน้นข้อความสั้น คม ชัด ไม่ยืดเยื้อ',
-            default => '- [' . $scriptPlatform . '] ปรับสคริปต์ตามธรรมชาติของ platform',
-        };
+        $platformScriptGuidanceLines[] = platform_post_text_guidance($scriptPlatform);
     }
     $platformScriptGuidance = implode("\n", $platformScriptGuidanceLines);
 
@@ -2786,19 +2778,7 @@ if ($action === 'generate-article') {
     if ($isVideo) {
         // Video-first prompt: detailed scene-by-scene script for TikTok/YouTube
         $seoRequirementsText = seo_contract_hints('video');
-            $scriptExamples = [];
-        foreach ($scriptPlatforms as $scriptPlatform) {
-            $scriptExamples[$scriptPlatform] = match ($scriptPlatform) {
-                'tiktok' => 'Hook 3 วิ: ...\\nScene 1: ...\\nScene 2: ...\\nCTA: ...',
-                'youtube' => 'Intro: ...\\nSection 1: ...\\nSection 2: ...\\nOutro: ...',
-                'instagram' => 'Caption/Reels: ...\\nCTA: ...',
-                'facebook' => 'Post caption: ...\\nCTA: ...',
-                'linkedin' => 'Professional post: ...\\nCTA: ...',
-                'twitter' => 'Post: ...',
-                'lineoa' => 'ข้อความ LINE OA: ...\\nCTA: ...',
-                default => 'Platform-specific script: ...',
-            };
-        }
+            $scriptExamples = platform_post_text_examples($scriptPlatforms); // ข้อความพร้อมโพสต์ ไม่มีคำกำกับ (platform-post-text)
         $scriptSchema = json_encode($scriptExamples, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         // Core Article ต้องมีเนื้อหาเสมอไม่ว่า Content Type จะเป็นอะไร — ขอ full_html
         // แบบ "เนื้อหาประกอบ/สรุปวิดีโอ" เสมอ ไม่ปล่อยให้ Core Article ว่างเปล่าแล้วต้องพึ่ง
@@ -2824,19 +2804,7 @@ if ($action === 'generate-article') {
                    '"hashtags":["#hashtag1","#hashtag2","... (จำนวน hashtag ตามความเหมาะสมของเนื้อหา ไม่บังคับตายตัว)"]}' . "\n\nSEO Checklist Requirements (single source of truth):\n{$seoRequirementsText}\n\nAEO Checklist Requirements (single source of truth):\n" . aeo_generation_requirements() . "\n\n{$platformScriptGuidance}";
     } else {
         // Article/social-first prompt with SEO/AEO optimization
-        $scriptExamples = [];
-        foreach ($scriptPlatforms as $scriptPlatform) {
-            $scriptExamples[$scriptPlatform] = match ($scriptPlatform) {
-                'tiktok' => 'Hook 3 วิ: ...\\nScene 1: ...\\nScene 2: ...\\nCTA: ...',
-                'youtube' => 'Intro: ...\\nSection 1: ...\\nSection 2: ...\\nOutro: ...',
-                'instagram' => 'Caption/Reels: ...\\nCTA: ...',
-                'facebook' => 'Post caption: ...\\nCTA: ...',
-                'linkedin' => 'Professional post: ...\\nCTA: ...',
-                'twitter' => 'Post: ...',
-                'lineoa' => 'ข้อความ LINE OA: ...\\nCTA: ...',
-                default => 'Platform-specific script: ...',
-            };
-        }
+        $scriptExamples = platform_post_text_examples($scriptPlatforms); // ข้อความพร้อมโพสต์ ไม่มีคำกำกับ (platform-post-text)
         $scriptSchema = json_encode($scriptExamples, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         // script_sections ต้องการเฉพาะ platform ที่เป็น video-native (TikTok/YouTube)
         // เท่านั้น — ไม่ผูกกับ Content Type อีกต่อไป (ดู content_needs_script_sections())

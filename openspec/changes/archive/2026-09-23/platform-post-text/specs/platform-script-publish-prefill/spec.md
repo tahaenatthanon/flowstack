@@ -1,10 +1,4 @@
-# platform-script-publish-prefill Specification
-
-## Purpose
-
-กำหนดว่าหน้าต่างเผยแพร่ (`SchedulePublishDialog`) แสดงข้อความที่จะโพสต์ของแต่ละ social channel แบบอ่านอย่างเดียว (หัวข้อ + ข้อความโพสต์ของ platform นั้น ตัดคำกำกับทุก platform, fallback ข้อความโพสต์สำรอง) และไม่ส่ง `channel_overrides` — การแก้ข้อความทำใน `ContentCardDialog` เท่านั้น — Platform เว็บ/CMS ใช้เนื้อหาบทความ (แก้ไขโดย change `platform-post-text`)
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: ข้อความเผยแพร่เริ่มต้นต่อ social channel มาจาก script ของ platform นั้น
 `SchedulePublishDialog` SHALL แสดงข้อความที่จะโพสต์ของแต่ละ social channel (`facebook`, `instagram`, `tiktok`, `lineoa`, `linkedin`, `twitter`) เป็น**ตัวอย่างแบบอ่านอย่างเดียว** ในรูปแบบเดียวกับที่ backend จะโพสต์ คือหัวข้อ (`content_items.title`) + ข้อความจาก `article_content.scripts[platform]` ของ platform ของ channel นั้นโดยเฉพาะ — SHALL ไม่ใช้ข้อความเดียวกันซ้ำกับ channel ของ platform อื่น — SHALL ไม่มีช่องแก้ไข และคำขอ "ส่งเดี๋ยวนี้"/"ตั้งเวลา" SHALL ไม่ส่ง `channel_overrides` — ถ้าต้องการแก้ข้อความ ผู้ใช้ SHALL แก้ใน `ContentCardDialog` (ซึ่งทำให้ต้องขออนุมัติใหม่) และหน้าต่าง SHALL แสดงคำแนะนำนี้
@@ -31,17 +25,6 @@
 #### Scenario: Facebook script ถูกตัดคำกำกับด้วย
 - **WHEN** `scripts['facebook']` = `"Post caption: สนใจไหม\nCTA: ทักแชท"`
 - **THEN** ตัวอย่างที่แสดง SHALL เป็น `"สนใจไหม\nทักแชท"` (ต่อจากบรรทัดหัวข้อ)
-
-### Requirement: Fallback ไปใช้แคปชั่นเมื่อไม่มี script ของ platform นั้น
-เมื่อ content item ไม่มี `article_content.scripts[platform]` สำหรับ platform ของ channel ที่เลือก (ไม่ว่าเพราะ content สร้างก่อนมี field นี้ หรือ AI ไม่ได้เขียนไว้) ระบบ SHALL prefill ข้อความเริ่มต้นด้วย `content_items.caption` แทน ตามพฤติกรรมเดิมก่อนการเปลี่ยนแปลงนี้ — SHALL ไม่แสดงข้อความว่างเปล่าและ SHALL ไม่ error
-
-#### Scenario: content เก่าไม่มี scripts field
-- **WHEN** content item มี `article_content` ที่ไม่มี key `scripts` เลย และมี `caption` ที่ไม่ว่าง
-- **THEN** ข้อความเริ่มต้นของทุก social channel ที่เลือก SHALL เป็น `caption`
-
-#### Scenario: มี scripts แต่ไม่มี key ของ platform ที่เลือก
-- **WHEN** `article_content.scripts` = `{"facebook": "..."}` และผู้ใช้เลือก channel ของ `linkedin`
-- **THEN** ข้อความเริ่มต้นของ channel linkedin SHALL เป็น `caption` ไม่ใช่ข้อความว่างเปล่า
 
 ### Requirement: Platform ที่ไม่มี script ไม่ได้รับผลกระทบ
 `ARTICLE_PLATFORMS` (`wordpress`, `wix`, `custom`, `website`) SHALL ยังคงโพสต์เนื้อหาบทความ (HTML) เหมือนเดิม — หน้าต่างเผยแพร่ SHALL แสดงแค่ข้อความว่าจะใช้ "เนื้อหาบทความ" ของคอนเทนต์ และ SHALL ไม่มีช่องให้พิมพ์เนื้อหาแทนที่

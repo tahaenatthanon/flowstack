@@ -91,7 +91,6 @@ if ($method === 'POST') {
         $contentId        = $body['content_id']        ?? '';
         $channelIds       = array_values(array_unique($body['channel_ids'] ?? []));
         $scheduledAt      = $body['scheduled_at']      ?? '';
-        $channelOverrides = $body['channel_overrides'] ?? [];
 
         if (!$contentId || empty($channelIds) || !$scheduledAt) {
             jsonError('content_id, channel_ids, scheduled_at required', 400);
@@ -128,6 +127,14 @@ if ($method === 'POST') {
         foreach ($channelRows as $row) {
             $channelPlatformMap[$row['id']] = strtolower(trim((string)$row['platform']));
             $scriptGateByChannel[$row['id']] = final_publish_gate_check($db, $tenantId, $content, $channelPlatformMap[$row['id']]);
+            // บอกตั้งแต่ตอนตั้งเวลาว่าข้อความโพสต์มีบทวิดีโอปน (cron ตรวจซ้ำอีกครั้งตอนโพสต์จริง)
+            if (empty($scriptGateByChannel[$row['id']]['blocked']) && in_array($channelPlatformMap[$row['id']], SOCIAL_POST_PLATFORMS, true)) {
+                $screenplay = publish_screenplay_check(
+                    publish_social_final_text(publish_social_post_text($content, $channelPlatformMap[$row['id']])),
+                    $channelPlatformMap[$row['id']]
+                );
+                if ($screenplay !== null) $scriptGateByChannel[$row['id']] = ['blocked' => true, 'reason' => $screenplay];
+            }
         }
 
         $created = [];
@@ -167,11 +174,12 @@ if ($method === 'POST') {
             }
 
             $id = generateUUID();
-            $override = !empty($channelOverrides[$channelId]) ? $channelOverrides[$channelId] : null;
+            // platform-post-text: ไม่เก็บข้อความแทนที่จากคำขอ — ข้อความที่โพสต์ต้องผ่านการอนุมัติใน
+            // ContentCardDialog เท่านั้น (channel_overrides ที่ client เก่าส่งมาถูกเพิกเฉย ไม่ error)
             $db->prepare(
                 "INSERT INTO content_publish_queue (id,tenant_id,content_id,channel_id,scheduled_at,content_override)
-                 VALUES (?,?,?,?,?,?)"
-            )->execute([$id, $tenantId, $contentId, $channelId, $scheduledAt, $override]);
+                 VALUES (?,?,?,?,?,NULL)"
+            )->execute([$id, $tenantId, $contentId, $channelId, $scheduledAt]);
             $created[] = $id;
         }
         jsonResponse(['created' => $created, 'blocked' => $blocked]);
@@ -184,7 +192,6 @@ if ($method === 'POST') {
     if ($action === 'send_now') {
         $contentId = trim((string)($body['content_id'] ?? ''));
         $channelIds = array_values(array_unique(array_filter(array_map('strval', $body['channel_ids'] ?? []))));
-        $channelOverrides = is_array($body['channel_overrides'] ?? null) ? $body['channel_overrides'] : [];
         if ($contentId === '' || empty($channelIds)) {
             jsonError('content_id, channel_ids required', 400);
         }
@@ -210,7 +217,7 @@ if ($method === 'POST') {
                 $channelsById[$channelId],
                 (string)$userId,
                 null,
-                isset($channelOverrides[$channelId]) ? (string)$channelOverrides[$channelId] : null
+                null // platform-post-text: ไม่ส่งข้อความแทนที่จากคำขอ
             );
             $results[] = [
                 'channel_id' => $channelId,

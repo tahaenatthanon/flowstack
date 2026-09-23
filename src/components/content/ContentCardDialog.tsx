@@ -12,7 +12,7 @@ import SceneCards, { NarrationField } from '@/components/content/SceneCards';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import type { PlanItem } from '@/components/content/types';
-import { getCanonicalContentType, PLATFORM_MAP, platformsNeedScriptSections } from '@/components/content/types';
+import { getCanonicalContentType, PLATFORM_MAP, platformsNeedScriptSections, socialPostPlatforms } from '@/components/content/types';
 import VideoClipsPanel, { useVideoClips } from '@/components/content/VideoClipsPanel';
 import { getThaiDayName, formatThaiDate } from './calendarUtils';
 import { CalendarDays, Save, Trash2, Sparkles, ImagePlus, RefreshCw, Loader2, Image as ImageIcon, FileText, Hash, Lightbulb, Clapperboard, MessageSquare, Share2, BookOpen, ChevronDown, Video, Play, Send, ShieldCheck } from 'lucide-react';
@@ -107,6 +107,9 @@ export function ContentCardDialog({
   const [visualsDraft, setVisualsDraft] = useState<string[] | null>(null);
   // บทพากย์ของแต่ละฉากใน "ลำดับฉาก" ก่อนมี scenes — บันทึกลง article_content.visuals[i].narration
   const [visualsNarrationDraft, setVisualsNarrationDraft] = useState<string[] | null>(null);
+  // ข้อความโพสต์ต่อ platform (article_content.scripts) — แก้ได้ในแท็บ "ข้อความโพสต์แต่ละ Platform"
+  // บันทึกพร้อมปุ่ม "บันทึก" หลัก (platform-post-text)
+  const [scriptsDraft, setScriptsDraft] = useState<Record<string, string>>({});
   // visual_prompt ต่อ scene (หลังมี scenes แล้ว) — key เป็น scene index
   const [scenesVisualPromptDraft, setScenesVisualPromptDraft] = useState<Record<number, string>>({});
   // video_prompt ต่อ scene — ไม่มีปุ่มบันทึกของตัวเองอีกต่อไป รวมกับปุ่ม "บันทึก" หลักเช่นกัน
@@ -218,6 +221,7 @@ export function ContentCardDialog({
       let seoFieldsVal: SeoFields = emptySeoFields();
       let visualsVal: string[] = [];
       let visualsNarrationVal: string[] = [];
+      let scriptsVal: Record<string, string> = {};
       if (existingItem?.article_content) {
         try {
           const art = JSON.parse(existingItem.article_content);
@@ -238,12 +242,16 @@ export function ContentCardDialog({
           const rawVisuals: Array<string | { visual?: string; motion?: string; narration?: string }> = Array.isArray(art.visuals) ? art.visuals : [];
           visualsVal = rawVisuals.map(v => (typeof v === 'string' ? v : (v?.visual ?? '')));
           visualsNarrationVal = rawVisuals.map(v => (typeof v === 'string' ? '' : (v?.narration ?? '')));
+          if (art.scripts && typeof art.scripts === 'object') {
+            scriptsVal = Object.fromEntries(Object.entries(art.scripts).filter(([, v]) => typeof v === 'string')) as Record<string, string>;
+          }
         } catch { /* keep defaults */ }
       }
       setArticleHtml(articleHtmlVal);
       setSeoFields(seoFieldsVal);
       setVisualsDraft(visualsVal);
       setVisualsNarrationDraft(visualsNarrationVal);
+      setScriptsDraft(scriptsVal);
       setScenesVisualPromptDraft({});
       setScenesVideoPromptDraft({});
       setScenesNarrationDraft({});
@@ -267,6 +275,7 @@ export function ContentCardDialog({
         topic: topicVal, caption: captionVal, platforms: platformsVal, imageBrief: imageBriefVal,
         scheduledDate: scheduledDateVal, articleHtml: articleHtmlVal, seoFields: seoFieldsVal,
         visuals: visualsVal, visualsNarration: visualsNarrationVal, scenesVisualPrompt: {}, scenesVideoPrompt: {}, scenesNarration: {},
+        scripts: scriptsVal,
       });
     }
   }, [open, existingItem, date]);
@@ -274,6 +283,7 @@ export function ContentCardDialog({
   const isDirty = JSON.stringify({
     topic, caption, platforms, imageBrief, scheduledDate, articleHtml, seoFields,
     visuals: visualsDraft ?? [], visualsNarration: visualsNarrationDraft ?? [], scenesVisualPrompt: scenesVisualPromptDraft, scenesVideoPrompt: scenesVideoPromptDraft, scenesNarration: scenesNarrationDraft,
+    scripts: scriptsDraft,
   }) !== initialSnapshotRef.current;
 
   const effectiveDate = date || (existingItem?.scheduled_date ? new Date(existingItem.scheduled_date + 'T00:00:00') : null);
@@ -310,10 +320,17 @@ export function ContentCardDialog({
             return narration.trim() ? { visual: text, narration } : text;
           });
         }
+        // ข้อความโพสต์: ข้อความว่าง = ลบ key (ตอนโพสต์ใช้ข้อความโพสต์สำรอง), key ของ platform ที่ไม่มีแท็บคงไว้
+        const updatedScripts: Record<string, string> = { ...(art.scripts && typeof art.scripts === 'object' ? art.scripts : {}) };
+        for (const [key, value] of Object.entries(scriptsDraft)) {
+          if (value.trim() === '') delete updatedScripts[key];
+          else updatedScripts[key] = value;
+        }
         art = {
           ...art,
           html:             articleHtml,
           visuals:          updatedVisuals,
+          ...(Object.keys(updatedScripts).length > 0 || art.scripts ? { scripts: updatedScripts } : {}),
           seo_title:        seoFields.seo_title        || undefined,
           slug:             seoFields.slug             || undefined,
           meta_description: seoFields.meta_description || undefined,
@@ -388,6 +405,7 @@ export function ContentCardDialog({
       initialSnapshotRef.current = JSON.stringify({
         topic: topic.trim(), caption, platforms, imageBrief: imageBrief.trim(), scheduledDate, articleHtml, seoFields,
         visuals: visualsDraft ?? [], visualsNarration: visualsNarrationDraft ?? [], scenesVisualPrompt: scenesVisualPromptDraft, scenesVideoPrompt: scenesVideoPromptDraft, scenesNarration: scenesNarrationDraft,
+        scripts: scriptsDraft,
       });
 
       if (changedVisualPromptIndexes.length > 0) {
@@ -645,15 +663,9 @@ export function ContentCardDialog({
   };
 
   const headlines = articleData?.headlines;
-  // Show only scripts belonging to the Content Item's selected platforms.
-  // This also hides legacy scripts that were generated before platform scoping was enforced.
-  const scripts = useMemo(() => {
-    const rawScripts = articleData?.scripts;
-    if (!rawScripts || typeof rawScripts !== 'object') return {};
-    return Object.fromEntries(
-      Object.entries(rawScripts).filter(([key]) => platforms.includes(key.toLowerCase())),
-    );
-  }, [articleData?.scripts, platforms]);
+  // แท็บ "ข้อความโพสต์แต่ละ Platform" = ทุก platform โซเชียลที่เลือก (ไม่ใช่เฉพาะ key ที่มีใน scripts)
+  // — คอนเทนต์เก่าที่ AI เขียนไว้ไม่ครบ ผู้ใช้เห็นแท็บที่ขาดและพิมพ์เองได้ (platform-post-text)
+  const postTextPlatforms = useMemo(() => socialPostPlatforms(platforms), [platforms]);
 
   const scriptSections = articleData?.script_sections;
   const visuals: Array<string | { visual?: string; motion?: string }> = articleData?.visuals ?? [];
@@ -765,32 +777,60 @@ export function ContentCardDialog({
             </div>
           )}
 
-          {/* ===== Multi-platform Scripts ===== */}
-          {Object.keys(scripts).length > 0 && (
+          {/* ===== ข้อความโพสต์แต่ละ Platform (platform-post-text) ===== */}
+          {existingItem && postTextPlatforms.length > 0 && (
             <div className="px-6 py-5 border-b space-y-4">
               <div className="flex items-center gap-2">
                 <MessageSquare className="h-4 w-4 text-muted-foreground" />
-                <h3 className="text-sm font-semibold">Scripts สำหรับ Platform ที่เลือก</h3>
+                <h3 className="text-sm font-semibold">ข้อความโพสต์แต่ละ Platform</h3>
               </div>
-              <Tabs defaultValue={Object.keys(scripts)[0]}>
+              <Tabs defaultValue={postTextPlatforms[0]}>
                 <TabsList className="w-full justify-start gap-1 bg-transparent p-0 h-auto flex-wrap">
-                  {Object.entries(scripts).map(([key]) => {
+                  {postTextPlatforms.map(key => {
                     const Icon = PLATFORM_ICONS[key] || Share2;
+                    const empty = !(scriptsDraft[key] ?? '').trim();
                     return (
                       <TabsTrigger key={key} value={key} className="text-xs data-[state=active]:bg-muted gap-1.5 px-3 py-1.5 rounded-md">
                         <Icon className="h-3 w-3" />
                         {PLATFORM_MAP[key]?.label ?? key}
+                        {empty && <span className="text-amber-600" title="ยังไม่มีข้อความเฉพาะ">⚠</span>}
                       </TabsTrigger>
                     );
                   })}
                 </TabsList>
-                {Object.entries(scripts).map(([key, text]) => (
-                  <TabsContent key={key} value={key} className="mt-3 space-y-3">
-                    <div className="bg-muted/30 rounded-lg p-4 max-h-64 overflow-y-auto">
-                      <p className="text-sm leading-relaxed whitespace-pre-wrap">{text || `— ไม่มี script สำหรับ ${PLATFORM_MAP[key]?.label ?? key} —`}</p>
-                    </div>
-                  </TabsContent>
-                ))}
+                {postTextPlatforms.map(key => {
+                  const value = scriptsDraft[key] ?? '';
+                  const empty = value.trim() === '';
+                  const titleLine = topic.trim();
+                  const tweetLength = [...(titleLine ? `${titleLine}\n\n${value.trim()}` : value.trim())].length;
+                  return (
+                    <TabsContent key={key} value={key} className="mt-3 space-y-2">
+                      <div className="rounded-lg border bg-muted/20 overflow-hidden">
+                        {titleLine && (
+                          <p className="px-3 pt-2.5 text-sm font-semibold" data-testid={`post-text-title-${key}`}
+                            title='หัวข้อที่ระบบเติมไว้บรรทัดแรกของโพสต์ (แก้ที่ช่อง "หัวข้อ")'>{titleLine}</p>
+                        )}
+                        <Textarea value={value} aria-label={`ข้อความโพสต์ ${PLATFORM_MAP[key]?.label ?? key}`}
+                          onChange={e => setScriptsDraft(prev => ({ ...prev, [key]: e.target.value }))}
+                          placeholder={`ข้อความที่จะโพสต์ลง ${PLATFORM_MAP[key]?.label ?? key}...`}
+                          className="min-h-[140px] text-sm resize-y border-0 bg-transparent focus-visible:ring-0" />
+                      </div>
+                      {empty && (
+                        <p className="text-[11px] text-amber-700 dark:text-amber-400" data-testid={`post-text-fallback-${key}`}>
+                          ยังไม่มีข้อความเฉพาะ — ตอนโพสต์จะใช้ข้อความโพสต์สำรองแทน
+                          {caption.trim()
+                            ? <>: <span className="text-muted-foreground">{caption.trim().slice(0, 120)}{caption.trim().length > 120 ? '…' : ''}</span></>
+                            : ' (ไม่มีข้อความโพสต์สำรอง จะใช้เนื้อหาบทความ)'}
+                        </p>
+                      )}
+                      {key === 'twitter' && (
+                        <p className={cn('text-[11px]', tweetLength > 280 ? 'text-amber-700 dark:text-amber-400 font-medium' : 'text-muted-foreground')} data-testid="post-text-twitter-count">
+                          {tweetLength}/280{tweetLength > 280 && ' — ยาวเกิน ส่วนที่เกินจะถูกตัดตอนโพสต์'}
+                        </p>
+                      )}
+                    </TabsContent>
+                  );
+                })}
               </Tabs>
             </div>
           )}
@@ -920,8 +960,9 @@ export function ContentCardDialog({
                 )}
 
                 <div className="space-y-1.5">
-                  <Label>แคปชั่น</Label>
-                  <Textarea value={caption} onChange={e => setCaption(e.target.value)} placeholder="แคปชั่น (ใส่ภายหลังได้)..." className="min-h-[180px] text-sm resize-y" />
+                  <Label>ข้อความโพสต์สำรอง</Label>
+                  <p className="text-[11px] text-muted-foreground">ใช้เมื่อ platform ไม่มีข้อความเฉพาะใน "ข้อความโพสต์แต่ละ Platform"</p>
+                  <Textarea value={caption} onChange={e => setCaption(e.target.value)} placeholder="ข้อความโพสต์สำรอง (ใส่ภายหลังได้)..." className="min-h-[180px] text-sm resize-y" />
                 </div>
               </div>
 

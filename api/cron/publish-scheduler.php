@@ -113,18 +113,18 @@ foreach ($entries as $entry) {
         'type'                => $entry['type'],
     ];
 
-    // Apply content_override saved at schedule time
+    // ข้อความโพสต์โซเชียลเลือกใน publish_social_post_text() (platform-post-text) จุดเดียวกับ "ส่งเดี๋ยวนี้"
+    // — cron ไม่เลือก scripts[platform] เองอีกต่อไป (เดิมไม่ตัดคำกำกับ)
+    // content_override มีเฉพาะคิวที่สร้างก่อน change นี้ (คิวใหม่เป็น NULL เสมอ) — ใช้ตามเดิมเพื่อไม่เปลี่ยน
+    // โพสต์ที่ตั้งไว้แบบเงียบๆ: โซเชียลส่งเป็น key แยก, เว็บ/CMS แทน html ตามพฤติกรรมเดิม
+    $entryPlatform = strtolower((string)$entry['platform']);
     if (!empty($entry['content_override'])) {
         $ov = $entry['content_override'];
-        $content['caption']         = $ov;
-        $content['article_content'] = json_encode(['html' => $ov, 'title' => $content['title'], 'excerpt' => '']);
-    } else {
-        $articleContent = json_decode($content['article_content'] ?? '', true);
-        $scripts = is_array($articleContent['scripts'] ?? null) ? $articleContent['scripts'] : [];
-        $platform = strtolower((string)$entry['platform']);
-        $socialPlatforms = ['facebook', 'instagram', 'tiktok', 'lineoa', 'linkedin', 'twitter'];
-        if (in_array($platform, $socialPlatforms, true) && !empty($scripts[$platform])) {
-            $content['caption'] = trim((string)$scripts[$platform]);
+        if (in_array($entryPlatform, SOCIAL_POST_PLATFORMS, true)) {
+            $content['content_override'] = $ov;
+        } else {
+            $content['caption']         = $ov;
+            $content['article_content'] = json_encode(['html' => $ov, 'title' => $content['title'], 'excerpt' => '']);
         }
     }
 
@@ -185,6 +185,17 @@ foreach ($entries as $entry) {
             $db->prepare("UPDATE content_publish_queue SET status='failed', error_msg=? WHERE id=?")
                ->execute([mb_substr('Final Publish Gate: ' . ($finalGate['reason'] ?? 'ไม่ผ่านเกณฑ์'), 0, 500), $queueId]);
             echo "  [{$queueId}] blocked by final publish gate\n";
+            continue;
+        }
+    }
+
+    // บทวิดีโอปนในข้อความโพสต์โซเชียล → ไม่โพสต์ (platform-post-text)
+    if (in_array($entryPlatform, SOCIAL_POST_PLATFORMS, true)) {
+        $screenplay = publish_screenplay_check(publish_social_final_text(publish_social_post_text($content, $entryPlatform)), $entryPlatform);
+        if ($screenplay !== null) {
+            $db->prepare("UPDATE content_publish_queue SET status='failed', error_msg=? WHERE id=?")
+               ->execute([mb_substr('Post text gate: ' . $screenplay, 0, 500), $queueId]);
+            echo "  [{$queueId}] blocked by post text gate\n";
             continue;
         }
     }

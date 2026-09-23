@@ -2,7 +2,7 @@
 
 ## Purpose
 
-กำหนดว่าเนื้อหา (body) ที่ `dispatch_content()` (`api/lib/publish-dispatch.php`) ส่งให้ dispatcher ของแพลตฟอร์มโซเชียล (`facebook`, `instagram`, `tiktok`, `lineoa`, `linkedin`, `twitter`) ต้องเป็น **ข้อความล้วน** ไม่ใช่ HTML — ครอบลำดับแหล่งข้อมูล (`content_items.caption` ก่อน แล้ว fallback ไป `article_content.html` ที่แปลงเป็นข้อความ), กฎการแปลง HTML → ข้อความที่รักษาย่อหน้าและรายการ, การถอดรหัส HTML entity หลังการตัดแท็ก, การลบเนื้อใน `<script>`/`<style>` ทั้งก้อน, และการตัด `<h1>` ตัวแรกที่ซ้ำกับหัวเรื่องซึ่ง dispatcher เติมให้อยู่แล้ว พร้อมขีดเส้นชัดว่าแพลตฟอร์มเว็บ/CMS (`wordpress`, `lotusdomino`, `custom`) ยังได้รับ HTML เดิมทุกตัวอักษร
+กำหนดว่าเนื้อหา (body) ที่ `dispatch_content()` (`api/lib/publish-dispatch.php`) ส่งให้ dispatcher ของแพลตฟอร์มโซเชียล (`facebook`, `instagram`, `tiktok`, `lineoa`, `linkedin`, `twitter`) ต้องเป็น **ข้อความล้วน** ไม่ใช่ HTML — ครอบลำดับแหล่งข้อมูล (ข้อความโพสต์ของ platform `article_content.scripts[platform]` → `content_items.caption` → `article_content.html` ที่แปลงเป็นข้อความ — แก้ไขโดย change `platform-post-text` ที่กำหนดหัวเรื่องโซเชียลเป็น `content_items.title`), กฎการแปลง HTML → ข้อความที่รักษาย่อหน้าและรายการ, การถอดรหัส HTML entity หลังการตัดแท็ก, การลบเนื้อใน `<script>`/`<style>` ทั้งก้อน, และการตัด `<h1>` ตัวแรกที่ซ้ำกับหัวเรื่องซึ่ง dispatcher เติมให้อยู่แล้ว พร้อมขีดเส้นชัดว่าแพลตฟอร์มเว็บ/CMS (`wordpress`, `lotusdomino`, `custom`) ยังได้รับ HTML เดิมทุกตัวอักษร
 
 ## Requirements
 
@@ -19,32 +19,35 @@
 - **THEN** ทุกแพลตฟอร์มได้รับเนื้อหาข้อความล้วนชุดเดียวกัน
 
 ### Requirement: ลำดับแหล่งเนื้อหาของโพสต์โซเชียล
-เนื้อหาของโพสต์โซเชียล SHALL มาจาก `content_items.caption` เมื่อค่านั้นไม่ว่าง (พิจารณาหลัง `trim()`) และ SHALL fallback ไปใช้ `article_content.html` ที่แปลงเป็นข้อความแล้วเมื่อ `caption` ว่าง — `caption` ที่ถูกใช้ SHALL ไม่ถูกแปลงหรือดัดแปลงเนื้อหา เพราะเป็นข้อความล้วนที่เขียนไว้สำหรับโซเชียลโดยเฉพาะ
+เนื้อหา (ส่วนข้อความ ไม่รวมหัวข้อ) ของโพสต์โซเชียล SHALL มาจากตัวแรกที่ไม่ว่าง (พิจารณาหลัง `trim()`) ตามลำดับ: `content_override` ของคิวเดิม → `article_content.scripts[platform]` ที่ตัดคำกำกับแล้ว (capability `platform-post-text`) → `content_items.caption` → `article_content.html` ที่แปลงเป็นข้อความ — `caption` และ `content_override` ที่ถูกใช้ SHALL ไม่ถูกแปลงหรือดัดแปลงเนื้อหา
 
-#### Scenario: มีทั้ง caption และบทความ
-- **WHEN** คอนเทนต์มีทั้ง `caption` ที่ไม่ว่างและ `article_content.html`
+#### Scenario: มี script ของ platform, caption และบทความ
+- **WHEN** คอนเทนต์มี `scripts.facebook`, `caption` และ `article_content.html` ครบ และเผยแพร่ไป facebook
+- **THEN** เนื้อหาที่ส่งให้ dispatcher SHALL มาจาก `scripts.facebook`
+
+#### Scenario: มีทั้ง caption และบทความ แต่ไม่มี script ของ platform
+- **WHEN** คอนเทนต์มี `caption` ที่ไม่ว่างและ `article_content.html` แต่ไม่มี `scripts[platform]`
 - **THEN** เนื้อหาที่ส่งให้ dispatcher โซเชียล SHALL เป็น `caption`
-- **AND** SHALL ไม่เป็นเนื้อหาที่มาจาก `article_content.html`
 
-#### Scenario: มีแต่บทความ ไม่มี caption
-- **WHEN** คอนเทนต์มี `article_content.html` แต่ `caption` ว่างหรือไม่มี
+#### Scenario: มีแต่บทความ
+- **WHEN** คอนเทนต์ไม่มี `scripts[platform]` และ `caption` ว่าง แต่มี `article_content.html`
 - **THEN** เนื้อหาที่ส่งให้ dispatcher โซเชียล SHALL เป็นผลของการแปลง `article_content.html` เป็นข้อความ
 
 #### Scenario: caption มีแต่ช่องว่าง
-- **WHEN** `caption` มีแต่อักขระช่องว่าง/บรรทัดใหม่ และคอนเทนต์มี `article_content.html` ที่มีเนื้อหา
-- **THEN** ระบบ SHALL ใช้เนื้อหาที่แปลงจาก `article_content.html` ไม่ใช้ `caption` ที่ว่างเปล่า
+- **WHEN** ไม่มี `scripts[platform]`, `caption` มีแต่อักขระช่องว่าง และมี `article_content.html` ที่มีเนื้อหา
+- **THEN** ระบบ SHALL ใช้เนื้อหาที่แปลงจาก `article_content.html`
 
 #### Scenario: caption ถูกส่งไปตามที่ผู้ใช้พิมพ์
 - **WHEN** `caption` ถูกเลือกเป็นแหล่งเนื้อหา
 - **THEN** ข้อความที่ส่งออก SHALL ตรงกับค่าใน `caption` ทุกตัวอักษร (ยกเว้นการ `trim()` หัวท้าย)
 
-#### Scenario: ไม่มีทั้ง caption และบทความ
-- **WHEN** คอนเทนต์ไม่มีทั้ง `caption` และ `article_content.html`
+#### Scenario: ไม่มีแหล่งใดเลย
+- **WHEN** คอนเทนต์ไม่มี `scripts[platform]`, `caption` และ `article_content.html`
 - **THEN** เนื้อหาที่ส่งให้ dispatcher SHALL เป็นสตริงว่าง และ SHALL ไม่ error
 
-#### Scenario: ข้อความแทนที่ต่อช่องทางยังได้ผลตามที่ผู้ใช้พิมพ์
-- **WHEN** ผู้ใช้ส่ง `channel_overrides` ให้ช่องทางโซเชียล ซึ่งทำให้คอนเทนต์มี `caption` เป็นข้อความแทนที่นั้น
-- **THEN** โพสต์ SHALL มีข้อความตรงตามที่ผู้ใช้พิมพ์ ไม่ถูกแปลงเสียรูป
+#### Scenario: คิวเดิมที่มีข้อความแทนที่
+- **WHEN** คิวที่สร้างก่อน change นี้มี `content_override`
+- **THEN** โพสต์ SHALL มีข้อความตรงตาม `content_override` ไม่ถูกแปลงเสียรูป
 
 ### Requirement: การแปลง HTML เป็นข้อความต้องรักษาย่อหน้าและรายการ
 การแปลง HTML เป็นข้อความ SHALL แทนแท็กที่มีความหมายเชิงโครงสร้างด้วยตัวคั่นข้อความก่อนตัดแท็กที่เหลือ — รายการ (`<li>`) SHALL กลายเป็นบรรทัดที่นำด้วยสัญลักษณ์รายการ, `<br>` SHALL กลายเป็นการขึ้นบรรทัดใหม่, และการปิดบล็อก (`</p>`, `</h1>`–`</h6>`, `</div>`, `</ul>`, `</ol>`, `</blockquote>`) SHALL กลายเป็นการเว้นย่อหน้า — SHALL ไม่ใช้การตัดแท็กเพียว ๆ ที่ทำให้ทุกอย่างติดกันเป็นข้อความเดียว
@@ -85,26 +88,23 @@
 - **THEN** ข้อความที่ได้ SHALL ไม่มี `alert(1)` อยู่
 
 ### Requirement: ตัดหัวเรื่องที่ซ้ำออกจากเนื้อหา
-dispatcher โซเชียลทุกตัวประกอบข้อความเป็น `"{title}\n\n{body}"` อยู่แล้ว ดังนั้นการแปลง HTML SHALL ลบ element `<h1>` **ตัวแรก** ออกเมื่อข้อความข้างในตรงกับหัวเรื่องที่จะถูกเติม เพื่อไม่ให้หัวเรื่องปรากฏสองครั้ง
-
-การเทียบ SHALL ใช้ค่าหัวเรื่องที่ `dispatch_content()` คำนวณได้จริง (`article_content.title` ก่อน แล้ว fallback ไป `content_items.title`) ไม่ใช่คอลัมน์ `title` ดิบ และ SHALL เทียบแบบ normalize ทั้งสองฝั่ง (ตัดแท็กข้างใน, ถอดรหัส entity, `trim()`) ไม่ใช่เทียบสตริงดิบ
+dispatcher โซเชียลทุกตัวประกอบข้อความเป็น `"{title}\n\n{body}"` อยู่แล้ว ดังนั้นเมื่อเนื้อหามาจากการแปลง HTML การแปลง SHALL ลบ element `<h1>` **ตัวแรก** ออกเมื่อข้อความข้างในตรงกับหัวเรื่องที่จะถูกเติม (`content_items.title`) **หรือ** ตรงกับ `article_content.title` (ชื่อบทความที่ AI ตั้ง ซึ่งเป็น `<h1>` ของบทความ) เพื่อไม่ให้หัวเรื่องปรากฏซ้ำ — SHALL เทียบแบบ normalize ทั้งสองฝั่ง (ตัดแท็กข้างใน, ถอดรหัส entity, `trim()`)
 
 #### Scenario: h1 ที่ซ้ำกับหัวเรื่องถูกตัด
-- **WHEN** `article_content.html` เริ่มด้วย `<h1>` ที่ข้อความข้างในตรงกับหัวเรื่องที่จะถูกเติม
-- **THEN** ข้อความที่ได้ SHALL ไม่มีข้อความหัวเรื่องนั้นซ้ำอยู่ในเนื้อหา
-- **AND** ข้อความที่โพสต์ออกไป SHALL มีหัวเรื่องปรากฏเพียงครั้งเดียว
+- **WHEN** `article_content.html` เริ่มด้วย `<h1>` ที่ข้อความข้างในตรงกับ `content_items.title`
+- **THEN** ข้อความที่โพสต์ออกไป SHALL มีหัวเรื่องปรากฏเพียงครั้งเดียว
 
-#### Scenario: เทียบกับหัวเรื่องที่คำนวณแล้ว ไม่ใช่คอลัมน์ดิบ
-- **WHEN** `article_content.title` ต่างจากคอลัมน์ `content_items.title` และข้อความใน `<h1>` ตรงกับ `article_content.title`
-- **THEN** `<h1>` นั้น SHALL ถูกตัด เพราะ `article_content.title` เป็นค่าที่ถูกใช้เป็นหัวเรื่องจริง
+#### Scenario: h1 เป็นชื่อบทความที่ AI ตั้ง ต่างจากช่องหัวข้อ
+- **WHEN** `<h1>` ตัวแรกตรงกับ `article_content.title` แต่ `content_items.title` ถูกแก้เป็นค่าอื่น
+- **THEN** `<h1>` นั้น SHALL ถูกตัด และบรรทัดแรกของโพสต์ SHALL เป็น `content_items.title`
 
 #### Scenario: h1 ที่ไม่ซ้ำไม่ถูกตัด
-- **WHEN** ข้อความใน `<h1>` ตัวแรกไม่ตรงกับหัวเรื่องที่จะถูกเติม
+- **WHEN** ข้อความใน `<h1>` ตัวแรกไม่ตรงกับทั้งสองค่า
 - **THEN** ข้อความใน `<h1>` นั้น SHALL ยังอยู่ในเนื้อหาในรูปข้อความล้วน
 
 #### Scenario: ตัดเฉพาะตัวแรก
 - **WHEN** เนื้อหามี `<h1>` มากกว่าหนึ่งตัว และตัวแรกตรงกับหัวเรื่อง
-- **THEN** เฉพาะตัวแรก SHALL ถูกตัด และ `<h1>` ตัวถัดไป SHALL ยังอยู่ในรูปข้อความล้วน
+- **THEN** เฉพาะตัวแรก SHALL ถูกตัด
 
 ### Requirement: แพลตฟอร์มเว็บและ CMS ยังได้รับ HTML เดิม
 `dispatch_wordpress()`, `dispatch_lotusdomino()` และ `dispatch_custom()` SHALL ยังได้รับเนื้อหาเป็น HTML แบบเดียวกับก่อนการเปลี่ยนแปลงนี้ทุกตัวอักษร — การเพิ่มเนื้อหาข้อความล้วนสำหรับโซเชียล SHALL ไม่เปลี่ยนสิ่งที่แพลตฟอร์มเหล่านี้ได้รับ เพราะปลายทางเรนเดอร์ HTML เป็นบทความ
@@ -122,12 +122,16 @@ dispatcher โซเชียลทุกตัวประกอบข้อค
 - **THEN** dispatcher SHALL ได้รับ `article_content.html` ไม่ใช่ `caption`
 
 ### Requirement: การประกอบหัวเรื่องและเพดานความยาวเดิมไม่เปลี่ยน
-การเปลี่ยนแปลงนี้ SHALL ไม่แก้การประกอบข้อความ `"{title}\n\n{body}"` และ SHALL ไม่แก้เพดานความยาวต่อแพลตฟอร์มที่มีอยู่ (facebook 63206, instagram 2200, tiktok 2200, lineoa 5000, linkedin 3000, twitter 280) — SHALL ไม่เปลี่ยน signature ของ dispatcher ตัวใด
+การประกอบข้อความโพสต์โซเชียล SHALL ยังเป็น `"{title}\n\n{body}"` โดย `{title}` ของ**แพลตฟอร์มโซเชียล**มาจาก `content_items.title` (ช่อง "หัวข้อ" ในฟอร์ม) — แพลตฟอร์มเว็บ/CMS SHALL ยังใช้ `article_content.title` ก่อนแล้ว fallback `content_items.title` ตามเดิม — เพดานความยาวต่อแพลตฟอร์ม (facebook 63206, instagram 2200, tiktok 2200, lineoa 5000, linkedin 3000, twitter 280) SHALL ไม่เปลี่ยน และ signature ของ dispatcher SHALL ไม่เปลี่ยน
 
-#### Scenario: หัวเรื่องยังถูกเติมเหมือนเดิม
-- **WHEN** คอนเทนต์มีหัวเรื่องและเนื้อหาข้อความล้วน
-- **THEN** ข้อความที่ส่งออก SHALL เป็น `"{title}\n\n{body}"` ตามพฤติกรรมเดิม
+#### Scenario: หัวเรื่องโซเชียลมาจากช่องหัวข้อ
+- **WHEN** `content_items.title = "A"` และ `article_content.title = "B"` และเผยแพร่ไป facebook
+- **THEN** ข้อความที่ส่งออก SHALL ขึ้นต้นด้วย `"A\n\n"`
+
+#### Scenario: เว็บยังใช้ชื่อบทความ
+- **WHEN** คอนเทนต์เดียวกันเผยแพร่ไป wordpress
+- **THEN** title ที่ส่งให้ `dispatch_wordpress()` SHALL เป็น "B"
 
 #### Scenario: เพดานความยาวยังบังคับใช้
-- **WHEN** เนื้อหาข้อความล้วนยังยาวเกินเพดานของแพลตฟอร์ม
+- **WHEN** ข้อความยาวเกินเพดานของแพลตฟอร์ม
 - **THEN** ข้อความ SHALL ถูกตัดที่เพดานเดิมของแพลตฟอร์มนั้นด้วยกลไกเดิม

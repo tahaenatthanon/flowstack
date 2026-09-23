@@ -1,57 +1,42 @@
 import { describe, it, expect } from 'vitest';
-import { stripScriptDirections, getPublishDefaultText } from '@/components/content/types';
+import { stripScriptDirections, getPublishDefaultText, socialPostPlatforms } from '@/components/content/types';
+import fixtures from '../../../api/tests/fixtures/post-text-directions.json';
 
 /**
- * Change: wire-platform-scripts-to-publish
- *
- * spec: platform-script-publish-prefill
- *   - "คำกำกับฉากถูกตัดออกก่อนใช้เป็นข้อความเผยแพร่"
- *   - "Fallback ไปใช้แคปชั่นเมื่อไม่มี script ของ platform นั้น"
+ * Change: platform-post-text
+ * ตัดคำกำกับต้นบรรทัดให้ทุก platform — fixture ชุดเดียวกับ api/tests/platform-post-text-test.php
+ * (publish_strip_directions ฝั่ง PHP) เพื่อให้หน้าจอกับ backend ตัดเหมือนกันทุกตัวอักษร
  */
 
-describe('stripScriptDirections', () => {
-  it('ตัดคำกำกับฉากของ tiktok ออกจากต้นบรรทัด เก็บเนื้อความไว้ครบ', () => {
-    const text = 'Hook 3 วิ: เฮ้ยรู้ไหม\nScene 1: แสดงสินค้า\nCTA: กดติดตาม';
-    const result = stripScriptDirections(text, 'tiktok');
-    expect(result).not.toContain('Hook 3 วิ:');
-    expect(result).not.toContain('Scene 1:');
-    expect(result).not.toContain('CTA:');
-    expect(result).toContain('เฮ้ยรู้ไหม');
-    expect(result).toContain('แสดงสินค้า');
-    expect(result).toContain('กดติดตาม');
-  });
-
-  it('ตัดคำกำกับฉากของ youtube ออกจากต้นบรรทัด', () => {
-    const text = 'Intro: สวัสดีครับ\nSection 1: เนื้อหาหลัก\nOutro: ขอบคุณที่รับชม';
-    const result = stripScriptDirections(text, 'youtube');
-    expect(result).not.toContain('Intro:');
-    expect(result).not.toContain('Section 1:');
-    expect(result).not.toContain('Outro:');
-    expect(result).toContain('สวัสดีครับ');
-  });
-
-  it('platform อื่นไม่ต้องตัดคำกำกับฉาก คืนค่าเดิมทุกตัวอักษร', () => {
-    const text = 'Post caption: สนใจไหม\nCTA: ทักแชท';
-    expect(stripScriptDirections(text, 'facebook')).toBe(text);
-  });
+describe('stripScriptDirections — fixture ร่วมกับ PHP', () => {
+  for (const f of fixtures as Array<{ name: string; input: string; expected: string }>) {
+    it(f.name, () => {
+      expect(stripScriptDirections(f.input)).toBe(f.expected);
+    });
+  }
 });
 
 describe('getPublishDefaultText', () => {
-  it('เลือก 2 platform ที่มี script ต่างกัน — ได้ข้อความไม่เหมือนกัน', () => {
-    const scripts = { facebook: 'Post caption: A', tiktok: 'Hook 3 วิ: B' };
-    const fb = getPublishDefaultText(scripts, 'facebook', 'caption เดิม');
-    const tt = getPublishDefaultText(scripts, 'tiktok', 'caption เดิม');
-    expect(fb).toBe('Post caption: A');
-    expect(tt).toBe('B');
-    expect(fb).not.toBe(tt);
+  const scripts = { facebook: 'Post caption: A', tiktok: 'Hook 3 วิ: B' };
+
+  it('ใช้ข้อความของ platform นั้น (ตัดคำกำกับ) — 2 platform ได้ข้อความต่างกัน', () => {
+    expect(getPublishDefaultText(scripts, 'facebook', 'cap')).toEqual({ text: 'A', source: 'script' });
+    expect(getPublishDefaultText(scripts, 'tiktok', 'cap')).toEqual({ text: 'B', source: 'script' });
   });
 
-  it('content เก่าไม่มี scripts field เลย — fallback เป็น caption', () => {
-    expect(getPublishDefaultText(undefined, 'facebook', 'caption เดิม')).toBe('caption เดิม');
+  it('ไม่มี scripts / ไม่มี key ของ platform → ข้อความโพสต์สำรอง (caption)', () => {
+    expect(getPublishDefaultText(undefined, 'facebook', 'caption เดิม')).toEqual({ text: 'caption เดิม', source: 'caption' });
+    expect(getPublishDefaultText(scripts, 'linkedin', 'caption เดิม')).toEqual({ text: 'caption เดิม', source: 'caption' });
   });
 
-  it('มี scripts แต่ไม่มี key ของ platform ที่เลือก — fallback เป็น caption ไม่ใช่ว่างเปล่า', () => {
-    const scripts = { facebook: 'Post caption: A' };
-    expect(getPublishDefaultText(scripts, 'linkedin', 'caption เดิม')).toBe('caption เดิม');
+  it('script มีแต่คำกำกับ และไม่มี caption → เนื้อหาบทความ', () => {
+    expect(getPublishDefaultText({ facebook: 'Post caption:' }, 'facebook', '  ')).toEqual({ text: '', source: 'article' });
+  });
+});
+
+describe('socialPostPlatforms', () => {
+  it('เฉพาะ platform โซเชียลที่เลือก เรียงตามลำดับแท็บ ไม่มีเว็บ/CMS', () => {
+    expect(socialPostPlatforms(['wix', 'Twitter', 'facebook', 'wordpress', 'lineoa', 'youtube', 'lotusdomino']))
+      .toEqual(['facebook', 'youtube', 'lineoa', 'twitter']);
   });
 });

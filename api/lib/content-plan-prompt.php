@@ -37,6 +37,58 @@ function content_needs_script_sections(array $selectedPlatforms): bool
     return count(array_intersect($normalized, VIDEO_SCRIPT_PLATFORMS)) > 0;
 }
 
+/**
+ * กฎของ article_content.scripts[platform] (platform-post-text): scripts คือ "ข้อความโพสต์" ที่ระบบโพสต์
+ * ลง platform นั้นตรงๆ โดยเติม "หัวข้อ" ของคอนเทนต์ไว้บรรทัดแรกให้เอง — ใช้ทั้ง prompt วิดีโอและบทความ
+ */
+const SCRIPTS_POST_READY_RULE = 'Post Text Rule (scripts): แต่ละ scripts[platform] คือ "ข้อความโพสต์" ที่จะถูกโพสต์ลง platform นั้นทันทีโดยไม่แก้ไข — '
+    . 'ห้ามมีคำกำกับต้นบรรทัด (เช่น "Post caption:", "Caption:", "CTA:", "Hook:", "Scene 1:", "Intro:", "Outro:") '
+    . 'ห้ามมีบรรทัดพาดหัว/ชื่อเรื่อง เพราะระบบเติมหัวข้อของคอนเทนต์ไว้บรรทัดแรกให้เอง ให้ขึ้นต้นด้วยเนื้อหาเลย '
+    . 'ห้ามเขียนเป็นบทวิดีโอแยกฉากหรือบทพูด (บทพูดของวิดีโออยู่ใน visuals[].narration แล้ว) '
+    . 'ห้ามคัดลอก "แคปชั่น" ที่ให้มาในบริบททั้งก้อน — ใช้เป็นแค่ข้อมูลอ้างอิงเนื้อหา แล้วเขียนข้อความของแต่ละ platform ใหม่ '
+    . 'ให้ต่างกันตามลักษณะ platform (ความยาว โทน การเปิดเรื่อง CTA hashtag) ห้ามใช้ข้อความเดียวกันหรือเกือบเหมือนกันในหลาย platform '
+    // twitter: ข้อความถูกเติมหัวข้อ (ยาวได้ถึง ~100 ตัวอักษร) ไว้ด้านบน เพดานรวม 280 — AI ไม่รู้ความยาวหัวข้อ
+    // ตอนเขียน จึงกำหนดเพดานของตัวข้อความเองที่ 180 (ทดสอบจริง: หัวข้อ 72 + ข้อความ 266 = 340 เกินเพดาน)
+    . 'twitter: ตัวข้อความต้องไม่เกิน 180 ตัวอักษร (ระบบเติมหัวข้อไว้ด้านบนและเพดานรวมของ X คือ 280)';
+
+/**
+ * ตัวอย่างค่าของ scripts ใน JSON schema ที่ส่งให้ AI — เป็นคำอธิบายภาษาไทย ไม่มีรูปแบบ "Label:"
+ * (AI มักลอกรูปแบบตัวอย่าง ถ้าตัวอย่างมีคำกำกับ ผลลัพธ์ก็จะมีคำกำกับ)
+ * @return array<string,string> platform => ตัวอย่าง
+ */
+function platform_post_text_examples(array $platforms): array
+{
+    $examples = [];
+    foreach ($platforms as $platform) {
+        $examples[$platform] = match ($platform) {
+            'tiktok'    => 'แคปชั่น TikTok สั้น 1-3 บรรทัด ดึงความสนใจทันที ต่อด้วย #แฮชแท็ก',
+            'youtube'   => 'คำอธิบายคลิป YouTube: สรุปว่าคลิปนี้ได้อะไร 2-4 ประโยค ชวนกดติดตาม และ #แฮชแท็ก',
+            'instagram' => 'ข้อความโพสต์ Instagram กระชับ มี hook ประโยคแรก ชวนทำ action และ #แฮชแท็ก',
+            'facebook'  => 'ข้อความโพสต์ Facebook เปิดด้วยประโยคที่เข้าใจทันที เนื้อหาเป็นย่อหน้าสั้น/bullet และชวนทักหรือคลิก',
+            'linkedin'  => 'ข้อความโพสต์ LinkedIn น้ำเสียงมืออาชีพ ให้คุณค่าเชิงวิชาชีพ ปิดด้วยชวนพูดคุย',
+            'twitter'   => 'ข้อความสั้น คม ชัด ไม่เกิน 180 ตัวอักษร',
+            'lineoa'    => 'ข้อความ broadcast สั้น อ่านง่าย พร้อมสิ่งที่อยากให้ผู้ติดตามทำต่อ',
+            default     => 'ข้อความโพสต์ที่เหมาะกับธรรมชาติของ platform นี้',
+        };
+    }
+    return $examples;
+}
+
+/** แนวทางต่อ platform ของข้อความโพสต์ (บรรทัด guidance ใน prompt) */
+function platform_post_text_guidance(string $platform): string
+{
+    return match ($platform) {
+        'youtube'   => '- [youtube] คำอธิบายคลิป: สรุปเนื้อหาเป็นลำดับ เข้าใจง่าย และ CTA ที่เหมาะกับ YouTube (ไม่ใช่บทพูดของคลิป)',
+        'facebook'  => '- [facebook] เปิดด้วยประโยคที่เข้าใจทันที และน้ำเสียงที่เหมาะกับ Facebook',
+        'instagram' => '- [instagram] แคปชั่นที่ดึงดูดและกระชับ',
+        'tiktok'    => '- [tiktok] แคปชั่นสั้น ดึงความสนใจตั้งแต่ประโยคแรก พร้อม hashtag (ไม่ใช่บทวิดีโอแยกฉาก)',
+        'lineoa'    => '- [lineoa] ข้อความสั้น กระชับ อ่านง่าย และ CTA ที่ชัดเจน',
+        'linkedin'  => '- [linkedin] professional tone และเนื้อหาที่ให้คุณค่าเชิงวิชาชีพ',
+        'twitter'   => '- [twitter] ข้อความสั้น คม ชัด ไม่ยืดเยื้อ',
+        default     => '- [' . $platform . '] ปรับข้อความตามธรรมชาติของ platform',
+    };
+}
+
 /** `generation_mode` จาก request body → เป็น Direct Creation หรือไม่ */
 function content_plan_is_direct(mixed $generationMode): bool
 {

@@ -668,34 +668,50 @@ export function platformsNeedScriptSections(platforms: string[]): boolean {
   return platforms.some(p => VIDEO_SCRIPT_PLATFORMS.includes(p.toLowerCase()));
 }
 
-// ตัดคำกำกับฉากต้นบรรทัด (Hook N วิ:/Scene N:/Intro:/Outro:/Section N:/CTA:) ออกจาก
-// scripts['tiktok']/['youtube'] เพราะเป็น screenplay format ที่ไม่ควรหลุดไปเป็นข้อความ
-// โพสต์จริง — platform อื่น (facebook/instagram/lineoa/linkedin/twitter) ใช้ label
-// แบบ "Post caption:"/"CTA:" ที่เป็นส่วนหนึ่งของโครงโพสต์ปกติ ไม่ใช่คำกำกับฉากถ่ายทำ
-// จึงไม่ต้อง clean (ดู openspec/changes/wire-platform-scripts-to-publish/design.md)
-const SCREENPLAY_SCRIPT_PLATFORMS = ['tiktok', 'youtube'];
-const SCENE_DIRECTION_LINE_RE = /^(Hook\s*\d*\s*วิ|Scene\s*\d+|Intro|Outro|Section\s*\d+|CTA)\s*:\s*/gim;
+/**
+ * Platform โซเชียลที่โพสต์ "หัวข้อ + ข้อความโพสต์ของ platform" (platform-post-text) — ลำดับนี้คือลำดับแท็บ
+ * ต้องตรงกับ SOCIAL_POST_PLATFORMS ใน api/lib/publish-dispatch.php — เว็บ/CMS ใช้เนื้อหาบทความแทน
+ */
+export const SOCIAL_POST_PLATFORMS = ['facebook', 'instagram', 'tiktok', 'youtube', 'lineoa', 'linkedin', 'twitter'];
 
-export function stripScriptDirections(text: string, platform: string): string {
-  if (!SCREENPLAY_SCRIPT_PLATFORMS.includes(platform.toLowerCase())) return text;
-  return text
-    .split('\n')
-    .map(line => line.replace(SCENE_DIRECTION_LINE_RE, ''))
-    .join('\n');
+/** platform โซเชียลที่คอนเทนต์เลือกไว้ (ตามลำดับ SOCIAL_POST_PLATFORMS) — ใช้เป็นแท็บ "ข้อความโพสต์แต่ละ Platform" */
+export function socialPostPlatforms(platforms: string[]): string[] {
+  const selected = new Set(platforms.map(p => p.toLowerCase()));
+  return SOCIAL_POST_PLATFORMS.filter(p => selected.has(p));
 }
 
+// ตัดคำกำกับต้นบรรทัดที่ AI เคยใส่ใน scripts (Post caption:/CTA:/Hook 3 วิ:/Scene 1:/…) ให้ทุก platform
+// — regex ต้องตรงกับ PUBLISH_DIRECTION_RE ใน api/lib/publish-dispatch.php (เทสต์ทั้งสองฝั่งใช้
+// fixture api/tests/fixtures/post-text-directions.json ชุดเดียวกัน)
+const SCRIPT_DIRECTION_LINE_RE = /^[ \t]*(?:post caption|caption\/reels|caption|professional post|post|ข้อความ line oa|hook(?:[ \t]*\d+[ \t]*วิ)?|scene[ \t]*\d+|section[ \t]*\d+|intro|outro|cta)[ \t]*[:：][ \t]*/i;
+
+export function stripScriptDirections(text: string): string {
+  const lines: string[] = [];
+  for (const line of text.replace(/\r\n?/g, '\n').split('\n')) {
+    const hadLabel = SCRIPT_DIRECTION_LINE_RE.test(line);
+    const stripped = line.replace(SCRIPT_DIRECTION_LINE_RE, '');
+    if (hadLabel && stripped.trim() === '') continue;
+    lines.push(stripped.replace(/\s+$/, ''));
+  }
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+export type PostTextSource = 'script' | 'caption' | 'article';
+
 /**
- * ข้อความเผยแพร่เริ่มต้นต่อ platform — ใช้ scripts[platform] (ตัดคำกำกับฉากถ้าจำเป็น)
- * ถ้ามี ไม่งั้น fallback ไป caption ตามพฤติกรรมเดิม
+ * ข้อความโพสต์ของ platform (ไม่รวมหัวข้อ) ตามลำดับเดียวกับ backend (publish_social_post_text):
+ * scripts[platform] ที่ตัดคำกำกับ → caption → เนื้อหาบทความ (text ว่าง — backend แปลง HTML เอง)
  */
 export function getPublishDefaultText(
   scripts: Record<string, string | undefined> | undefined,
   platform: string,
   caption: string,
-): string {
+): { text: string; source: PostTextSource } {
   const raw = scripts?.[platform.toLowerCase()];
-  if (raw && raw.trim() !== '') return stripScriptDirections(raw, platform);
-  return caption;
+  const stripped = raw ? stripScriptDirections(raw) : '';
+  if (stripped !== '') return { text: stripped, source: 'script' };
+  if (caption.trim() !== '') return { text: caption.trim(), source: 'caption' };
+  return { text: '', source: 'article' };
 }
 
 // เดิม PLATFORM_MAP นิยามสี/label ของตัวเองซ้ำกับ PLATFORM_CATALOG ใน

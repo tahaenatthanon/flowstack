@@ -3,17 +3,22 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Loader2 } from 'lucide-react';
 import { usePublishChannels, useScheduleContent, useSendNow } from '@/hooks/useContent';
 import { apiFetch } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import { PlatformIcon } from '@/components/content/PlatformIcon';
-import { PLATFORM_MAP, getPublishDefaultText } from '@/components/content/types';
+import { PLATFORM_MAP, getPublishDefaultText, SOCIAL_POST_PLATFORMS, type PostTextSource } from '@/components/content/types';
 
-const ARTICLE_PLATFORMS = new Set(['wordpress', 'wix', 'custom', 'website']);
-const SOCIAL_PLATFORMS  = new Set(['facebook', 'instagram', 'tiktok', 'lineoa', 'linkedin', 'twitter']);
+// ข้อความที่โพสต์แสดงแบบอ่านอย่างเดียว (platform-post-text) — แก้ได้ที่ "ข้อความโพสต์แต่ละ Platform"
+// ใน ContentCardDialog เท่านั้น (ผ่านการอนุมัติก่อนโพสต์) หน้าต่างนี้ไม่ส่ง channel_overrides แล้ว
+const SOCIAL_PLATFORMS = new Set(SOCIAL_POST_PLATFORMS);
+const SOURCE_LABEL: Record<PostTextSource, string> = {
+  script: 'จากข้อความโพสต์ของ platform นี้',
+  caption: 'จากข้อความโพสต์สำรอง',
+  article: 'จากเนื้อหาบทความ (แปลงเป็นข้อความ)',
+};
 
 interface Props {
   open: boolean;
@@ -21,12 +26,13 @@ interface Props {
   contentId: string;
   contentTitle: string;
   defaultCaption?: string;
+  /** @deprecated หน้าต่างนี้ไม่แก้เนื้อหาบทความแล้ว — คงไว้ให้ผู้เรียกเดิมไม่ต้องแก้ */
   defaultBody?: string;
   scripts?: Record<string, string | undefined>;
   mode?: 'schedule' | 'send_now';
 }
 
-export function SchedulePublishDialog({ open, onOpenChange, contentId, contentTitle, defaultCaption = '', defaultBody = '', scripts, mode = 'schedule' }: Props) {
+export function SchedulePublishDialog({ open, onOpenChange, contentId, contentTitle, defaultCaption = '', scripts, mode = 'schedule' }: Props) {
   const { toast } = useToast();
   const { data: channels = [] } = usePublishChannels();
   const schedule = useScheduleContent();
@@ -36,11 +42,6 @@ export function SchedulePublishDialog({ open, onOpenChange, contentId, contentTi
   const [selectedChannels, setSelectedChannels] = useState<string[]>([]);
   const [scheduleDate, setScheduleDate] = useState('');
   const [scheduleTime, setScheduleTime] = useState('');
-  const [articleBody, setArticleBody] = useState('');
-  // เนื้อหาเผยแพร่ต่อ platform (ไม่ใช่ต่อ channel id) — dialog ล็อกให้เลือกได้แค่
-  // 1 channel ต่อ 1 platform ในการส่งครั้งเดียวอยู่แล้ว (ดู toggleChannel) จึง derive
-  // ค่า default จาก platform พอ ไม่ต้องผูกกับ channel id
-  const [socialCaptions, setSocialCaptions] = useState<Record<string, string>>({});
   const [platformStatus, setPlatformStatus] = useState<Record<string, { published: boolean; pending: boolean }>>({});
 
   const activeChannels = (channels as any[]).filter((c: any) => c.is_active);
@@ -51,16 +52,6 @@ export function SchedulePublishDialog({ open, onOpenChange, contentId, contentTi
       setSelectedChannels([]);
       setScheduleDate('');
       setScheduleTime('');
-      setArticleBody(defaultBody);
-      const defaults: Record<string, string> = {};
-      const seenPlatforms = new Set<string>();
-      for (const ch of activeChannels) {
-        const platform = String(ch.platform ?? '').toLowerCase();
-        if (!SOCIAL_PLATFORMS.has(platform) || seenPlatforms.has(platform)) continue;
-        seenPlatforms.add(platform);
-        defaults[platform] = getPublishDefaultText(scripts, platform, defaultCaption);
-      }
-      setSocialCaptions(defaults);
       setPlatformStatus({});
       apiFetch(`/content-publish.php?action=platform_status&content_id=${encodeURIComponent(contentId)}`)
         .then((res: any) => setPlatformStatus(res?.platforms ?? {}))
@@ -89,31 +80,19 @@ export function SchedulePublishDialog({ open, onOpenChange, contentId, contentTi
     [activeChannels, selectedChannels]
   );
 
-  const hasArticlePlatform = selectedChannelObjs.some((c: any) => ARTICLE_PLATFORMS.has(c.platform));
-  const hasSocialPlatform  = selectedChannelObjs.some((c: any) => SOCIAL_PLATFORMS.has(c.platform));
-
-  const buildOverrides = (): Record<string, string> => {
-    const overrides: Record<string, string> = {};
-    for (const ch of selectedChannelObjs) {
-      if (ARTICLE_PLATFORMS.has(ch.platform) && articleBody.trim()) {
-        overrides[ch.id] = articleBody.trim();
-      } else if (SOCIAL_PLATFORMS.has(ch.platform) && (socialCaptions[ch.platform] ?? '').trim()) {
-        overrides[ch.id] = socialCaptions[ch.platform].trim();
-      }
-    }
-    return overrides;
-  };
+  const platformOf = (c: any) => String(c.platform ?? '').toLowerCase();
+  const selectedSocialPlatforms = Array.from(new Set(selectedChannelObjs.map(platformOf).filter(p => SOCIAL_PLATFORMS.has(p))));
+  const selectedWebChannels = selectedChannelObjs.filter((c: any) => !SOCIAL_PLATFORMS.has(platformOf(c)));
 
   const handleSubmit = async () => {
     if (selectedChannels.length === 0) {
       toast({ title: 'กรุณาเลือก channel อย่างน้อย 1 อัน', variant: 'destructive' });
       return;
     }
-    const channel_overrides = buildOverrides();
     try {
       if (isSendNow) {
         // API คืน HTTP 200 พร้อมผลรายช่องทาง — ต้องอ่าน results[] ไม่ใช่ถือว่าสำเร็จทั้งก้อน
-        const res = await sendNow.mutateAsync({ content_id: contentId, channel_ids: selectedChannels, channel_overrides });
+        const res = await sendNow.mutateAsync({ content_id: contentId, channel_ids: selectedChannels });
         const rows = res?.results ?? [];
         const ok      = rows.filter(r => r.status === 'success');
         const skipped = rows.filter(r => r.status === 'skipped');
@@ -171,7 +150,7 @@ export function SchedulePublishDialog({ open, onOpenChange, contentId, contentTi
           toast({ title: 'เวลาที่ตั้งต้องอยู่ในอนาคต', variant: 'destructive' });
           return;
         }
-        await schedule.mutateAsync({ content_id: contentId, channel_ids: selectedChannels, scheduled_at: scheduledAt, channel_overrides });
+        await schedule.mutateAsync({ content_id: contentId, channel_ids: selectedChannels, scheduled_at: scheduledAt });
         toast({ title: 'ตั้งเวลาส่งแล้ว' });
       }
       onOpenChange(false);
@@ -237,48 +216,46 @@ export function SchedulePublishDialog({ open, onOpenChange, contentId, contentTi
             )}
           </div>
 
-          {/* Per-platform content fields — shown only when relevant platform is selected */}
-          {hasArticlePlatform && (
-            <div className="space-y-1.5">
+          {/* ตัวอย่างข้อความที่จะโพสต์ต่อ platform — อ่านอย่างเดียว (platform-post-text) */}
+          {selectedWebChannels.length > 0 && (
+            <div className="space-y-1.5" data-testid="publish-preview-web">
               <Label className="text-xs font-medium">
                 เนื้อหา
                 <span className="ml-1.5 text-muted-foreground font-normal">
-                  ({selectedChannelObjs.filter((c: any) => ARTICLE_PLATFORMS.has(c.platform)).map((c: any) => (PLATFORM_MAP as any)[c.platform]?.label ?? c.platform).join(', ')})
+                  ({selectedWebChannels.map((c: any) => (PLATFORM_MAP as any)[c.platform]?.label ?? c.platform).join(', ')})
                 </span>
               </Label>
-              <Textarea
-                value={articleBody}
-                onChange={e => setArticleBody(e.target.value)}
-                placeholder="เนื้อหาบทความ (ไม่กรอกจะใช้เนื้อหาเดิม)"
-                rows={5}
-                className="text-sm resize-none"
-              />
+              <p className="rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">จะโพสต์เนื้อหาบทความของคอนเทนต์นี้</p>
             </div>
           )}
 
-          {hasSocialPlatform && (
+          {selectedSocialPlatforms.length > 0 && (
             <div className="space-y-3">
-              {Array.from(new Set(selectedChannelObjs
-                .filter((c: any) => SOCIAL_PLATFORMS.has(c.platform))
-                .map((c: any) => String(c.platform).toLowerCase())))
-                .map(platform => (
-                  <div key={platform} className="space-y-1.5">
+              {selectedSocialPlatforms.map(platform => {
+                const { text, source } = getPublishDefaultText(scripts, platform, defaultCaption);
+                return (
+                  <div key={platform} className="space-y-1.5" data-testid={`publish-preview-${platform}`}>
                     <Label className="text-xs font-medium">
-                      Caption
+                      ข้อความโพสต์
                       <span className="ml-1.5 text-muted-foreground font-normal">
                         ({(PLATFORM_MAP as any)[platform]?.label ?? platform})
                       </span>
                     </Label>
-                    <Textarea
-                      value={socialCaptions[platform] ?? ''}
-                      onChange={e => setSocialCaptions(prev => ({ ...prev, [platform]: e.target.value }))}
-                      placeholder="Caption สำหรับโพสต์ (ไม่กรอกจะใช้ caption เดิม)"
-                      rows={4}
-                      className="text-sm resize-none"
-                    />
+                    <div className="max-h-48 overflow-y-auto rounded-md border bg-muted/30 px-3 py-2 text-sm whitespace-pre-wrap">
+                      {contentTitle && <p className="font-semibold mb-2">{contentTitle}</p>}
+                      {text || <span className="text-muted-foreground">เนื้อหาบทความ (แปลงเป็นข้อความตอนโพสต์)</span>}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">{SOURCE_LABEL[source]}</p>
                   </div>
-                ))}
+                );
+              })}
             </div>
+          )}
+
+          {selectedChannelObjs.length > 0 && (
+            <p className="text-[11px] text-muted-foreground">
+              ต้องการแก้ข้อความ? แก้ที่ "ข้อความโพสต์แต่ละ Platform" ในหน้าแก้ไขคอนเทนต์ (ต้องขออนุมัติใหม่)
+            </p>
           )}
 
           {/* Date & Time — schedule mode only */}

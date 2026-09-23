@@ -107,54 +107,62 @@ describe('SchedulePublishDialog — สถานะ blocked จาก send_now',
   });
 });
 
+
 /**
- * Change: wire-platform-scripts-to-publish
- * spec: platform-script-publish-prefill
+ * Change: platform-post-text (แทน wire-platform-scripts-to-publish)
+ * spec: platform-script-publish-prefill — หน้าต่างเผยแพร่แสดงข้อความอย่างเดียว ไม่ส่ง channel_overrides
  */
-describe('SchedulePublishDialog — prefill ข้อความเผยแพร่จาก scripts[platform]', () => {
-  it('เลือก 2 platform ที่มี script ต่างกัน — ส่ง override ไม่เหมือนกัน', async () => {
+describe('SchedulePublishDialog — ตัวอย่างข้อความโพสต์แบบอ่านอย่างเดียว', () => {
+  it('2 platform ที่มีข้อความต่างกัน → ตัวอย่างต่างกัน ตัดคำกำกับทั้งคู่ (รวม facebook) และมีหัวข้อบรรทัดแรก', async () => {
     mockChannels.value = [
       { id: 'ch-fb', platform: 'facebook', name: 'Facebook เพจหลัก', is_active: 1 },
       { id: 'ch-tt', platform: 'tiktok', name: 'TikTok หลัก', is_active: 1 },
     ];
-    mockSendNowMutateAsync.mockResolvedValue({
-      results: [
-        { channel_id: 'ch-fb', platform: 'facebook', success: true, status: 'success' },
-        { channel_id: 'ch-tt', platform: 'tiktok', success: true, status: 'success' },
-      ],
-    });
-
-    renderDialog({
-      scripts: { facebook: 'Post caption: A', tiktok: 'Hook 3 วิ: B' },
-    });
+    renderDialog({ scripts: { facebook: 'Post caption: A\nCTA: ทักแชท', tiktok: 'Hook 3 วิ: B' } });
     await waitFor(() => expect(apiFetch).toHaveBeenCalled());
-
     const checkboxes = screen.getAllByRole('checkbox');
     fireEvent.click(checkboxes[0]);
     fireEvent.click(checkboxes[1]);
-    fireEvent.click(screen.getByRole('button', { name: /ส่งเลย/ }));
 
-    await waitFor(() => expect(mockSendNowMutateAsync).toHaveBeenCalled());
-    const args = mockSendNowMutateAsync.mock.calls[0][0];
-    expect(args.channel_overrides['ch-fb']).toBe('Post caption: A');
-    expect(args.channel_overrides['ch-tt']).toBe('B'); // ตัดคำกำกับฉาก "Hook 3 วิ:" ออกแล้ว
-    expect(args.channel_overrides['ch-fb']).not.toBe(args.channel_overrides['ch-tt']);
+    const fb = screen.getByTestId('publish-preview-facebook');
+    const tt = screen.getByTestId('publish-preview-tiktok');
+    expect(fb.textContent).toContain('ทดสอบ'); // หัวข้อ (contentTitle)
+    expect(fb.textContent).toContain('A\nทักแชท');
+    expect(fb.textContent).not.toContain('Post caption:');
+    expect(fb.textContent).not.toContain('CTA:');
+    expect(tt.textContent).toContain('B');
+    expect(tt.textContent).not.toContain('Hook 3 วิ:');
+    expect(fb.textContent).toContain('ข้อความโพสต์(Facebook)');
   });
 
-  it('ไม่มี scripts ของ platform ที่เลือก — fallback เป็น caption เดิม', async () => {
-    mockChannels.value = [{ id: 'ch-li', platform: 'linkedin', name: 'LinkedIn หลัก', is_active: 1 }];
-    mockSendNowMutateAsync.mockResolvedValue({
-      results: [{ channel_id: 'ch-li', platform: 'linkedin', success: true, status: 'success' }],
-    });
-
-    renderDialog({ defaultCaption: 'caption เดิม', scripts: { facebook: 'Post caption: A' } });
+  it('ไม่มีช่องให้แก้ข้อความ และคำขอ send_now ไม่มี channel_overrides', async () => {
+    mockChannels.value = [
+      { id: 'ch-fb', platform: 'facebook', name: 'Facebook เพจหลัก', is_active: 1 },
+      { id: 'ch-wp', platform: 'wordpress', name: 'เว็บไซต์บริษัท', is_active: 1 },
+    ];
+    mockSendNowMutateAsync.mockResolvedValue({ results: [{ channel_id: 'ch-fb', platform: 'facebook', success: true, status: 'success' }] });
+    renderDialog({ scripts: { facebook: 'ข้อความ' } });
     await waitFor(() => expect(apiFetch).toHaveBeenCalled());
+    const checkboxes = screen.getAllByRole('checkbox');
+    fireEvent.click(checkboxes[0]);
+    fireEvent.click(checkboxes[1]);
 
-    fireEvent.click(screen.getAllByRole('checkbox')[0]);
+    expect(screen.queryAllByRole('textbox')).toHaveLength(0);
+    expect(screen.getByTestId('publish-preview-web').textContent).toContain('จะโพสต์เนื้อหาบทความของคอนเทนต์นี้');
+    expect(screen.getByText(/แก้ที่ "ข้อความโพสต์แต่ละ Platform"/)).toBeTruthy();
+
     fireEvent.click(screen.getByRole('button', { name: /ส่งเลย/ }));
-
     await waitFor(() => expect(mockSendNowMutateAsync).toHaveBeenCalled());
-    const args = mockSendNowMutateAsync.mock.calls[0][0];
-    expect(args.channel_overrides['ch-li']).toBe('caption เดิม');
+    expect(mockSendNowMutateAsync.mock.calls[0][0]).toEqual({ content_id: 'content-1', channel_ids: ['ch-fb', 'ch-wp'] });
+  });
+
+  it('ไม่มีข้อความของ platform ที่เลือก → แสดงข้อความโพสต์สำรองพร้อมป้ายแหล่งที่มา', async () => {
+    mockChannels.value = [{ id: 'ch-li', platform: 'linkedin', name: 'LinkedIn หลัก', is_active: 1 }];
+    renderDialog({ defaultCaption: 'caption เดิม', scripts: { facebook: 'A' } });
+    await waitFor(() => expect(apiFetch).toHaveBeenCalled());
+    fireEvent.click(screen.getAllByRole('checkbox')[0]);
+    const li = screen.getByTestId('publish-preview-linkedin');
+    expect(li.textContent).toContain('caption เดิม');
+    expect(li.textContent).toContain('จากข้อความโพสต์สำรอง');
   });
 });
