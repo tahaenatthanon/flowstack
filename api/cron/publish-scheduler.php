@@ -142,8 +142,8 @@ foreach ($entries as $entry) {
             echo "  [{$queueId}] blocked by approval gate\n";
             continue;
         }
-        // Quality (SEO/AEO) ตัดสินใน Final Publish Gate ด้านล่างด้วย Quality Gate กลางตัวเดียว
-        // (quality_required_gate — ประเมินเฉพาะ platform เว็บ/CMS)
+        // Quality (SEO/AEO) เป็นข้อมูลประกอบการตัดสินใจเท่านั้น ไม่ถูกเช็คใน Final Publish
+        // Gate ด้านล่างอีกต่อไป (change approval-seo-advisory)
     } else {
         $db->prepare("UPDATE content_publish_queue SET status='failed', error_msg=? WHERE id=?")
            ->execute(['Final Publish Gate: ไม่พบ Content Item ต้นฉบับ', $queueId]);

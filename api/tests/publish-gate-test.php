@@ -121,7 +121,9 @@ function gate(PDO $db, string $tenant, array $content, string $platform, ?array 
         "r1=" . var_export($r1['blocked'], true) . ", r2=" . var_export($r2['blocked'], true), $pass); tally($pass);
 }
 
-// ═══════════════════ Section B — Article SEO/AEO gate (Web/CMS เท่านั้น ไม่เปลี่ยน) ═══
+// ═══════════════════ Section B — Article SEO/AEO gate (change approval-seo-advisory: ═══
+// SEO/AEO เป็นข้อมูลประกอบการตัดสินใจของผู้อนุมัติเท่านั้น ไม่บล็อกการเผยแพร่อีกต่อไป
+// ไม่ว่า platform จะเป็นเว็บ/CMS หรือโซเชียลก็ตาม)
 // ── TC04 — Article SEO+AEO ผ่าน + FB (script ใดก็ได้) → FB publish ได้ ─────
 {
     $content = makeContent(['facebook'], ['facebook' => goodScript()], passingHtml());
@@ -131,43 +133,43 @@ function gate(PDO $db, string $tenant, array $content, string $platform, ?array 
         'blocked=' . var_export($r['blocked'], true), $pass); tally($pass);
 }
 
-// ── TC05 — Article SEO ไม่ผ่าน → Web/CMS block แต่ Social ยัง publish ได้ ──
+// ── TC05 — Article SEO ไม่ผ่าน → publish ได้ทั้ง Web/CMS และ Social (SEO ไม่บล็อกแล้ว) ──
 {
     $content = makeContent(['wordpress', 'facebook'], ['facebook' => goodScript()], passingHtml(), true, ['structured_data' => '']);
     $wp = gate($db, $TENANT, $content, 'wordpress');
     $fb = gate($db, $TENANT, $content, 'facebook');
-    $pass = $wp['blocked'] === true && $fb['blocked'] === false;
-    record('TC05', 'Article SEO ไม่ผ่าน', 'Web/CMS block แต่ Social ยัง publish ได้',
+    $pass = $wp['blocked'] === false && $fb['blocked'] === false;
+    record('TC05', 'Article SEO ไม่ผ่าน', 'publish ได้ทั้ง Web/CMS และ Social',
         'WP blocked=' . var_export($wp['blocked'], true) . ', FB blocked=' . var_export($fb['blocked'], true), $pass); tally($pass);
 }
 
-// ── TC06 — Article AEO ไม่ผ่าน → Web/CMS block แต่ Social ยัง publish ได้ ──
+// ── TC06 — Article AEO ไม่ผ่าน → publish ได้ทั้ง Web/CMS และ Social (AEO ไม่บล็อกแล้ว) ──
 {
     $content = makeContent(['wordpress', 'facebook'], ['facebook' => goodScript()], aeoFailHtml());
     $wp = gate($db, $TENANT, $content, 'wordpress');
     $fb = gate($db, $TENANT, $content, 'facebook');
-    $pass = $wp['blocked'] === true && $fb['blocked'] === false;
-    record('TC06', 'Article AEO ไม่ผ่าน', 'Web/CMS block แต่ Social ยัง publish ได้',
+    $pass = $wp['blocked'] === false && $fb['blocked'] === false;
+    record('TC06', 'Article AEO ไม่ผ่าน', 'publish ได้ทั้ง Web/CMS และ Social',
         'WP blocked=' . var_export($wp['blocked'], true) . ', FB blocked=' . var_export($fb['blocked'], true), $pass); tally($pass);
 }
 
-// ── TC07 — Approved แล้วแก้ Article จน SEO/AEO ไม่ผ่าน → publish block (ผลล่าสุด) ──
+// ── TC07 — Approved แล้วแก้ Article จน SEO/AEO ไม่ผ่าน → publish ไม่ถูก block อีกต่อไป ──
 {
     $good = makeContent(['wordpress'], [], passingHtml());
     $before = gate($db, $TENANT, $good, 'wordpress')['blocked'];
     $bad = makeContent(['wordpress'], [], passingHtml(), true, ['structured_data' => '']);
     $after = gate($db, $TENANT, $bad, 'wordpress')['blocked'];
-    $pass = $before === false && $after === true;
-    record('TC07', 'Approved แล้วแก้ Article จน SEO/AEO fail', 'publish ตรวจผลล่าสุดและ block',
+    $pass = $before === false && $after === false;
+    record('TC07', 'Approved แล้วแก้ Article จน SEO/AEO fail', 'publish ยังไม่ถูก block (SEO ไม่ใช่ gate อีกต่อไป)',
         "before blocked={$before}, after blocked={$after}", $pass); tally($pass);
 }
 
-// ── TC08 — Schedule ผ่าน แต่ก่อนถึงเวลาแก้ Article ให้ fail → cron block ────
+// ── TC08 — Schedule ผ่าน แต่ก่อนถึงเวลาแก้ Article ให้ fail → cron ไม่ block ────
 {
     $bad = makeContent(['wordpress'], [], passingHtml(), true, ['structured_data' => '']);
     $r = gate($db, $TENANT, $bad, 'wordpress');
-    $pass = $r['blocked'] === true;
-    record('TC08', 'Schedule ผ่าน แต่แก้ Article ให้ fail → cron', 'cron block (evaluate ล่าสุด)',
+    $pass = $r['blocked'] === false;
+    record('TC08', 'Schedule ผ่าน แต่แก้ Article ให้ fail → cron', 'cron ไม่ block ด้วย SEO/AEO อีกต่อไป',
         'blocked=' . var_export($r['blocked'], true), $pass); tally($pass);
 }
 

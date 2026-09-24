@@ -182,11 +182,13 @@ $setGate(1);
     record('QB02', 'ไม่มี marker → บล็อกพร้อมบอกให้กด "ตรวจ SEO/AEO ใหม่"', 'blocked + ข้อความ', (string)$r['reason'], $pass); tally($pass);
 }
 {
+    // content_quality_gate_check() เองยังบล็อกเหมือนเดิมถ้าถูกเรียกตรงๆ (ฟังก์ชันไม่เปลี่ยน)
+    // แต่ final_publish_gate_check() ไม่เรียกมันแล้ว (change approval-seo-advisory) — เผยแพร่จึงไม่ถูกบล็อก
     $c = goodArticle($longTitle);
     $ra = content_quality_gate_check($db, $TENANT, $c);
     $rp = final_publish_gate_check($db, $TENANT, $c, 'wordpress');
-    $pass = $ra['blocked'] === true && $rp['blocked'] === true && str_contains((string)$ra['reason'], 'SEO title') && ($ra['failed_required'][0]['key'] ?? '') === 'seo_title';
-    record('QB03', 'มี marker แต่ประเมินใหม่ seo_title 72 ตัวอักษร → ขออนุมัติและเผยแพร่ถูกบล็อก', 'blocked ทั้งสอง + ระบุ seo_title',
+    $pass = $ra['blocked'] === true && $rp['blocked'] === false && str_contains((string)$ra['reason'], 'SEO title') && ($ra['failed_required'][0]['key'] ?? '') === 'seo_title';
+    record('QB03', 'seo_title 72 ตัวอักษร → content_quality_gate_check() ยังบล็อก แต่เผยแพร่จริงไม่ถูกบล็อก', 'ra blocked=true, rp blocked=false + ระบุ seo_title',
         str_replace("\n", ' ⏎ ', (string)$ra['reason']), $pass); tally($pass);
 }
 {

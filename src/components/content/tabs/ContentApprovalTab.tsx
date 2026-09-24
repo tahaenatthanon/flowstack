@@ -1,8 +1,7 @@
-import { useState, useRef, useEffect } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
 import {
-  Check, X, Filter, Stamp, RotateCcw, FileText, Clock, XCircle, ArrowUpDown,
-  Layers, Search, Shapes, Pencil, AlertTriangle, Loader2,
+  Filter, Stamp, RotateCcw, FileText, Clock, XCircle, ArrowUpDown,
+  Layers, Search, Shapes,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -11,27 +10,21 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import {
-  Dialog, DialogContent, DialogDescription, DialogFooter,
+  Dialog, DialogContent, DialogDescription,
   DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
-import { useToast } from '@/hooks/use-toast';
-import { useContentItems, contentKeys } from '@/hooks/useContent';
-import { apiFetch } from '@/lib/api';
+import { useContentItems } from '@/hooks/useContent';
 import {
-  STATUS_MAP, PLATFORM_MAP, TYPE_MAP, requiredFailedRules, type ContentItem, type SeoChecklistResult, type AeoChecklistResult,
+  STATUS_MAP, PLATFORM_MAP, TYPE_MAP, type ContentItem,
 } from '@/components/content/types';
-import QualityChecklist from '@/components/content/QualityChecklist';
 import { parsePlatforms } from '@/lib/contentPlatforms';
 import ContentDetailView from '@/components/content/views/ContentDetailView';
 
 export default function ContentApprovalTab() {
-  const { toast } = useToast();
-  const qc = useQueryClient();
   const { data: items = [], isLoading } = useContentItems();
 
   const [statusFilter, setStatusFilter] = useState<'all' | 'approved' | 'pending_approval' | 'revision' | 'rejected'>('all');
@@ -39,45 +32,8 @@ export default function ContentApprovalTab() {
   const [typeFilter, setTypeFilter] = useState('all');
   const [platformFilter, setPlatformFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [reasonDialog, setReasonDialog] = useState<{ open: boolean; item: ContentItem | null; kind: 'revision' | 'rejected' }>({ open: false, item: null, kind: 'rejected' });
-  const [rejectReason, setRejectReason] = useState('');
-  const [confirmApprove, setConfirmApprove] = useState<ContentItem | null>(null);
-  // ผลตรวจ SEO/AEO ของรายการที่กำลังจะอนุมัติ (ดึงเมื่อเปิด dialog)
-  const [approveGate, setApproveGate] = useState<SeoChecklistResult | null>(null);
-  const [approveAeo, setApproveAeo] = useState<AeoChecklistResult | null>(null);
-  const [approveGateLoading, setApproveGateLoading] = useState(false);
   // Row click opens a read-only detail dialog; null means closed
   const [detailItem, setDetailItem] = useState<ContentItem | null>(null);
-
-  // Auto-resize the reason textarea to fit its content
-  const reasonRef = useRef<HTMLTextAreaElement>(null);
-  const autoResizeReason = (el: HTMLTextAreaElement) => {
-    el.style.height = 'auto';
-    el.style.height = `${el.scrollHeight}px`;
-  };
-  useEffect(() => {
-    if (reasonDialog.open && reasonRef.current) autoResizeReason(reasonRef.current);
-  }, [reasonDialog.open]);
-
-  // ดึงผลตรวจ SEO/AEO เมื่อเปิด dialog อนุมัติ — ถ้าเกตเปิดและมีข้อบังคับ (Required) ไม่ผ่าน
-  // เนื้อหานี้จะเผยแพร่ไม่ได้ จึงบล็อกการอนุมัติไว้ก่อนพร้อมแจ้งข้อที่ติด
-  // วิดีโอไม่ผ่าน SEO/AEO gate (change quality-required-tiers) จึงไม่ต้องดึงผลตรวจ
-  useEffect(() => {
-    setApproveGate(null);
-    setApproveAeo(null);
-    if (!confirmApprove || confirmApprove.type === 'video') { setApproveGateLoading(false); return; }
-    let cancelled = false;
-    setApproveGateLoading(true);
-    const id = encodeURIComponent(confirmApprove.id);
-    Promise.all([
-      apiFetch<SeoChecklistResult>('/brand-content.php?action=seo-checklist&item_id=' + id),
-      apiFetch<AeoChecklistResult>('/brand-content.php?action=aeo-checklist&item_id=' + id),
-    ])
-      .then(([seo, aeo]) => { if (!cancelled) { setApproveGate(seo); setApproveAeo(aeo); } })
-      .catch(() => { if (!cancelled) { setApproveGate(null); setApproveAeo(null); } })
-      .finally(() => { if (!cancelled) setApproveGateLoading(false); });
-    return () => { cancelled = true; };
-  }, [confirmApprove]);
 
   // Stat counts — computed from all items, independent of the active tab/filters
   const statusCounts = {
@@ -139,47 +95,6 @@ export default function ContentApprovalTab() {
     { key: 'rejected',         label: 'ปฏิเสธ',      value: statusCounts.rejected,         icon: XCircle,     color: 'text-destructive' },
   ];
 
-  const handleApprove = async (item: ContentItem) => {
-    try {
-      await apiFetch(`/content-items.php?id=${item.id}`, {
-        method: 'PUT',
-        body: JSON.stringify({ status: 'approved' }),
-      });
-      toast({ title: 'อนุมัติเรียบร้อย', description: `"${item.title}" ได้รับการอนุมัติแล้ว` });
-      qc.invalidateQueries({ queryKey: contentKeys.items() });
-    } catch (e: any) {
-      // แสดงข้อความจาก API ตรง ๆ — เกตกันถอยสถานะ (422) อธิบายว่าคอนเทนต์เผยแพร่แล้วเมื่อไหร่
-      // ซึ่งข้อความ hardcode เดิมกลืนทิ้งไป
-      toast({ title: 'เกิดข้อผิดพลาด', description: e?.message || 'ไม่สามารถอนุมัติได้', variant: 'destructive' });
-    }
-    setConfirmApprove(null);
-  };
-
-  const handleDecision = async () => {
-    const item = reasonDialog.item;
-    if (!item) return;
-    const kind = reasonDialog.kind;
-    try {
-      await apiFetch(`/content-items.php?id=${item.id}`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          status: kind,
-          reject_reason: rejectReason.trim() ? rejectReason.trim() : null,
-        }),
-      });
-      toast({
-        title: kind === 'revision' ? 'ขอแก้ไขแล้ว' : 'ปฏิเสธแล้ว',
-        description: `"${item.title}" ${kind === 'revision' ? 'ถูกส่งกลับให้แก้ไข' : 'ถูกเปลี่ยนสถานะเป็นปฏิเสธ'}`,
-      });
-      qc.invalidateQueries({ queryKey: contentKeys.items() });
-    } catch (e: any) {
-      // แสดงข้อความจาก API ตรง ๆ — เกตกันถอยสถานะ (422) อธิบายว่าคอนเทนต์เผยแพร่แล้วเมื่อไหร่
-      toast({ title: 'เกิดข้อผิดพลาด', description: e?.message || 'ไม่สามารถดำเนินการได้', variant: 'destructive' });
-    }
-    setReasonDialog({ open: false, item: null, kind: 'rejected' });
-    setRejectReason('');
-  };
-
   const typeOptions = Object.entries(TYPE_MAP).map(([k, v]) => ({ value: k, label: v.label }));
   const platformOptions = Object.entries(PLATFORM_MAP).map(([k, v]) => ({ value: k, label: v.label }));
   // Options come from the tab-filtered set so the current selection doesn't hide the alternatives
@@ -195,12 +110,6 @@ export default function ContentApprovalTab() {
 
   const EmptyIcon = FileText;
   const hasActiveFilters = !!searchQuery || statusFilter !== 'all' || typeFilter !== 'all' || platformFilter !== 'all';
-
-  // เกต SEO ของรายการที่กำลังจะอนุมัติ — mirror ตรรกะ seo_gate_check() ฝั่ง backend
-  // บล็อกเฉพาะข้อบังคับ (Required) ที่ไม่ผ่าน — คะแนนและข้อแนะนำไม่บล็อก
-  const approveFails = [...requiredFailedRules(approveGate?.rules), ...requiredFailedRules(approveAeo?.rules)];
-  const approveGateOn = approveGate?.seo_gate_enabled === 1;
-  const approveBlocked = approveGateOn && approveFails.length > 0;
 
   return (
     <>
@@ -313,7 +222,6 @@ export default function ContentApprovalTab() {
                 <TableHead className="hidden lg:table-cell">วันที่สร้าง</TableHead>
                 <TableHead className="hidden lg:table-cell">วันที่ขออนุมัติ</TableHead>
                 <TableHead>สถานะ</TableHead>
-                <TableHead className="text-right w-[240px]">จัดการ</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -326,7 +234,6 @@ export default function ContentApprovalTab() {
                 const extraPlatformCount = itemPlatforms.length - 1;
                 const type = TYPE_MAP[item.type] ?? TYPE_MAP.article;
                 const status = STATUS_MAP[item.status] ?? { label: item.status, color: 'bg-gray-100 text-gray-600' };
-                const isPending = item.status === 'pending_approval';
                 return (
                   <TableRow
                     key={item.id}
@@ -358,53 +265,6 @@ export default function ContentApprovalTab() {
                     <TableCell>
                       <Badge variant="outline" className={status.color}>{status.label}</Badge>
                     </TableCell>
-                    <TableCell className="text-right">
-                      {isPending ? (
-                        <div className="flex items-center justify-end gap-0.5 whitespace-nowrap">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={(e) => { e.stopPropagation(); setConfirmApprove(item); }}
-                            className="h-8 px-1.5 text-green-600 hover:text-green-700 hover:bg-green-50"
-                          >
-                            <Check className="h-4 w-4 mr-0.5" />
-                            อนุมัติ
-                          </Button>
-                      
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setReasonDialog({ open: true, item, kind: 'revision' });
-                              setRejectReason('');
-                            }}
-                            className="h-8 px-1.5 text-amber-600 hover:text-amber-700 hover:bg-amber-50"
-                          >
-                            <Pencil className="h-4 w-4 mr-0.5" />
-                            ขอแก้ไข
-                          </Button>
-                          
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setReasonDialog({ open: true, item, kind: 'rejected' });
-                              setRejectReason('');
-                            }}
-                            className="h-8 px-1.5 text-red-600 hover:text-red-700 hover:bg-red-50"
-                          >
-                            <X className="h-4 w-4 mr-0.5" />
-                            ปฏิเสธ
-                          </Button>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-muted-foreground whitespace-nowrap">
-                          ดำเนินการแล้ว
-                        </span>
-                      )}
-                    </TableCell>
                   </TableRow>
                 );
               })}
@@ -412,100 +272,6 @@ export default function ContentApprovalTab() {
           </Table>
         </div>
       )}
-
-      {/* Approve Confirm Dialog */}
-      <Dialog open={!!confirmApprove} onOpenChange={(v) => { if (!v) setConfirmApprove(null); }}>
-        <DialogContent className="w-full sm:max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>ยืนยันการอนุมัติ</DialogTitle>
-            <DialogDescription>
-              {approveBlocked
-                ? `"${confirmApprove?.title}" ยังไม่ผ่านข้อบังคับ SEO/AEO จึงยังอนุมัติไม่ได้`
-                : `ต้องการอนุมัติ "${confirmApprove?.title}" ใช่หรือไม่? เนื้อหาจะถูกเปลี่ยนสถานะเป็นอนุมัติแล้ว`}
-            </DialogDescription>
-          </DialogHeader>
-
-          {approveGateLoading && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" /> กำลังตรวจเกณฑ์ SEO/AEO...
-            </div>
-          )}
-
-          {!approveGateLoading && approveBlocked && (
-            <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 space-y-2">
-              <div className="flex items-center gap-1.5 text-sm font-medium text-destructive">
-                <AlertTriangle className="h-4 w-4 shrink-0" />
-                เกต SEO/AEO เปิดอยู่ — ต้องแก้ข้อบังคับก่อนอนุมัติ
-              </div>
-              {approveFails.length > 0 && (
-                <>
-                  <p className="text-xs text-destructive/90">ข้อบังคับที่ยังไม่ผ่าน ({approveFails.length}):</p>
-                  <ul className="space-y-1">
-                    {approveFails.map(r => (
-                      <li key={r.key} className="flex items-start gap-1.5 text-xs text-destructive">
-                        <XCircle className="h-3.5 w-3.5 mt-px shrink-0" />
-                        <span>{r.message}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
-              <p className="text-[11px] text-muted-foreground">
-                แก้ไขที่ SEO / AEO Metadata ของเนื้อหา แล้วบันทึกก่อนอนุมัติอีกครั้ง
-              </p>
-            </div>
-          )}
-
-          {!approveGateLoading && (approveGate || approveAeo) && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-72 overflow-y-auto">
-              {approveGate && <QualityChecklist title="SEO" result={approveGate} gateDisabled={!approveGateOn} />}
-              {approveAeo && <QualityChecklist title="AEO" result={approveAeo} />}
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmApprove(null)}>ยกเลิก</Button>
-            <Button
-              onClick={() => confirmApprove && handleApprove(confirmApprove)}
-              disabled={approveGateLoading || approveBlocked}
-            >
-              ยืนยันการอนุมัติ
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Reason Dialog — shared by "ขอแก้ไข" and "ปฏิเสธ" */}
-      <Dialog open={reasonDialog.open} onOpenChange={(v) => { if (!v) setReasonDialog({ open: false, item: null, kind: 'rejected' }); }}>
-        <DialogContent className="w-full sm:max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>{reasonDialog.kind === 'revision' ? 'ขอแก้ไขเนื้อหา' : 'ปฏิเสธเนื้อหา'}</DialogTitle>
-            <DialogDescription>
-              {reasonDialog.kind === 'revision'
-                ? 'เนื้อหานี้จะถูกส่งกลับให้ผู้สร้างแก้ไข'
-                : 'เนื้อหานี้จะถูกเปลี่ยนสถานะเป็น "ปฏิเสธ"'}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <p className="text-sm font-medium">
-              {reasonDialog.kind === 'revision' ? 'เหตุผลที่ขอแก้ไข (ไม่บังคับ)' : 'เหตุผลที่ปฏิเสธ (ไม่บังคับ)'}
-            </p>
-            <Textarea
-              placeholder="ระบุเหตุผลหรือคำแนะนำในการแก้ไข..."
-              value={rejectReason}
-              onChange={e => { setRejectReason(e.target.value); autoResizeReason(e.target); }}
-              ref={reasonRef}
-              className="resize-none"
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setReasonDialog({ open: false, item: null, kind: 'rejected' })}>ยกเลิก</Button>
-            <Button variant={reasonDialog.kind === 'revision' ? 'default' : 'destructive'} onClick={handleDecision}>
-              {reasonDialog.kind === 'revision' ? 'ยืนยันขอแก้ไข' : 'ยืนยันการปฏิเสธ'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Content Detail Dialog — full content view opened by clicking a row */}
       <Dialog open={!!detailItem} onOpenChange={(v) => { if (!v) setDetailItem(null); }}>

@@ -280,8 +280,8 @@ function video_readiness_gate_check(array $content): array {
 
 /**
  * Final publish gate shared by immediate publish, queued publish and scheduled publish.
- * Approval and platform selection are always hard requirements; Quality ใช้ quality_required_gate()
- * (ประเมิน SEO/AEO เฉพาะ platform เว็บ/CMS — platform โซเชียลไม่มี Quality gate)
+ * Approval and platform selection are hard requirements; SEO/AEO Quality is advisory-only
+ * (shown to the approver, does not block approval or publish — change approval-seo-advisory).
  */
 function final_publish_gate_check(PDO $db, string $tenantId, array $content, string $platform, ?array $researchBrief = null): array {
     $platform = strtolower(trim($platform));
@@ -297,9 +297,6 @@ function final_publish_gate_check(PDO $db, string $tenantId, array $content, str
     if (($content['status'] ?? '') !== 'approved' || empty($content['approved_at'])) {
         return ['blocked' => true, 'reason' => 'Approval gate: คอนเทนต์นี้ยังไม่ผ่านการอนุมัติ'];
     }
-    // Marker ของเวอร์ชันปัจจุบัน — การแก้เนื้อหาล้าง marker ทุกครั้ง จึงต้องตรวจใหม่ก่อนเผยแพร่/ตั้งเวลา
-    $markerGate = quality_required_gate($db, $tenantId, $content, $researchBrief, false);
-    if ($markerGate['blocked']) return $markerGate;
 
     if (!in_array($platform, $selected, true)) {
         return ['blocked' => true, 'reason' => "Platform gate: {$platform} ไม่ได้ถูกเลือกไว้ใน Content Item"];
@@ -308,19 +305,7 @@ function final_publish_gate_check(PDO $db, string $tenantId, array $content, str
     $videoGate = video_readiness_gate_check($content);
     if ($videoGate['blocked']) return $videoGate;
 
-    // Script/social platforms (TikTok, Facebook ฯลฯ) ไม่มี Quality gate ของตัวเอง —
-    // ผ่าน Approval + Platform gate ด้านบนแล้วก็เผยแพร่ได้ทันที
-    if (in_array($platform, SCRIPT_PLATFORMS, true)) {
-        return ['blocked' => false, 'reason' => null];
-    }
-
-    // Web/CMS targets: ประเมิน SEO/AEO ใหม่ด้วย gate กลาง (marker เช็คไปแล้วด้านบน)
-    $qualityGate = quality_required_gate($db, $tenantId, $content, $researchBrief, true, false);
-    return [
-        'blocked' => $qualityGate['blocked'],
-        'reason' => $qualityGate['reason'],
-        'article' => ['seo' => $qualityGate['seo'] ?? null, 'aeo' => $qualityGate['aeo'] ?? null],
-    ];
+    return ['blocked' => false, 'reason' => null];
 }
 
 

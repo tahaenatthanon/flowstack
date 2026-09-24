@@ -292,25 +292,6 @@ if ($method === 'PUT') {
         }
     }
 
-    // Quality Gate กลางตอนขออนุมัติ — เส้นทางเดียวกับ approvals.php (change quality-required-tiers)
-    // ประเมินใหม่จากข้อมูลที่บันทึกไว้ (รวมฟิลด์ที่ส่งมาใน request นี้) ไม่ใช้ผลตรวจเก่า
-    if (($body['status'] ?? null) === 'pending_approval') {
-        require_once __DIR__ . '/lib/publish-dispatch.php';
-        $gateStmt = $db->prepare('SELECT * FROM content_items WHERE id=? AND tenant_id=?');
-        $gateStmt->execute([$id, $tenantId]);
-        $gateContent = $gateStmt->fetch(PDO::FETCH_ASSOC);
-        if ($gateContent) {
-            foreach (array_intersect_key($body, array_flip($approvalSensitiveFields)) as $k => $v) $gateContent[$k] = $v;
-            $briefStmt = $db->prepare("SELECT analysis FROM content_research_jobs WHERE content_item_id=? AND tenant_id=? AND status='done' ORDER BY created_at DESC LIMIT 1");
-            $briefStmt->execute([$id, $tenantId]);
-            $gateBrief = json_decode((string)($briefStmt->fetchColumn() ?: ''), true);
-            $qualityGate = content_quality_gate_check($db, $tenantId, $gateContent, is_array($gateBrief) ? $gateBrief : null);
-            if ($qualityGate['blocked']) {
-                jsonError('ส่งขออนุมัติไม่ได้ — ' . ($qualityGate['reason'] ?? 'ยังไม่ผ่านข้อบังคับ SEO/AEO'), 422);
-            }
-        }
-    }
-
     // Record the moment a request for approval enters the queue
     if (($body['status'] ?? null) === 'pending_approval') {
         $fields[] = '`requested_at` = NOW()';

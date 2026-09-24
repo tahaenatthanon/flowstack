@@ -2,7 +2,7 @@
 
 ## Purpose
 
-กำหนด Quality Gate กลางที่ตัดสินผ่าน/ไม่ผ่านของ SEO/AEO จาก Required rule ที่ `failed` เท่านั้น (`quality_required_status`) — ใช้ร่วมกันที่ Generate, ขออนุมัติ และเผยแพร่ (`quality_required_gate`) ประเมินใหม่จากข้อมูลที่บันทึกล่าสุดทุกครั้ง, `seo_gate_enabled` เป็นสวิตช์รวมระดับ tenant, ยกเว้นวิดีโอจาก SEO/AEO gate, และการแสดงผลแยก Required/Recommended บนหน้าจอ — ที่มา: change `quality-required-tiers`
+กำหนด Quality Gate ที่ตัดสินผ่าน/ไม่ผ่านของ SEO/AEO จาก Required rule ที่ `failed` เท่านั้น (`quality_required_status`) — ใช้ที่ Generate เท่านั้น (ประเมิน + AI repair สูงสุด 1 รอบ), ยกเว้นวิดีโอจาก SEO/AEO gate, และการแสดงผลแยก Required/Recommended บนหน้าจอ ผล SEO/AEO เป็นข้อมูลประกอบการตัดสินใจของผู้อนุมัติเท่านั้น ไม่บล็อกขออนุมัติหรือเผยแพร่ — ที่มา: change `quality-required-tiers`, ปรับ scope ของ gate ใน change `approval-seo-advisory`
 
 ## Requirements
 
@@ -29,52 +29,28 @@
 - **THEN** ผลเป็น `failed`
 - **AND** `failed_required` มีรายการ `quality = 'AEO'`, `key = 'direct_answer'`
 
-### Requirement: Quality Gate กลางใช้ร่วมกันที่ Generate, ขออนุมัติ และเผยแพร่
-ระบบ SHALL มีฟังก์ชัน `quality_required_gate(PDO $db, string $tenantId, array $content, ?array $brief, bool $requireMarker = true): array` ใน `api/lib/publish-dispatch.php`
-- ตัดสินผลด้วย `quality_required_status()`
-- ถูกเรียกจาก `content_quality_gate_check()` (ขออนุมัติ ทั้ง `api/approvals.php` และ `PUT api/content-items.php` ที่ตั้ง `status=pending_approval`), `final_publish_gate_check()` (เผยแพร่ทันที/ตั้งเวลา) และ `api/cron/publish-scheduler.php` (cron)
-- เส้นทาง Generate SHALL ใช้ `quality_required_status()` ตัวเดียวกัน
-- ไม่มีจุดใดใช้เกณฑ์ต่างจากนี้
-- การเลือก platform ที่ต้องผ่าน gate คงเดิม: ใช้กับ platform เว็บ/CMS ส่วน platform โซเชียลไม่มี Quality gate
+### Requirement: Quality Gate กลางใช้ที่ Generate เท่านั้น
+ระบบ SHALL มีฟังก์ชัน `quality_required_gate(PDO $db, string $tenantId, array $content, ?array $brief, bool $requireMarker = true): array` ใน `api/lib/publish-dispatch.php` ตัดสินผลด้วย `quality_required_status()` — เส้นทาง Generate SHALL ใช้ `quality_required_status()` ตัวเดียวกันเพื่อประเมิน AI repair (สูงสุด 1 รอบ) และบันทึก `quality_checked_at`
 
-#### Scenario: ขออนุมัติและเผยแพร่ให้ผลเดียวกัน
-- **WHEN** คอนเทนต์ที่เลือก wordpress มี Required ทุกข้อผ่าน แต่คะแนน SEO เท่ากับ 65
-- **THEN** การขออนุมัติไม่ถูกบล็อกด้วย Quality
-- **AND** หลังอนุมัติแล้ว การเผยแพร่ไป wordpress ไม่ถูกบล็อกด้วย Quality
+`content_quality_gate_check()` และ `quality_required_gate()` SHALL ไม่ถูกเรียกจากเส้นทางขออนุมัติ (`api/approvals.php`, `PUT api/content-items.php` ที่ตั้ง `status=pending_approval`) และเส้นทางเผยแพร่ (`final_publish_gate_check()`, `api/cron/publish-scheduler.php`) อีกต่อไป — ผล SEO/AEO ไม่มีผลต่อการอนุมัติหรือเผยแพร่ เป็นเพียงข้อมูลแสดงผลให้ผู้อนุมัติเห็นประกอบการตัดสินใจ (ดู capability `approval-detail-quality-display`)
 
-#### Scenario: ขออนุมัติจากปุ่มใน dialog ผ่าน gate กลาง
-- **WHEN** ผู้ใช้กด "ขออนุมัติ" ใน `ContentCardDialog` (ส่ง `PUT content-items.php` ด้วย `status=pending_approval`) โดยคอนเทนต์ที่เลือก wordpress ยังไม่มี `quality_checked_at`
-- **THEN** ระบบตอบ 422 พร้อมเหตุผลจาก gate กลาง และสถานะไม่เปลี่ยนเป็น `pending_approval`
+ฟังก์ชันเหล่านี้ยังคงอยู่ในโค้ด (ไม่ถูกลบ) เพราะยังมีการทดสอบยืนยันพฤติกรรมโดยตรง และเป็น building block ที่อาจใช้ที่อื่นในอนาคตโดยไม่บล็อก
 
-#### Scenario: cron ใช้ gate กลาง
-- **WHEN** cron กำลังจะ dispatch รายการตั้งเวลาไป platform เว็บ และคอนเทนต์มี Required failed
-- **THEN** รายการนั้นถูกบล็อกด้วยเหตุผลจาก gate กลาง และไม่ถูก dispatch
+#### Scenario: ขออนุมัติไม่ถูกบล็อกด้วย SEO/AEO ไม่ว่าผลจะเป็นอย่างไร
+- **WHEN** คอนเทนต์ที่เลือก wordpress มี Required rule ของ SEO เป็น `failed`
+- **THEN** การขออนุมัติ (`api/approvals.php` หรือ `PUT content-items.php` ตั้ง `status=pending_approval`) ไม่ถูกบล็อกด้วยเหตุผล Quality — สถานะเปลี่ยนเป็น `pending_approval` ได้ปกติ
 
-### Requirement: Approval และ Publish ประเมินใหม่จากข้อมูลที่บันทึกล่าสุดทุกครั้ง
-`quality_required_gate()` SHALL เรียก `seo_evaluate()` และ `aeo_evaluate()` ใหม่ทุกครั้งกับข้อมูล `content_items` ที่อ่านจาก DB ในคำขอนั้น พร้อม research brief ล่าสุด และ SHALL ไม่ใช้คะแนนหรือผลตรวจที่เก็บไว้ (`seo_score`, `aeo_score`, ผล recheck เดิม) เป็นตัวตัดสิน
+#### Scenario: เผยแพร่ไม่ถูกบล็อกด้วย SEO/AEO ไม่ว่าผลจะเป็นอย่างไร
+- **WHEN** คอนเทนต์ที่ได้รับอนุมัติแล้วและเลือก wordpress มี Required rule ของ SEO หรือ AEO เป็น `failed`
+- **THEN** `final_publish_gate_check()` คืน `blocked=false` (ตราบใดที่ผ่าน Approval gate และ Platform gate) — เผยแพร่ไปยัง wordpress ได้ทันที
 
-เมื่อ `requireMarker = true` ระบบ SHALL บล็อกด้วยข้อความภาษาไทยถ้า `article_content.quality_checked_at` ว่าง ข้อความต้องแจ้งให้บันทึกแล้วกด "ตรวจ SEO/AEO ใหม่" ถ้ามี marker แต่ผลประเมินใหม่ไม่ผ่าน ระบบ SHALL ยังบล็อก
+#### Scenario: cron ไม่บล็อกด้วย SEO/AEO
+- **WHEN** cron `publish-scheduler.php` กำลังจะ dispatch รายการตั้งเวลาไป platform เว็บที่มี Required failed
+- **THEN** รายการนั้นไม่ถูกบล็อกด้วย Quality — dispatch ตามปกติ
 
-#### Scenario: มี marker แต่เนื้อหาปัจจุบันไม่ผ่าน
-- **WHEN** `quality_checked_at` มีค่า แต่การประเมินใหม่พบ `seo_title` ยาว 72 ตัวอักษร
-- **THEN** การขออนุมัติถูกบล็อก พร้อมข้อความระบุ `seo_title`
-
-#### Scenario: ไม่มี marker
-- **WHEN** ผู้ใช้แก้บทความแล้วบันทึก ทำให้ `quality_checked_at` ถูกล้าง และยังไม่ได้กดตรวจใหม่
-- **THEN** การขออนุมัติถูกบล็อกด้วยข้อความให้กด "ตรวจ SEO/AEO ใหม่"
-
-### Requirement: seo_gate_enabled เป็นสวิตช์รวมระดับ tenant
-ระบบ SHALL อ่าน `content_global_settings.seo_gate_enabled` ใน `quality_required_gate()` เพียงจุดเดียว และให้มีผลเหมือนกันทุกจุดที่เรียก gate
-- `seo_gate_enabled = 0`: gate SHALL ไม่บล็อกด้วยผล SEO/AEO แต่ยังเช็ค marker ตาม `requireMarker`
-- `seo_gate_min_score` SHALL ไม่ถูกใช้ตัดสินผลอีก (คอลัมน์ยังอยู่)
-
-#### Scenario: ปิดสวิตช์แล้วไม่บล็อกด้วยผลตรวจ
-- **WHEN** `seo_gate_enabled = 0` และคอนเทนต์มี Required failed แต่มี `quality_checked_at`
-- **THEN** ทั้งการขออนุมัติและการเผยแพร่ไม่ถูกบล็อกด้วย SEO/AEO
-
-#### Scenario: min_score ไม่มีผล
-- **WHEN** `seo_gate_min_score = 90` และคอนเทนต์ได้คะแนน 70 โดยไม่มี Required failed
-- **THEN** gate ไม่บล็อก
+#### Scenario: seo_gate_enabled ไม่มีผลต่อการอนุมัติ/เผยแพร่อีกต่อไป
+- **WHEN** `content_global_settings.seo_gate_enabled = 1` และคอนเทนต์มี Required failed
+- **THEN** การขออนุมัติและการเผยแพร่ยังไม่ถูกบล็อก (ค่านี้ไม่ถูกอ่านจากเส้นทางขออนุมัติ/เผยแพร่อีกต่อไป — มีผลเฉพาะฟังก์ชันที่ไม่ถูกเรียกในเส้นทางเหล่านี้แล้ว)
 
 ### Requirement: วิดีโอไม่ผ่าน SEO/AEO gate
 เมื่อ `content_items.type = 'video'` ระบบ SHALL:
