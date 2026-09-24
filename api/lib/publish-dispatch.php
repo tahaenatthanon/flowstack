@@ -261,6 +261,24 @@ function content_quality_gate_check(PDO $db, string $tenantId, array $content, ?
 }
 
 /**
+ * เช็คว่าคอนเทนต์วิดีโอพร้อมเผยแพร่จริง — ต้องสร้างวิดีโอรวมเสร็จแล้วและไฟล์ยังมีอยู่จริงบนดิสก์
+ * คอนเทนต์ที่ไม่ใช่ type='video' ผ่านเสมอ (ไม่กระทบ article)
+ */
+function video_readiness_gate_check(array $content): array {
+    if (($content['type'] ?? '') !== 'video') {
+        return ['blocked' => false, 'reason' => null];
+    }
+    if (($content['video_gen_status'] ?? '') !== 'done') {
+        return ['blocked' => true, 'reason' => 'Video gate: วิดีโอยังสร้างไม่เสร็จ กรุณาสร้างวิดีโอรวมให้เสร็จก่อนเผยแพร่'];
+    }
+    $video = resolve_local_video((string)($content['video_url'] ?? ''));
+    if (!$video['ok']) {
+        return ['blocked' => true, 'reason' => 'Video gate: ไม่พบไฟล์วิดีโอ — ' . $video['error']];
+    }
+    return ['blocked' => false, 'reason' => null];
+}
+
+/**
  * Final publish gate shared by immediate publish, queued publish and scheduled publish.
  * Approval and platform selection are always hard requirements; Quality ใช้ quality_required_gate()
  * (ประเมิน SEO/AEO เฉพาะ platform เว็บ/CMS — platform โซเชียลไม่มี Quality gate)
@@ -286,6 +304,9 @@ function final_publish_gate_check(PDO $db, string $tenantId, array $content, str
     if (!in_array($platform, $selected, true)) {
         return ['blocked' => true, 'reason' => "Platform gate: {$platform} ไม่ได้ถูกเลือกไว้ใน Content Item"];
     }
+
+    $videoGate = video_readiness_gate_check($content);
+    if ($videoGate['blocked']) return $videoGate;
 
     // Script/social platforms (TikTok, Facebook ฯลฯ) ไม่มี Quality gate ของตัวเอง —
     // ผ่าน Approval + Platform gate ด้านบนแล้วก็เผยแพร่ได้ทันที
@@ -401,8 +422,9 @@ function dispatch_content(string $platform, array $channel, array $content): arr
         : null;
     $title   = $art['title']   ?? $content['title']       ?? '';
     $body    = $art['html']    ?? $content['caption']     ?? '';
-    $excerpt = $art['excerpt'] ?? '';
-    $imgUrl  = $content['generated_image_url'] ?? '';
+    $excerpt  = $art['excerpt'] ?? '';
+    $imgUrl   = $content['generated_image_url'] ?? '';
+    $videoUrl = $content['video_url'] ?? '';
 
     // เนื้อหาสำหรับแพลตฟอร์มโซเชียล — แยกจาก $body ข้างบนที่เป็น HTML สำหรับเว็บ/CMS
     // โซเชียลไม่เรนเดอร์ HTML ส่ง $body เข้าไปตรง ๆ จะได้ <article>/<h1>/<p> ขึ้นเพจ
@@ -437,7 +459,7 @@ function dispatch_content(string $platform, array $channel, array $content): arr
 
     return match($platform) {
         // โซเชียล → $socialBody (ข้อความล้วน)
-        'facebook'  => dispatch_facebook($channel, $creds, $socialTitle, $socialBody, $imgUrl),
+        'facebook'  => dispatch_facebook($channel, $creds, $socialTitle, $socialBody, $imgUrl, $videoUrl),
         'instagram' => dispatch_instagram($channel, $creds, $socialTitle, $socialBody, $imgUrl),
         'tiktok'    => dispatch_tiktok($channel, $creds, $socialTitle, $socialBody),
         'lineoa'    => dispatch_lineoa($channel, $creds, $socialTitle, $socialBody),
@@ -622,12 +644,12 @@ function publish_via_central_flow(
 
 // ─── cURL helper ────────────────────────────────────────────────────────────────
 
-function _dispatch_post(string $url, array $options = []): array {
+function _dispatch_post(string $url, array $options = [], int $timeoutSeconds = 30): array {
     $ch = curl_init($url);
     $defaults = [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_POST           => true,
-        CURLOPT_TIMEOUT        => 30,
+        CURLOPT_TIMEOUT        => $timeoutSeconds,
     ];
     curl_setopt_array($ch, $options + $defaults);
     $res    = curl_exec($ch);
@@ -678,26 +700,28 @@ function _dispatch_get(string $url): array {
     return ['success' => true, 'data' => $data];
 }
 
-// ─── Local image resolver ───────────────────────────────────────────────────────
+// ─── Local upload resolver ──────────────────────────────────────────────────────
 
 /**
- * แปลงค่า generated_image_url ให้เป็นไฟล์จริงบนดิสก์ เพื่ออัปโหลดขึ้น platform
+ * แปลงค่า path ที่เก็บในคอลัมน์ DB (เช่น generated_image_url, video_url) ให้เป็นไฟล์จริงบนดิสก์
+ * เพื่ออัปโหลดขึ้น platform — ใช้ร่วมกันโดย resolve_local_image() และ resolve_local_video()
  *
- * ทำไมต้องมีขั้นนี้: generated_image_url ที่ระบบผลิตเองเป็น path เทียบ document root
+ * ทำไมต้องมีขั้นนี้: path ที่ระบบผลิตเองเป็น path เทียบ document root
  * (`/uploads/content/...` — ดู brand-content.php) ไม่ใช่ URL ที่เข้าถึงได้จากอินเทอร์เน็ต
  * และโปรเจกต์ไม่มีคีย์ config ที่บอก public base URL จึงส่งค่านี้ให้ platform
- * ไปดึงรูปเองไม่ได้ ต้องอ่านไฟล์แล้วอัปโหลด bytes ขึ้นไป
+ * ไปดึงไฟล์เองไม่ได้ ต้องอ่านไฟล์แล้วอัปโหลด bytes ขึ้นไป
  *
- * ค่า $imgUrl มาจากคอลัมน์ในฐานข้อมูล — ไม่ถือเป็น path ที่เชื่อถือได้โดยปริยาย
+ * ค่า $path มาจากคอลัมน์ในฐานข้อมูล — ไม่ถือเป็น path ที่เชื่อถือได้โดยปริยาย
  * จึง resolve ด้วย realpath() แล้วบังคับให้ผลลัพธ์อยู่ใต้ uploads/ เท่านั้น
  * เพื่อไม่ให้ `../` ไต่ไปหยิบ .env หรือ api/config.php ขึ้นไปโพสต์บนเพจสาธารณะ
  *
+ * @param array<string,string> $mimeByExt นามสกุล (ตัวพิมพ์เล็ก ไม่มีจุด) => MIME type
  * @return array{ok: bool, path?: string, mime?: string, error?: string}
  */
-function resolve_local_image(string $imgUrl): array {
-    $imgUrl = trim($imgUrl);
-    if ($imgUrl === '') {
-        return ['ok' => false, 'error' => 'ไม่ได้ระบุ path ของรูป'];
+function resolve_local_upload(string $path, array $mimeByExt): array {
+    $path = trim($path);
+    if ($path === '') {
+        return ['ok' => false, 'error' => 'ไม่ได้ระบุ path ของไฟล์'];
     }
 
     // ไฟล์นี้อยู่ที่ api/lib/ — ย้อนขึ้น 2 ระดับได้ project root ซึ่งเป็น document root ด้วย
@@ -708,16 +732,16 @@ function resolve_local_image(string $imgUrl): array {
     }
 
     // ตัด query string / fragment ที่อาจติดมากับค่าในคอลัมน์ก่อนแปลงเป็น path บนดิสก์
-    $relative = parse_url($imgUrl, PHP_URL_PATH);
+    $relative = parse_url($path, PHP_URL_PATH);
     if ($relative === false || $relative === null || $relative === '') {
-        return ['ok' => false, 'error' => "path ของรูปอ่านไม่ออก: $imgUrl"];
+        return ['ok' => false, 'error' => "path ของไฟล์อ่านไม่ออก: $path"];
     }
     $candidate = $projectRoot . DIRECTORY_SEPARATOR
         . ltrim(str_replace('/', DIRECTORY_SEPARATOR, $relative), DIRECTORY_SEPARATOR);
 
     $real = realpath($candidate);
     if ($real === false) {
-        return ['ok' => false, 'error' => "ไม่พบไฟล์รูปที่ระบุไว้: $imgUrl (มองหาที่ $candidate)"];
+        return ['ok' => false, 'error' => "ไม่พบไฟล์ที่ระบุไว้: $path (มองหาที่ $candidate)"];
     }
 
     // เทียบ path ที่ normalize แล้วทั้งสองฝั่ง — ทั้งคู่ผ่าน realpath() จึงใช้ separator
@@ -729,22 +753,15 @@ function resolve_local_image(string $imgUrl): array {
         ? strncasecmp($real, $prefix, strlen($prefix)) === 0
         : strncmp($real, $prefix, strlen($prefix)) === 0;
     if (!$inScope) {
-        return ['ok' => false, 'error' => "รูปอยู่นอกขอบเขตที่อนุญาต (ต้องอยู่ใต้ uploads/): $imgUrl"];
+        return ['ok' => false, 'error' => "ไฟล์อยู่นอกขอบเขตที่อนุญาต (ต้องอยู่ใต้ uploads/): $path"];
     }
 
     if (!is_file($real) || !is_readable($real)) {
-        return ['ok' => false, 'error' => "ไฟล์รูปอ่านไม่ได้: $real"];
+        return ['ok' => false, 'error' => "ไฟล์อ่านไม่ได้: $real"];
     }
 
     // เดา MIME จากนามสกุล ไม่ใช้ mime_content_type() ซึ่งต้องการ extension fileinfo
     // ที่อาจไม่ได้เปิดไว้บน XAMPP บางเครื่อง
-    $mimeByExt = [
-        'jpg'  => 'image/jpeg',
-        'jpeg' => 'image/jpeg',
-        'png'  => 'image/png',
-        'gif'  => 'image/gif',
-        'webp' => 'image/webp',
-    ];
     $ext = strtolower(pathinfo($real, PATHINFO_EXTENSION));
 
     return [
@@ -754,10 +771,30 @@ function resolve_local_image(string $imgUrl): array {
     ];
 }
 
+/** แปลงค่า generated_image_url ให้เป็นไฟล์รูปจริงบนดิสก์ — ดู resolve_local_upload() */
+function resolve_local_image(string $imgUrl): array {
+    return resolve_local_upload($imgUrl, [
+        'jpg'  => 'image/jpeg',
+        'jpeg' => 'image/jpeg',
+        'png'  => 'image/png',
+        'gif'  => 'image/gif',
+        'webp' => 'image/webp',
+    ]);
+}
+
+/** แปลงค่า video_url ให้เป็นไฟล์วิดีโอจริงบนดิสก์ — ดู resolve_local_upload() */
+function resolve_local_video(string $videoUrl): array {
+    return resolve_local_upload($videoUrl, [
+        'mp4'  => 'video/mp4',
+        'mov'  => 'video/quicktime',
+        'webm' => 'video/webm',
+    ]);
+}
+
 // ─── Facebook ───────────────────────────────────────────────────────────────────
 // Creds: { "page_id": "...", "access_token": "..." }
 
-function dispatch_facebook(array $channel, array $creds, string $title, string $body, string $imgUrl = ''): array {
+function dispatch_facebook(array $channel, array $creds, string $title, string $body, string $imgUrl = '', string $videoUrl = ''): array {
     $pageId = $creds['page_id'] ?? '';
     $token  = $creds['access_token'] ?? '';
     if (!$pageId || !$token) {
@@ -766,10 +803,30 @@ function dispatch_facebook(array $channel, array $creds, string $title, string $
     $msg = $title ? "$title\n\n$body" : $body;
     $msg = mb_substr($msg, 0, 63206); // Facebook limit
 
-    $apiBase = "https://graph.facebook.com/v19.0/$pageId";
-    $imgUrl  = trim($imgUrl);
+    $apiBase  = "https://graph.facebook.com/v19.0/$pageId";
+    $imgUrl   = trim($imgUrl);
+    $videoUrl = trim($videoUrl);
+    $isVideo  = false;
 
-    if ($imgUrl === '') {
+    if ($videoUrl !== '') {
+        // เช็คก่อนรูป/ข้อความเสมอ — คอนเทนต์วิดีโอต้องไม่ตกไป branch รูป/ข้อความโดยไม่ตั้งใจ
+        $video = resolve_local_video($videoUrl);
+        if (!$video['ok']) {
+            // เหมือนรูป: ไม่ถอยไปโพสต์ข้อความเปล่า ตั้งใจให้ล้มเหลวชัดเจน
+            return ['success' => false, 'error' => 'ส่งวิดีโอไป Facebook ไม่ได้ — ' . $video['error']];
+        }
+        $isVideo = true;
+        // /videos ใช้ description ไม่ใช่ message เหมือน /feed และ /photos
+        // timeout 120s (ไม่ใช่ 30s เดิม) — ไฟล์วิดีโอใหญ่กว่ารูปมาก อัปโหลดใช้เวลานานกว่า
+        $result = _dispatch_post("$apiBase/videos", [
+            CURLOPT_POST       => true,
+            CURLOPT_POSTFIELDS => [
+                'description'  => $msg,
+                'access_token' => $token,
+                'source'       => new CURLFile($video['path'], $video['mime'], basename($video['path'])),
+            ],
+        ], 120);
+    } elseif ($imgUrl === '') {
         // ไม่มีรูป → /feed ตามพฤติกรรมเดิมทุกอย่าง (โพสต์ข้อความเปล่าไม่ใช่ความล้มเหลว)
         $result = _dispatch_post("$apiBase/feed", [
             CURLOPT_POSTFIELDS => http_build_query(['message' => $msg, 'access_token' => $token]),
@@ -812,12 +869,17 @@ function dispatch_facebook(array $channel, array $creds, string $title, string $
     }
 
     if ($result['success']) {
-        // อ่าน post_id ก่อน id — /photos คืน id เป็น photo id เปล่า ซึ่งใช้ทั้ง permalink
-        // lookup และ /insights ไม่ได้ ส่วน post_id เป็นรูปแบบผสม {page_id}_{post_id}
-        // ตัวเดียวกับที่ /feed คืนมาใน id (ยืนยันจาก content_publish_queue.response_snippet)
-        // api/lib/insights-fetch.php พึ่งค่านี้เป็นคีย์ดึง engagement — ถ้าเก็บ photo id ไว้
-        // การซิงก์จะเงียบหายไปทั้งที่โพสต์สำเร็จ
-        $result['platform_post_id'] = $result['data']['post_id'] ?? $result['data']['id'] ?? null;
+        if ($isVideo) {
+            // /videos ไม่คืน post_id แบบผสมเหมือน /photos — id ที่ได้คือ video id ตรงๆ ใช้ได้ทันที
+            $result['platform_post_id'] = $result['data']['id'] ?? null;
+        } else {
+            // อ่าน post_id ก่อน id — /photos คืน id เป็น photo id เปล่า ซึ่งใช้ทั้ง permalink
+            // lookup และ /insights ไม่ได้ ส่วน post_id เป็นรูปแบบผสม {page_id}_{post_id}
+            // ตัวเดียวกับที่ /feed คืนมาใน id (ยืนยันจาก content_publish_queue.response_snippet)
+            // api/lib/insights-fetch.php พึ่งค่านี้เป็นคีย์ดึง engagement — ถ้าเก็บ photo id ไว้
+            // การซิงก์จะเงียบหายไปทั้งที่โพสต์สำเร็จ
+            $result['platform_post_id'] = $result['data']['post_id'] ?? $result['data']['id'] ?? null;
+        }
         // ดึงลิงก์โพสต์ — endpoint /{pageId}/feed คืนแค่ id ไม่มี URL จึงต้อง GET เพิ่มอีกครั้ง
         //
         // Non-blocking โดยเจตนา: โพสต์ถูกสร้างที่ปลายทางไปแล้ว ถ้า lookup ล้มเหลว
@@ -829,7 +891,13 @@ function dispatch_facebook(array $channel, array $creds, string $title, string $
                 . '?fields=permalink_url&access_token=' . urlencode($token)
             );
             if ($lookup['success'] && !empty($lookup['data']['permalink_url'])) {
-                $result['published_url'] = (string) $lookup['data']['permalink_url'];
+                $permalink = (string) $lookup['data']['permalink_url'];
+                // ยืนยันจากการโพสต์วิดีโอจริง: permalink_url ของโพสต์วิดีโอ/Reel กลับมาเป็น
+                // path สัมพัทธ์ (เช่น "/reel/{id}/") ต่างจากโพสต์รูป/ข้อความที่ได้ URL เต็มเสมอ
+                // — เก็บ path สัมพัทธ์ตรงๆ ตอนหน้าเว็บเอาไปเป็น href จะพาไปที่โดเมนของแอปเราแทน
+                $result['published_url'] = str_starts_with($permalink, '/')
+                    ? 'https://www.facebook.com' . $permalink
+                    : $permalink;
             }
         }
     }
