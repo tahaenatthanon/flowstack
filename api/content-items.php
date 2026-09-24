@@ -211,6 +211,22 @@ if ($method === 'PUT') {
     $changesContent = count(array_intersect($approvalSensitiveFields, array_keys($body))) > 0;
     $requestedStatus = $body['status'] ?? null;
 
+    // Approval decisions require the dedicated content_approval permission.
+    // Use the client-requested status so the automatic revision transition below
+    // does not accidentally turn a normal content edit into an approval decision.
+    if (in_array($requestedStatus, ['approved', 'rejected'], true)) {
+        if (!userHasRolePermission($db, $userId, $tenantId, 'content_approval')) {
+            jsonError('ไม่มีสิทธิ์อนุมัติคอนเทนต์ — ต้องเป็นผู้ดูแลระบบหรือผู้จัดการ', 403);
+        }
+    } elseif ($requestedStatus === 'revision') {
+        $currentStatusStmt = $db->prepare('SELECT status FROM content_items WHERE id=? AND tenant_id=?');
+        $currentStatusStmt->execute([$id, $tenantId]);
+        if ($currentStatusStmt->fetchColumn() === 'pending_approval'
+            && !userHasRolePermission($db, $userId, $tenantId, 'content_approval')) {
+            jsonError('ไม่มีสิทธิ์อนุมัติคอนเทนต์ — ต้องเป็นผู้ดูแลระบบหรือผู้จัดการ', 403);
+        }
+    }
+
     // Quality is version-specific. Any change to content fields that can affect
     // Article SEO/AEO invalidates the persisted Quality result for the current
     // Content version. Do this even when the caller does not send a new

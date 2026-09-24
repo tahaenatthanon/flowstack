@@ -427,7 +427,7 @@ export default function ContentDetailView({
 
       {/* Approve confirmation — approval context only. ตรวจ SEO/AEO ก่อนอนุมัติเหมือนหน้า list */}
       <Dialog open={approveConfirm} onOpenChange={open => { if (!open) setApproveConfirm(false); }}>
-        <DialogContent className="w-full sm:max-w-md">
+        <DialogContent className="w-full sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>ยืนยันการอนุมัติ</DialogTitle>
             <DialogDescription>
@@ -465,7 +465,7 @@ export default function ContentDetailView({
           )}
 
           {!approveGateLoading && (approveGate || approveAeo) && (
-            <div className="grid grid-cols-1 gap-2 max-h-72 overflow-y-auto">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-72 overflow-y-auto">
               {approveGate && <QualityChecklist title="SEO" result={approveGate} gateDisabled={!approveGateOn} />}
               {approveAeo && <QualityChecklist title="AEO" result={approveAeo} />}
             </div>
@@ -482,7 +482,7 @@ export default function ContentDetailView({
 
       {/* Request approval confirmation — content context only */}
       <Dialog open={requestApprovalConfirm} onOpenChange={open => { if (!open) setRequestApprovalConfirm(false); }}>
-        <DialogContent className="w-full sm:max-w-md">
+        <DialogContent className="w-full sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>ยืนยันการขออนุมัติ</DialogTitle>
             <DialogDescription>
@@ -515,7 +515,7 @@ export default function ContentDetailView({
 
       {/* Reason dialog — shared by ขอแก้ไข and ปฏิเสธ; reason is optional */}
       <Dialog open={!!reasonDialog} onOpenChange={open => { if (!open) { setReasonDialog(null); setReason(''); } }}>
-        <DialogContent className="w-full sm:max-w-md">
+        <DialogContent className="w-full sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>{reasonDialog === 'revision' ? 'ขอแก้ไขเนื้อหา' : 'ปฏิเสธเนื้อหา'}</DialogTitle>
             <DialogDescription>

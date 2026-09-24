@@ -14,13 +14,20 @@ import ScheduleOverviewPanel from '@/components/content/tabs/ScheduleOverviewPan
 import { BatchGenerateDialog } from '@/components/content/dialogs/BatchGenerateDialog';
 import QuickCreateDialog from '@/components/content/dialogs/QuickCreateDialog';
 import { useOverdueCount } from '@/hooks/useContent';
+import { useAuth } from '@/hooks/useAuth';
 import PageShell from '@/components/PageShell';
 
 export default function ContentPage() {
   const [batchOpen, setBatchOpen] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
   const [searchParams] = useSearchParams();
-  const validTabs = ['content', 'approval', 'schedule', 'skills', 'settings'];
+  const { hasRolePermission } = useAuth();
+  // content_approval ต้องมี role assignment เสมอ — is_admin/is_superadmin ไม่ bypass ที่นี่
+  // (ต่างจากเมนูอื่นทุกเมนูที่ยังใช้ hasPermission() ปกติ — ดู change restrict-content-approval-tab, D1.5)
+  const canApprove = hasRolePermission('content_approval');
+  const validTabs = canApprove
+    ? ['content', 'approval', 'schedule', 'skills', 'settings']
+    : ['content', 'schedule', 'skills', 'settings'];
   const initialTab = searchParams.get('tab');
   const [activeTab, setActiveTab] = useState(
     initialTab && validTabs.includes(initialTab) ? initialTab : 'content'
@@ -60,15 +67,17 @@ export default function ContentPage() {
       )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-5">
-        <TabsList className="flex overflow-x-auto w-full text-xs sm:text-sm sm:grid sm:grid-cols-5">
+        <TabsList className={`flex overflow-x-auto w-full text-xs sm:text-sm sm:grid ${canApprove ? 'sm:grid-cols-5' : 'sm:grid-cols-4'}`}>
           <TabsTrigger value="content"  className="gap-1 sm:gap-2 px-2 sm:px-3 shrink-0">
             <PenTool className="h-3.5 w-3.5 shrink-0" />
             <span className="hidden sm:inline">ผลงานทั้งหมด</span>
           </TabsTrigger>
-          <TabsTrigger value="approval" className="gap-1 sm:gap-2 px-2 sm:px-3 shrink-0">
-            <ClipboardCheck className="h-3.5 w-3.5 shrink-0" />
-            <span className="hidden sm:inline">รายการอนุมัติ</span>
-          </TabsTrigger>
+          {canApprove && (
+            <TabsTrigger value="approval" className="gap-1 sm:gap-2 px-2 sm:px-3 shrink-0">
+              <ClipboardCheck className="h-3.5 w-3.5 shrink-0" />
+              <span className="hidden sm:inline">รายการอนุมัติ</span>
+            </TabsTrigger>
+          )}
           <TabsTrigger value="schedule" className="gap-1 sm:gap-2 px-2 sm:px-3 shrink-0">
             <Clock className="h-3.5 w-3.5 shrink-0" />
             <span className="hidden sm:inline">กำหนดการโพสต์</span>
@@ -84,7 +93,7 @@ export default function ContentPage() {
         </TabsList>
 
         <TabsContent value="content"><ContentListTab /></TabsContent>
-        <TabsContent value="approval"><ContentApprovalTab /></TabsContent>
+        {canApprove && <TabsContent value="approval"><ContentApprovalTab /></TabsContent>}
         <TabsContent value="schedule">
           <Card>
             <CardHeader className="pb-3">

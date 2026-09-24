@@ -156,6 +156,17 @@ if ($tenantRoleId) {
     $roleLabel = $roleStmt->fetchColumn() ?: null;
 }
 
+// menu key จาก role_menu_permissions ของ role_id ล้วนๆ ไม่ bypass ด้วย is_admin/is_superadmin
+// ต้องคำนวณเหมือน /auth/me.php มิฉะนั้นสิทธิ์ที่ต้องมี role assignment เสมอ (เช่น content_approval)
+// จะหายไปทันทีหลังล็อกอิน จนกว่าจะรีเฟรชหน้าให้ AuthProvider เรียก /auth/me.php ใหม่
+// (ดู change restrict-content-approval-tab, D1.5)
+$rolePermissions = [];
+if ($tenantRoleId) {
+    $rpStmt = $db->prepare('SELECT menu_key FROM role_menu_permissions WHERE role_id = ?');
+    $rpStmt->execute([$tenantRoleId]);
+    $rolePermissions = array_column($rpStmt->fetchAll(), 'menu_key');
+}
+
 // Rewrite avatar_url to current host (fixes legacy localhost URLs on production)
 $avatarUrl = $user['avatar_url'];
 if ($avatarUrl) {
@@ -184,5 +195,6 @@ jsonResponse([
         'role_label'    => $roleLabel,
         'tenant_id'     => $tenantId,
         'permissions'   => $permissions,
+        'role_permissions' => $rolePermissions,
     ],
 ]);

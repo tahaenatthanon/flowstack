@@ -52,6 +52,16 @@ if ($isSuperadmin && $isImpersonating) {
 
 $permissions = getUserPermissions($db, $user['id'], $tenantId);
 
+// menu key จาก role_menu_permissions ของ role_id ล้วนๆ ไม่ bypass ด้วย is_admin/is_superadmin
+// เหมือน permissions ด้านบน — ใช้กับสิทธิ์ที่ต้องมี role assignment เสมอ เช่น content_approval
+// (ดู change restrict-content-approval-tab, D1.5). superadmin impersonate ที่ role_id=null ได้ []
+$rolePermissions = [];
+if ($roleId) {
+    $rpStmt = $db->prepare('SELECT menu_key FROM role_menu_permissions WHERE role_id = ?');
+    $rpStmt->execute([$roleId]);
+    $rolePermissions = array_column($rpStmt->fetchAll(), 'menu_key');
+}
+
 $roleLabel = null;
 if ($roleId) {
     $roleStmt = $db->prepare('SELECT label FROM roles WHERE id = ?');
@@ -92,6 +102,7 @@ jsonResponse([
     'role_label'   => $roleLabel,
     'tenant_id'    => $tenantId,
     'permissions'  => $permissions,
+    'role_permissions' => $rolePermissions,
     'aliases'      => $aliases,
     'is_superadmin'=> (int)($user['is_superadmin'] ?? 0),
     'created_at'   => $user['created_at'],

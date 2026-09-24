@@ -106,8 +106,28 @@ export default function ContentApprovalTab() {
     )
     .slice()
     .sort((a, b) => {
-      const ta = new Date(a.requested_at ?? a.updated_at ?? a.created_at).getTime();
-      const tb = new Date(b.requested_at ?? b.updated_at ?? b.created_at).getTime();
+      const statusOrder: Record<string, number> = {
+        pending_approval: 0,
+        revision: 1,
+        approved: 2,
+        rejected: 3,
+      };
+      
+      const statusDiff =
+        (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99);
+      
+      if (statusDiff !== 0) {
+        return statusDiff;
+      }
+      
+      const ta = new Date(
+        a.requested_at ?? a.updated_at ?? a.created_at
+      ).getTime();
+      
+      const tb = new Date(
+        b.requested_at ?? b.updated_at ?? b.created_at
+      ).getTime();
+
       return sortOrder === 'requested_desc' ? tb - ta : ta - tb;
     });
 
@@ -290,7 +310,8 @@ export default function ContentApprovalTab() {
                 <TableHead>ชื่อคอนเทนต์</TableHead>
                 <TableHead className="hidden md:table-cell">ประเภท</TableHead>
                 <TableHead className="hidden md:table-cell">แพลตฟอร์ม</TableHead>
-                <TableHead className="hidden sm:table-cell">วันที่สร้าง</TableHead>
+                <TableHead className="hidden lg:table-cell">วันที่สร้าง</TableHead>
+                <TableHead className="hidden lg:table-cell">วันที่ขออนุมัติ</TableHead>
                 <TableHead>สถานะ</TableHead>
                 <TableHead className="text-right w-[240px]">จัดการ</TableHead>
               </TableRow>
@@ -312,7 +333,9 @@ export default function ContentApprovalTab() {
                     className="cursor-pointer hover:bg-muted/30"
                     onClick={() => setDetailItem(item)}
                   >
-                    <TableCell className="font-medium max-w-[200px] truncate">{item.title}</TableCell>
+                    <TableCell className="font-medium max-w-[200px] truncate">
+                      {item.title}
+                    </TableCell>
                     <TableCell className="hidden md:table-cell">
                       <Badge variant="outline" className={type.color}>{type.label}</Badge>
                     </TableCell>
@@ -326,39 +349,60 @@ export default function ContentApprovalTab() {
                         </div>
                       ) : '-'}
                     </TableCell>
-                    <TableCell className="hidden sm:table-cell text-muted-foreground text-sm">
+                    <TableCell className="hidden lg:table-cell text-muted-foreground text-sm">
                       {formatDate(item.created_at)}
+                    </TableCell>
+                    <TableCell className="hidden lg:table-cell text-muted-foreground text-sm">
+                      {formatDate(item.requested_at)}
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline" className={status.color}>{status.label}</Badge>
                     </TableCell>
                     <TableCell className="text-right">
                       {isPending ? (
-                        <div className="flex items-center justify-end gap-1 whitespace-nowrap">
+                        <div className="flex items-center justify-end gap-0.5 whitespace-nowrap">
                           <Button
-                            variant="ghost" size="sm"
+                            variant="ghost"
+                            size="sm"
                             onClick={(e) => { e.stopPropagation(); setConfirmApprove(item); }}
-                            className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                            className="h-8 px-1.5 text-green-600 hover:text-green-700 hover:bg-green-50"
                           >
-                            <Check className="h-4 w-4 mr-1" />อนุมัติ
+                            <Check className="h-4 w-4 mr-0.5" />
+                            อนุมัติ
                           </Button>
+                      
                           <Button
-                            variant="ghost" size="sm"
-                            onClick={(e) => { e.stopPropagation(); setReasonDialog({ open: true, item, kind: 'revision' }); setRejectReason(''); }}
-                            className="text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setReasonDialog({ open: true, item, kind: 'revision' });
+                              setRejectReason('');
+                            }}
+                            className="h-8 px-1.5 text-amber-600 hover:text-amber-700 hover:bg-amber-50"
                           >
-                            <Pencil className="h-4 w-4 mr-1" />ขอแก้ไข
+                            <Pencil className="h-4 w-4 mr-0.5" />
+                            ขอแก้ไข
                           </Button>
+                          
                           <Button
-                            variant="ghost" size="sm"
-                            onClick={(e) => { e.stopPropagation(); setReasonDialog({ open: true, item, kind: 'rejected' }); setRejectReason(''); }}
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setReasonDialog({ open: true, item, kind: 'rejected' });
+                              setRejectReason('');
+                            }}
+                            className="h-8 px-1.5 text-red-600 hover:text-red-700 hover:bg-red-50"
                           >
-                            <X className="h-4 w-4 mr-1" />ปฏิเสธ
+                            <X className="h-4 w-4 mr-0.5" />
+                            ปฏิเสธ
                           </Button>
                         </div>
                       ) : (
-                        <span className="text-xs text-muted-foreground whitespace-nowrap">ดำเนินการแล้ว</span>
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">
+                          ดำเนินการแล้ว
+                        </span>
                       )}
                     </TableCell>
                   </TableRow>
@@ -371,7 +415,7 @@ export default function ContentApprovalTab() {
 
       {/* Approve Confirm Dialog */}
       <Dialog open={!!confirmApprove} onOpenChange={(v) => { if (!v) setConfirmApprove(null); }}>
-        <DialogContent className="w-full sm:max-w-md">
+        <DialogContent className="w-full sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>ยืนยันการอนุมัติ</DialogTitle>
             <DialogDescription>
@@ -413,7 +457,7 @@ export default function ContentApprovalTab() {
           )}
 
           {!approveGateLoading && (approveGate || approveAeo) && (
-            <div className="grid grid-cols-1 gap-2 max-h-72 overflow-y-auto">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-72 overflow-y-auto">
               {approveGate && <QualityChecklist title="SEO" result={approveGate} gateDisabled={!approveGateOn} />}
               {approveAeo && <QualityChecklist title="AEO" result={approveAeo} />}
             </div>
@@ -433,7 +477,7 @@ export default function ContentApprovalTab() {
 
       {/* Reason Dialog — shared by "ขอแก้ไข" and "ปฏิเสธ" */}
       <Dialog open={reasonDialog.open} onOpenChange={(v) => { if (!v) setReasonDialog({ open: false, item: null, kind: 'rejected' }); }}>
-        <DialogContent className="w-full sm:max-w-md">
+        <DialogContent className="w-full sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>{reasonDialog.kind === 'revision' ? 'ขอแก้ไขเนื้อหา' : 'ปฏิเสธเนื้อหา'}</DialogTitle>
             <DialogDescription>

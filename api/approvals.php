@@ -81,6 +81,11 @@ if ($method === 'POST') {
     if (!$req) jsonError('Approval request not found or not yours', 404);
     if ($req['status'] !== 'pending') jsonError('Already decided', 409);
 
+    if ($req['entity_type'] === 'content_item'
+        && !userHasRolePermission($db, $userId, $tenantId, 'content_approval')) {
+      jsonError('ไม่มีสิทธิ์อนุมัติคอนเทนต์ — ต้องเป็นผู้ดูแลระบบหรือผู้จัดการ', 403);
+    }
+
     $db->prepare(
       'UPDATE approval_requests SET status=?, decided_at=NOW(), comment=?, updated_at=NOW() WHERE id=?'
     )->execute([$decision, $body['comment'] ?? null, $id]);

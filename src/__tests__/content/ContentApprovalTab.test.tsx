@@ -160,3 +160,43 @@ describe('ContentApprovalTab — คอลัมน์แพลตฟอร์�
     expect(row.textContent).toContain('-');
   });
 });
+
+describe('ContentApprovalTab — ตัวเลือก Sort ("ล่าสุด-เก่าสุด" / "เก่าสุด-ล่าสุด")', () => {
+  // regression: comparator เคย hardcode `tb - ta` ทิ้ง sortOrder ไปเฉยๆ ทำให้เลือก
+  // "เก่าสุด-ล่าสุด" แล้วไม่มีผล — ดู spec content-approval-request-sort
+  function titlesInOrder(): string[] {
+    return screen.getAllByRole('row')
+      .slice(1) // แถวแรกคือ header
+      .map(row => row.querySelector('td')?.textContent ?? '');
+  }
+
+  function sortSelectTrigger(): HTMLElement {
+    const combos = screen.getAllByRole('combobox');
+    const trigger = combos.find(el => /ล่าสุด|เก่าสุด/.test(el.textContent ?? ''));
+    if (!trigger) throw new Error('ไม่พบ Sort Dropdown');
+    return trigger;
+  }
+
+  beforeEach(() => {
+    mockItems.value = [
+      makeItem({ id: 'old', title: 'เก่าสุด', requested_at: '2026-09-01T00:00:00Z' } as Partial<ContentItem>),
+      makeItem({ id: 'new', title: 'ใหม่สุด', requested_at: '2026-09-20T00:00:00Z' } as Partial<ContentItem>),
+    ];
+  });
+
+  it('ค่าเริ่มต้น "ล่าสุด-เก่าสุด" เรียงใหม่สุดขึ้นก่อน', async () => {
+    renderTab();
+    await screen.findByText('ใหม่สุด');
+    expect(titlesInOrder()).toEqual(['ใหม่สุด', 'เก่าสุด']);
+  });
+
+  it('เลือก "เก่าสุด-ล่าสุด" แล้วสลับเป็นเก่าสุดขึ้นก่อน', async () => {
+    renderTab();
+    await screen.findByText('ใหม่สุด');
+
+    openSelect(sortSelectTrigger());
+    fireEvent.click(await screen.findByRole('option', { name: 'เก่าสุด-ล่าสุด', hidden: true }));
+
+    await waitFor(() => expect(titlesInOrder()).toEqual(['เก่าสุด', 'ใหม่สุด']));
+  });
+});

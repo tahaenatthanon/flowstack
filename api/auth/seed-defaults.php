@@ -47,7 +47,7 @@ function seedTenantDefaults(PDO $db, string $tenantId, string $companyName): voi
         $allMenuKeys = [
             'home','projects','sales','quotations','companies','revenue','resources',
             'task_hours','reports','analytics','marketing','goals','automation',
-            'budget','support','admin','inbox','calendar','workflow','task_intelligence'
+            'budget','support','admin','inbox','calendar','workflow','task_intelligence','content_approval'
         ];
         $roleStmt = $db->prepare('INSERT INTO roles (tenant_id, name, label) VALUES (?,?,?)');
         $permStmt = $db->prepare('INSERT INTO role_menu_permissions (role_id, menu_key) VALUES (?,?)');

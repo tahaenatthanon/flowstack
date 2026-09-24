@@ -90,7 +90,11 @@ function RuleGroup({ label, rules, testId }: { label: string; rules: SeoRule[]; 
   if (rules.length === 0) return null;
   return (
     <div className="space-y-1" data-testid={`quality-group-${testId}`}>
-      <p className="text-[10px] font-semibold text-muted-foreground">{label}</p>
+      <div className="flex items-center gap-2 border-b pb-1">
+        <span className="text-xs font-semibold text-foreground">
+          {label}
+        </span>
+    </div>
       <ul className="space-y-1">
         {rules.map(rule => {
           const status = ruleStatus(rule);

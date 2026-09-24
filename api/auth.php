@@ -113,6 +113,22 @@ function requireAdmin(PDO $db, string $userId, string $tenantId): void {
     }
 }
 
+function userHasPermission(PDO $db, string $userId, string $tenantId, string $menuKey): bool {
+    return in_array($menuKey, getUserPermissions($db, $userId, $tenantId), true);
+}
+
+// เหมือน userHasPermission() แต่ไม่ bypass ด้วย is_superadmin/is_admin — ใช้กับสิทธิ์ที่ต้องมี
+// role assignment เสมอ แม้ผู้ใช้จะเป็นผู้ดูแลระบบ (ดู change restrict-content-approval-tab, D1.5)
+function userHasRolePermission(PDO $db, string $userId, string $tenantId, string $menuKey): bool {
+    $stmt = $db->prepare('SELECT role_id FROM tenant_users WHERE user_id = ? AND tenant_id = ?');
+    $stmt->execute([$userId, $tenantId]);
+    $roleId = $stmt->fetchColumn();
+    if (!$roleId) return false;
+    $stmt = $db->prepare('SELECT 1 FROM role_menu_permissions WHERE role_id = ? AND menu_key = ?');
+    $stmt->execute([$roleId, $menuKey]);
+    return (bool)$stmt->fetch();
+}
+
 function requireAdminOrPermission(PDO $db, string $userId, string $tenantId, string $permission): void {
     // Superadmin bypasses all permission checks
     $stmt = $db->prepare('SELECT is_superadmin FROM users WHERE id = ?');

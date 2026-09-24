@@ -21,6 +21,9 @@ export interface User {
   role_label?: string | null;
   tenant_id?: string;
   permissions?: string[];
+  /** menu key จาก role_menu_permissions ของ role_id ล้วนๆ ไม่ bypass ด้วย is_admin/is_superadmin
+   *  ใช้กับสิทธิ์ที่ต้องมี role assignment เสมอ เช่น content_approval (ดู hasRolePermission) */
+  role_permissions?: string[];
   aliases?: UserAlias[];
   is_superadmin?: number;
 }
@@ -35,6 +38,8 @@ interface AuthContextType {
   updateProfile: (data: { display_name: string; position: string }) => Promise<void>;
   uploadAvatar: (file: File) => Promise<void>;
   hasPermission: (menuKey: string) => boolean;
+  /** เหมือน hasPermission แต่ไม่ bypass ด้วย is_admin/is_superadmin — ต้องมี role assignment เสมอ */
+  hasRolePermission: (menuKey: string) => boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -114,8 +119,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return user.permissions?.includes(menuKey) ?? false;
   };
 
+  const hasRolePermission = (menuKey: string): boolean => {
+    if (!user) return false;
+    return user.role_permissions?.includes(menuKey) ?? false;
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, signUp, signIn, signOut, refetchUser, updateProfile, uploadAvatar, hasPermission }}>
+    <AuthContext.Provider value={{ user, loading, signUp, signIn, signOut, refetchUser, updateProfile, uploadAvatar, hasPermission, hasRolePermission }}>
       {children}
     </AuthContext.Provider>
   );

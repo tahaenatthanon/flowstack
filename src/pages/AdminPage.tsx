@@ -88,6 +88,7 @@ const ALL_MENUS = [
   { key: 'support',          label: 'ศูนย์ช่วยเหลือ' },
   { key: 'inbox',            label: 'กล่องข้อความ' },
   { key: 'marketing',        label: 'การตลาด' },
+  { key: 'content_approval', label: 'อนุมัติคอนเทนต์' },
   { key: 'analytics',        label: 'วิเคราะห์ข้อมูล' },
   { key: 'reports',          label: 'รายงาน' },
   { key: 'resources',        label: 'ทรัพยากร' },

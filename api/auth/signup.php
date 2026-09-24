@@ -69,5 +69,8 @@ jsonResponse([
         'is_admin'     => 1,
         'tenant_id'    => $tenantId,
         'permissions'  => ALL_MENU_KEYS,
+        // เจ้าของ tenant ใหม่เป็น is_admin=1 โดยไม่มี role_id — สิทธิ์ที่ต้องมี role assignment
+        // เสมอ (เช่น content_approval) จึงว่างจนกว่าจะสร้าง/ผูก role ให้ผ่านหน้าผู้ดูแลระบบ
+        'role_permissions' => [],
     ],
 ]);
