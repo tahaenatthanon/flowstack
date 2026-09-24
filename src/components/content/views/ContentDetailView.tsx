@@ -1,4 +1,4 @@
-﻿import { ChevronRight, FileText, Play, Clock, Pencil, Sparkles, Loader2, Check, X, Send } from 'lucide-react';
+﻿import { ChevronRight, FileText, Play, Clock, Pencil, Sparkles, Loader2, Check, X, Send, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
@@ -9,15 +9,15 @@ import { useToast } from '@/hooks/use-toast';
 import { apiFetch } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
-import type { ContentItem, PlanItem } from '@/components/content/types';
+import type { ContentItem, PlanItem, SeoChecklistResult, AeoChecklistResult } from '@/components/content/types';
+import { requiredFailedRules } from '@/components/content/types';
+import QualityChecklist from '@/components/content/QualityChecklist';
 
-// Same thresholds as seo_gate_status()/aeo_gate_status() on the backend
-// (>=90 passed, 80-89 needs_improvement, <80 failed) so the color here means
-// the same thing as the pass/fail gate that already governs generation.
+// คะแนนเป็นข้อมูลรอง ไม่ใช่ตัวตัดสิน — ผ่าน/ไม่ผ่านจริงมาจาก Required rule (ดู requiredFailedRules)
 function scoreColor(score: number): string {
-  if (score >= 90) return 'text-green-600';
-  if (score >= 80) return 'text-amber-600';
-  return 'text-red-600';
+  if (score >= 80) return 'text-green-600';
+  if (score >= 50) return 'text-amber-500';
+  return 'text-destructive';
 }
 import { PlatformBadgeList } from '@/components/content/PlatformBadgeList';
 import { useResearchRun, RESEARCH_STEP_LABELS, researchSeedTopic } from '@/hooks/useResearchRun';
@@ -58,6 +58,31 @@ export default function ContentDetailView({
   const [approveConfirm, setApproveConfirm] = useState(false);
   const [reasonDialog, setReasonDialog] = useState<'revision' | 'rejected' | null>(null);
   const [reason, setReason] = useState('');
+
+  // ผลตรวจ SEO/AEO ก่อนอนุมัติ — เหมือนกับที่ ContentApprovalTab (หน้า list) ทำ เพื่อให้ปุ่ม
+  // "อนุมัติ" ในรายละเอียดคอนเทนต์ทำงานเหมือนกันทุกที่ ไม่ว่าจะกดจากแถวในตารางหรือเปิดดูรายละเอียดก่อน
+  const [approveGate, setApproveGate] = useState<SeoChecklistResult | null>(null);
+  const [approveAeo, setApproveAeo] = useState<AeoChecklistResult | null>(null);
+  const [approveGateLoading, setApproveGateLoading] = useState(false);
+  useEffect(() => {
+    setApproveGate(null);
+    setApproveAeo(null);
+    if (!approveConfirm || item.type === 'video') { setApproveGateLoading(false); return; }
+    let cancelled = false;
+    setApproveGateLoading(true);
+    const id = encodeURIComponent(item.id);
+    Promise.all([
+      apiFetch<SeoChecklistResult>('/brand-content.php?action=seo-checklist&item_id=' + id),
+      apiFetch<AeoChecklistResult>('/brand-content.php?action=aeo-checklist&item_id=' + id),
+    ])
+      .then(([seo, aeo]) => { if (!cancelled) { setApproveGate(seo); setApproveAeo(aeo); } })
+      .catch(() => { if (!cancelled) { setApproveGate(null); setApproveAeo(null); } })
+      .finally(() => { if (!cancelled) setApproveGateLoading(false); });
+    return () => { cancelled = true; };
+  }, [approveConfirm, item.id, item.type]);
+  const approveFails = [...requiredFailedRules(approveGate?.rules), ...requiredFailedRules(approveAeo?.rules)];
+  const approveGateOn = approveGate?.seo_gate_enabled === 1;
+  const approveBlocked = approveGateOn && approveFails.length > 0;
   const [savingDecision, setSavingDecision] = useState(false);
 
   // Auto-resize the reason textarea to fit its content
@@ -400,18 +425,55 @@ export default function ContentDetailView({
 
       {isVideo ? <ContentVideoView item={item} context={context} /> : <ContentArticleView item={item} context={context} />}
 
-      {/* Approve confirmation — approval context only */}
+      {/* Approve confirmation — approval context only. ตรวจ SEO/AEO ก่อนอนุมัติเหมือนหน้า list */}
       <Dialog open={approveConfirm} onOpenChange={open => { if (!open) setApproveConfirm(false); }}>
         <DialogContent className="w-full sm:max-w-md">
           <DialogHeader>
             <DialogTitle>ยืนยันการอนุมัติ</DialogTitle>
             <DialogDescription>
-              ต้องการอนุมัติ "{item.title}" ใช่หรือไม่? เนื้อหาจะถูกเปลี่ยนสถานะเป็นอนุมัติแล้ว
+              {approveBlocked
+                ? `"${item.title}" ยังไม่ผ่านข้อบังคับ SEO/AEO จึงยังอนุมัติไม่ได้`
+                : `ต้องการอนุมัติ "${item.title}" ใช่หรือไม่? เนื้อหาจะถูกเปลี่ยนสถานะเป็นอนุมัติแล้ว`}
             </DialogDescription>
           </DialogHeader>
+
+          {approveGateLoading && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> กำลังตรวจเกณฑ์ SEO/AEO...
+            </div>
+          )}
+
+          {!approveGateLoading && approveBlocked && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 space-y-2">
+              <div className="flex items-center gap-1.5 text-sm font-medium text-destructive">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                เกต SEO/AEO เปิดอยู่ — ต้องแก้ข้อบังคับก่อนอนุมัติ
+              </div>
+              <p className="text-xs text-destructive/90">ข้อบังคับที่ยังไม่ผ่าน ({approveFails.length}):</p>
+              <ul className="space-y-1">
+                {approveFails.map(r => (
+                  <li key={r.key} className="flex items-start gap-1.5 text-xs text-destructive">
+                    <X className="h-3.5 w-3.5 mt-px shrink-0" />
+                    <span>{r.message}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-[11px] text-muted-foreground">
+                แก้ไขที่เนื้อหาบทความ แล้วบันทึกและตรวจ SEO/AEO ใหม่ก่อนอนุมัติอีกครั้ง
+              </p>
+            </div>
+          )}
+
+          {!approveGateLoading && (approveGate || approveAeo) && (
+            <div className="grid grid-cols-1 gap-2 max-h-72 overflow-y-auto">
+              {approveGate && <QualityChecklist title="SEO" result={approveGate} gateDisabled={!approveGateOn} />}
+              {approveAeo && <QualityChecklist title="AEO" result={approveAeo} />}
+            </div>
+          )}
+
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setApproveConfirm(false)}>ยกเลิก</Button>
-            <Button disabled={savingDecision} onClick={handleApproveFromDetail}>
+            <Button disabled={savingDecision || approveGateLoading || approveBlocked} onClick={handleApproveFromDetail}>
               {savingDecision ? 'กำลังบันทึก...' : 'ยืนยันการอนุมัติ'}
             </Button>
           </div>

@@ -9,6 +9,8 @@ import type { PlanItem, SeoRule } from '@/components/content/types';
  * Change: quality-required-tiers
  * spec: quality-required-gate — "แสดงผล SEO/AEO แยก Required และ Recommended"
  * spec: content-quality-recheck — ปุ่ม "ตรวจ SEO/AEO ใหม่" ปิดเมื่อยังไม่บันทึก
+ * (ปุ่ม "อนุมัติ" ของ ContentDetailView อยู่ใน ContentDetailViewApprovalGate.test.tsx แยกไฟล์
+ *  เพราะต้อง mock ContentCardDialog ไปด้วย ซึ่งชนกับเทสต์ที่ render ContentCardDialog จริงในไฟล์นี้)
  */
 
 const mutateAsync = vi.fn();
