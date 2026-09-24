@@ -75,11 +75,19 @@ $baseArgs = [
     record('TC06', 'บรรทัดอื่นยังพิมพ์ปกติเมื่อตัด Topic ทิ้ง', 'สัปดาห์เริ่มต้น/วันที่/reminder ยังอยู่ครบ', $msg, $pass); tally($pass);
 }
 
-// ── TC07 — Direct mode ไม่เปลี่ยนพฤติกรรม: source_topic ว่างยังพิมพ์บรรทัดว่างตามเดิม (ไม่ตัด) ─
+// ── TC07 — Direct mode source_topic ว่าง (มีแค่ Trigger/Skill/KB) → ไม่พิมพ์บรรทัด Topic ว่าง ─
+// (change content-campaign-optional-topic-sources: Direct mode ไม่บังคับหัวข้ออีกต่อไป)
 {
-    $msg = content_plan_user_message(true, $baseArgs + ['source_topic' => '', 'trigger_command' => '']);
-    $pass = str_contains($msg, TOPIC_LABEL);
-    record('TC07', 'Direct mode ไม่ได้รับผลกระทบจากการตัดบรรทัด', 'Direct mode ยังพิมพ์บรรทัด Topic ตามพฤติกรรมเดิมเสมอ (validate ไม่ว่างอยู่แล้วที่ caller)', $msg, $pass); tally($pass);
+    $msg = content_plan_user_message(true, $baseArgs + ['source_topic' => '', 'trigger_command' => 'เขียนแนะนำสินค้า']);
+    $pass = !str_contains($msg, TOPIC_LABEL) && str_contains($msg, 'Trigger Instructions') && str_contains($msg, 'เขียนแนะนำสินค้า');
+    record('TC07', 'Direct mode ไม่มีหัวข้อ มี Trigger', 'ไม่มีบรรทัด Topic ว่าง แต่ Trigger Instructions ยังอยู่', $msg, $pass); tally($pass);
+}
+
+// ── TC08 — Direct mode มี source_topic → ยังพิมพ์บรรทัด Topic ตามปกติ ─
+{
+    $msg = content_plan_user_message(true, $baseArgs + ['source_topic' => 'YouTube', 'trigger_command' => '']);
+    $pass = str_contains($msg, TOPIC_LABEL . 'YouTube');
+    record('TC08', 'Direct mode มีหัวข้อ', 'พิมพ์บรรทัด Topic ด้วยค่า source_topic', $msg, $pass); tally($pass);
 }
 
 // ═══════════════════ Output ════════════════════════════════════════════════

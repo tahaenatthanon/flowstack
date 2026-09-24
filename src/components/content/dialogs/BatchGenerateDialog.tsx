@@ -28,6 +28,15 @@ type TopicProgressStatus = 'pending' | 'planning' | 'researching' | 'analyzing' 
 /** Batch สร้างคอนเทนต์ต้องมีอย่างน้อย 3 หัวข้อต่อการรัน */
 const MIN_TOPICS = 3;
 
+type TopicSources = { topic: string; triggerIds: string[]; skillIds: string[]; contextIds: string[] };
+
+/** แถวนับว่า "มีข้อมูล" เมื่อมีอย่างน้อย 1 อย่าง: หัวข้อ, Trigger, Skill หรือ Knowledge Base — หัวข้อไม่บังคับ */
+const topicHasSource = (item: TopicSources) =>
+  !!item.topic.trim() || item.triggerIds.length > 0 || item.skillIds.length > 0 || item.contextIds.length > 0;
+
+const topicDisplayLabel = (item?: TopicSources) =>
+  !item ? '' : item.topic.trim() || '(ให้ AI คิดหัวข้อจาก Trigger/Skill/Knowledge Base)';
+
 export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -140,11 +149,11 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
   };
 
   const handleStart = async () => {
-    const filledCount = topics.filter(item => item.topic.trim()).length;
+    const filledCount = topics.filter(topicHasSource).length;
     if (filledCount < MIN_TOPICS) {
       toast({
         title: `ต้องมีหัวข้อคอนเทนต์อย่างน้อย ${MIN_TOPICS} หัวข้อ`,
-        description: `ตอนนี้กรอกแล้ว ${filledCount} หัวข้อ — กรุณาเพิ่มหัวข้อให้ครบก่อนเริ่มสร้าง`,
+        description: `ตอนนี้มีข้อมูลแล้ว ${filledCount} หัวข้อ — แต่ละหัวข้อต้องมีอย่างน้อย 1 อย่าง: หัวข้อ, Trigger, Skill หรือ Knowledge Base`,
         variant: 'destructive',
       });
       return;
@@ -152,7 +161,7 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
 
     const validationErrors = topics.flatMap((item, index) => {
       const missing: string[] = [];
-      if (!item.topic.trim()) missing.push('ยังไม่ได้กรอกหัวข้อ');
+      if (!topicHasSource(item)) missing.push('ยังไม่มีหัวข้อ/Trigger/Skill/Knowledge Base อย่างน้อย 1 อย่าง');
       if (!item.platforms.length) missing.push('ยังไม่เลือกแพลตฟอร์ม');
       return missing.length > 0 ? `หัวข้อที่ ${index + 1}: ${missing.join(', ')}` : [];
     });
@@ -170,7 +179,7 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
   };
 
   const handleConfirmStart = async () => {
-    const validTopics = topics.filter(item => item.topic.trim());
+    const validTopics = topics.filter(topicHasSource);
     if (validTopics.length < MIN_TOPICS) return;
 
     setShowConfirm(false);
@@ -255,7 +264,8 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
 
           // Research must use the exact user-entered Topic, not an AI-rewritten
           // plan title, because generate-article validates Research against source_topic.
-          const researchTopic = topicConfig.topic.trim();
+          // ไม่มีหัวข้อ (มีแค่ Trigger/Skill/KB) → source_topic ว่าง ฝั่ง server จึงเทียบกับ item.topic แทน
+          const researchTopic = topicConfig.topic.trim() || (item.topic ?? '').trim();
           if (researchTopic) {
             try {
               setCurrentTopicStage('researching');
@@ -313,7 +323,7 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
     });
   };
 
-  const validTopicsCount = topics.filter(item => item.topic.trim()).length;
+  const validTopicsCount = topics.filter(topicHasSource).length;
   const activeResearchLabel = RESEARCH_STEP_LABELS[researchStep];
   const currentStageLabel = currentTopicStage === 'planning'
     ? 'กำลังสร้างแผน'
@@ -356,7 +366,7 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
               <h3 className="font-semibold text-base">หัวข้อและการตั้งค่า</h3>
 
               <div className="space-y-1.5">
-                <Label>หัวข้อคอนเทนต์ <span className="text-destructive">*</span> <span className="text-xs font-normal text-muted-foreground">(อย่างน้อย {MIN_TOPICS} หัวข้อ)</span></Label>
+                <Label>หัวข้อคอนเทนต์ <span className="text-xs font-normal text-muted-foreground">(อย่างน้อย {MIN_TOPICS} หัวข้อ — แต่ละหัวข้อต้องมีหัวข้อ, Trigger, Skill หรือ Knowledge Base อย่างน้อย 1 อย่าง)</span></Label>
                 <div className="space-y-2">
                   {topics.map((item, index) => (
                     <div key={index} className="rounded-lg border p-3 space-y-3">
@@ -561,7 +571,7 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
             </div>
 
             {(() => {
-              const validTopics = topics.filter(item => item.topic.trim());
+              const validTopics = topics.filter(topicHasSource);
               const articleCount = validTopics.filter(item => item.contentType === 'article').length;
               const videoCount = validTopics.filter(item => item.contentType === 'video').length;
               const platformNames = Array.from(new Set(validTopics.flatMap(item => item.platforms))).map(platform => PLATFORM_MAP[platform]?.label ?? platform);
@@ -603,7 +613,7 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
             </AlertDialogHeader>
 
             {(() => {
-              const validTopics = topics.filter(item => item.topic.trim());
+              const validTopics = topics.filter(topicHasSource);
               const articleCount = validTopics.filter(item => item.contentType === 'article').length;
               const videoCount = validTopics.filter(item => item.contentType === 'video').length;
               const platformCount = new Set(validTopics.flatMap(item => item.platforms)).size;
@@ -628,7 +638,7 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
                     {validTopics.map((item, index) => (
                       <div key={`${item.topic}-${index}`} className="rounded-lg border p-3 space-y-2">
                         <div className="flex items-baseline justify-between gap-2">
-                          <div className="font-semibold text-sm">หัวข้อที่ {index + 1}: {item.topic.trim()}</div>
+                          <div className="font-semibold text-sm">หัวข้อที่ {index + 1}: {topicDisplayLabel(item)}</div>
                           <div className="shrink-0 text-xs text-muted-foreground">กำหนดเผยแพร่: {formatThaiDate(topicScheduledDateISO(startDate, index))}</div>
                         </div>
                         <div className="flex flex-wrap gap-1.5 text-xs">
@@ -668,7 +678,7 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
               {step === 'progress' && currentTopicIndex >= 0 && (
                 <>
                   <p className="text-sm font-medium">หัวข้อ {currentTopicIndex + 1} จาก {validTopicsCount}</p>
-                  <p className="text-sm text-muted-foreground truncate">{topics.filter(item => item.topic.trim())[currentTopicIndex]?.topic.trim()}</p>
+                  <p className="text-sm text-muted-foreground truncate">{topicDisplayLabel(topics.filter(topicHasSource)[currentTopicIndex])}</p>
                   <div className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary">
                     <Loader2 className="h-4 w-4 animate-spin" />
                     {currentStageLabel}
@@ -704,7 +714,7 @@ export function BatchGenerateDialog({ open, onOpenChange }: { open: boolean; onO
                     )}>
                       <div className="min-w-0 flex items-center gap-2">
                         <span className="shrink-0 font-semibold">{index + 1}.</span>
-                        <span className="truncate">{topics.filter(item => item.topic.trim())[index]?.topic.trim()}</span>
+                        <span className="truncate">{topicDisplayLabel(topics.filter(topicHasSource)[index])}</span>
                       </div>
                       <span className={cn(
                         'shrink-0 text-xs font-medium',

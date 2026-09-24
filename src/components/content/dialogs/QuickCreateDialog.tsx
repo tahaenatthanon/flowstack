@@ -107,8 +107,11 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
     return `${y}-${m}-${day}`;
   };
 
+  // หัวข้อไม่บังคับ — Trigger/Skill/Knowledge Base อย่างใดอย่างหนึ่งให้บริบท AI ได้เหมือนกัน
+  const hasAnySource = !!topic.trim() || selTriggerIds.length > 0 || selSkillIds.length > 0 || selContextIds.length > 0;
+
   const handleCreate = async () => {
-    if (!topic.trim() || !contentType) return;
+    if (!hasAnySource || !contentType) return;
     cancelledRef.current = false;
     createdItemIdRef.current = null;
     createdPlanIdRef.current = null;
@@ -116,7 +119,7 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
     const platList = selPlatforms.length > 0 ? selPlatforms : (contentType === 'video' ? ['tiktok'] : ['facebook']);
     // Topic is the only trigger command. Writing/Video configuration is structured
     // request data so it cannot be lost, re-parsed, or confused with workflow triggers.
-    const cmd = contentType === 'video' ? `${topic.trim()} [VIDEO]` : topic.trim();
+    const cmd = !topic.trim() ? '' : contentType === 'video' ? `${topic.trim()} [VIDEO]` : topic.trim();
     try {
       const result: ContentPlan = await apiFetch('/brand-content.php?action=generate-plan', {
         method: 'POST',
@@ -172,7 +175,8 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
         // Research is mandatory for every AI content generation.
         // The research runner reuses valid cached data and fetches a fresh job when needed.
         // Seed = Original User Topic ที่เพิ่งส่งไปเป็น source_topic (ไม่ใช่ title ที่ AI ตั้งให้)
-        const art = await runResearch({ topic: researchSeedTopic(item.source_topic, topic), itemId: item.id });
+        // ไม่มีหัวข้อ (มีแค่ Trigger/Skill/KB) → ใช้หัวข้อที่ AI ตั้งให้ item เป็น seed แทน (Research ต้องมี seed เสมอ)
+        const art = await runResearch({ topic: researchSeedTopic(item.source_topic, topic.trim() || item.topic), itemId: item.id });
         if (cancelledRef.current) {
           // handleCancel() จัดการ toast/reset/rollback ไปแล้วตอนกดยกเลิก — ไม่ว่า
           // runResearch() จะ resolve เป็นผลสำเร็จจริงหรือ {cancelled:true} ก็ตาม
@@ -208,11 +212,12 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
     const styleLabel = contentType === 'article'
       ? ARTICLE_TONE_OPTIONS.find(opt => opt.value === tone)?.label ?? tone
       : `${VIDEO_SCRIPT_STYLE_OPTIONS.find(opt => opt.value === scriptStyle)?.label ?? scriptStyle} · ${duration} · ${aspectRatio} · ${resolution}`;
-    return `หัวข้อ: "${topic.trim()}" · แพลตฟอร์ม: ${platformLabel} · ${styleLabel} — AI จะใช้เวลาประมาณ 30-60 วินาที`;
+    const topicLabel = topic.trim() ? `หัวข้อ: "${topic.trim()}"` : 'หัวข้อ: ให้ AI คิดจาก Trigger/Skill/Knowledge Base ที่เลือก';
+    return `${topicLabel} · แพลตฟอร์ม: ${platformLabel} · ${styleLabel} — AI จะใช้เวลาประมาณ 30-60 วินาที`;
   };
 
   const handleConfirmAndCreate = async () => {
-    if (!topic.trim() || !contentType) return;
+    if (!hasAnySource || !contentType) return;
     const ok = await confirm({
       title: `ยืนยันสร้าง${contentType === 'video' ? 'วีดีโอสคริปต์' : 'บทความ'}`,
       description: buildConfirmDescription(),
@@ -285,11 +290,14 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
             </button>
             {/* Topic */}
             <div className="space-y-1.5">
-              <Label>หัวข้อ <span className="text-destructive">*</span></Label>
+              <Label>หัวข้อ</Label>
               <Input value={topic} onChange={e => setTopic(e.target.value)}
                 placeholder={contentType === 'video'
                   ? 'เช่น "5 วิธีใช้ AI สร้างรายได้ปี 2026"'
                   : 'เช่น "5 เหตุผลที่ธุรกิจต้องใช้ AI ปี 2026"'} />
+              <p className="text-[11px] text-muted-foreground">
+                ไม่บังคับ — แต่ต้องมีอย่างน้อย 1 อย่าง: หัวข้อ, Trigger, Skill หรือ Knowledge Base
+              </p>
             </div>
             {/* Trigger shortcuts */}
             {triggers.length > 0 && (
@@ -500,7 +508,9 @@ export default function QuickCreateDialog({ open, onOpenChange }: { open: boolea
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => handleClose(false)}>ยกเลิก</Button>
-              <Button disabled={!topic.trim()} onClick={handleConfirmAndCreate} className="gap-2">
+              <Button
+                disabled={!hasAnySource}
+                onClick={handleConfirmAndCreate} className="gap-2">
                 <Sparkles className="h-4 w-4" />สร้าง{contentType === 'video' ? 'วีดีโอสคริปต์' : 'บทความ'}
               </Button>
             </DialogFooter>

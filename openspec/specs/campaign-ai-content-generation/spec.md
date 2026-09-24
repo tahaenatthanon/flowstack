@@ -2,19 +2,23 @@
 
 ## Purpose
 
-TBD - ให้ผู้ใช้สร้างเนื้อหาอีเมลแคมเปญ (หัวข้อ, ชื่อแคมเปญ, เนื้อหา) ด้วย AI จากภายในหน้าต่างสร้าง/แก้ไขแคมเปญ โดยอ้างอิง product catalog และ brand context ที่มีอยู่
+ให้ผู้ใช้สร้างเนื้อหาอีเมลแคมเปญ (หัวข้อ, ชื่อแคมเปญ, เนื้อหา) ด้วย AI จากภายในหน้าต่างสร้าง/แก้ไขแคมเปญ โดยอ้างอิง product catalog และ brand context ที่มีอยู่
 
 ## Requirements
 
 ### Requirement: AI Generate Action In Campaign Dialog
-The email campaign create/edit dialog SHALL offer a "สร้างด้วย AI" action, placed alongside the existing "ดึงคอนเทนต์" action, that opens a panel for AI-assisted content generation.
+The email campaign create/edit dialog SHALL show the product selection, tone selection, and brand-context fields directly inside the "ข้อมูลแคมเปญ" (campaign info) section of the main form — always visible, not gated behind a collapsible panel that must be opened first. The action that triggers AI generation SHALL be placed in the dialog's footer, alongside the other footer actions (ยกเลิก, บันทึกร่าง, ตั้งเวลาส่ง, ส่งทันที).
 
-#### Scenario: User opens the AI generation panel
-- **WHEN** a user clicks "สร้างด้วย AI" inside the campaign dialog's content section
-- **THEN** a panel appears offering product selection and tone selection, without leaving the campaign dialog
+#### Scenario: Fields are visible without any extra step
+- **WHEN** a user opens the campaign create/edit dialog
+- **THEN** the product selection, tone selection, and brand-context checkbox are visible immediately in the campaign info section, without needing to click any "เปิด"/toggle action first
+
+#### Scenario: Generate action lives in the footer
+- **WHEN** a user wants to trigger AI generation
+- **THEN** the action is available among the dialog's footer buttons, not inside a separate panel within the form body
 
 ### Requirement: Product Selection For Generation
-The AI generation panel SHALL let the user select zero or more products from the product catalog to inform the generated content. Product selection alone SHALL NOT be the only way to give the AI a direction — the user MAY instead (or additionally) provide a free-form topic/idea in the subject line field, or enable brand context, per the minimum-input requirement defined below.
+The campaign dialog's AI generation fields (in the campaign info section) SHALL let the user select zero or more products from the product catalog to inform the generated content. Product selection alone SHALL NOT be the only way to give the AI a direction — the user MAY instead (or additionally) provide a free-form topic/idea in the subject line field, or enable brand context, per the minimum-input requirement defined below.
 
 #### Scenario: Generating with a selected product includes its details
 - **WHEN** a user selects one product and triggers generation
@@ -90,7 +94,7 @@ WHEN generation completes, the system SHALL always associate the campaign with o
 - **THEN** the system falls back to a default template instead of failing the whole generation request
 
 ### Requirement: Tone Selection Includes An AI-Decided Default
-The tone selector in the AI generation panel SHALL offer an "ให้ AI เลือกเอง" (let AI decide) option, and this option SHALL be the default selection.
+The tone selector in the campaign info section SHALL offer an "ให้ AI เลือกเอง" (let AI decide) option, and this option SHALL be the default selection.
 
 #### Scenario: Generating without changing the tone selector
 - **WHEN** a user triggers generation without selecting a specific tone

@@ -337,7 +337,6 @@ export default function CampaignsPage() {
   const [enableTrackClicks, setEnableTrackClicks] = useState(true);
   const pullFromDialogRef = useRef<boolean>(false);
   // AI generate เนื้อหาแคมเปญ (เดี่ยว) — panel ใน section เนื้อหาอีเมล
-  const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [aiProductIds, setAiProductIds] = useState<string[]>([]);
   const [aiTone, setAiTone] = useState<'auto' | 'friendly' | 'formal' | 'educational' | 'storytelling'>('auto');
   const [aiUseBrandContext, setAiUseBrandContext] = useState(false);
@@ -518,7 +517,6 @@ export default function CampaignsPage() {
         setScheduleAt(String(result.suggested_scheduled_at).slice(0, 16).replace(' ', 'T'));
       }
 
-      setAiPanelOpen(false);
       toast({ title: 'สร้างเนื้อหาด้วย AI สำเร็จ' });
       if (result.brand_context_found === false) {
         toast({ title: 'ยังไม่มีข้อมูลแบรนด์ในระบบ', description: 'ข้ามการใช้บริบทนี้ — อัปโหลด brand.md ได้ที่หน้าตั้งค่าแบรนด์' });
@@ -1443,6 +1441,41 @@ export default function CampaignsPage() {
                   }`}>{campaignSubject.length} ตัวอักษร</span>
                 </div>
               </div>
+              {/* บริบทให้ AI — ใช้ตอนกด "สร้างด้วย AI" ที่ footer (ต้องมีอย่างน้อย 1: สินค้า, หัวข้ออีเมล หรือข้อมูลแบรนด์) */}
+              <div className="grid gap-1.5">
+                <Label>เลือกสินค้า</Label>
+                <ProductPicker value={aiProductIds} onChange={setAiProductIds} />
+              </div>
+              <div className="grid gap-1.5">
+                <Label>โทนการเขียน</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {([
+                    { value: 'auto', label: '✨ ให้ AI เลือกเอง' },
+                    { value: 'friendly', label: 'เป็นกันเอง' },
+                    { value: 'formal', label: 'เป็นทางการ' },
+                    { value: 'educational', label: 'ให้ความรู้' },
+                    { value: 'storytelling', label: 'เล่าเรื่อง' },
+                  ] as const).map(opt => (
+                    <button key={opt.value} type="button" onClick={() => setAiTone(opt.value)}
+                      className={cn('text-[11px] px-2 py-1 rounded border transition-colors',
+                        aiTone === opt.value ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-muted')}>
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Checkbox id="ai-use-brand-context" checked={aiUseBrandContext}
+                  onCheckedChange={(v) => setAiUseBrandContext(v === true)} />
+                <Label htmlFor="ai-use-brand-context" className="text-sm font-normal cursor-pointer">
+                  ใช้ข้อมูลแบรนด์ (brand.md) เป็นบริบทให้ AI
+                </Label>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                {campaignSubject.trim()
+                  ? 'มีหัวข้ออีเมลอยู่แล้ว — "สร้างด้วย AI" จะเขียนเนื้อหาให้ตรงกับหัวข้อนี้ (ไม่แก้หัวข้อ/ชื่อแคมเปญ) พิมพ์เป็นไอเดียคร่าวๆ ก็ได้'
+                  : 'ยังไม่มีหัวข้ออีเมล — พิมพ์ไอเดียคร่าวๆ ในช่อง "หัวข้ออีเมล" ได้ หรือเลือกสินค้า/ข้อมูลแบรนด์ แล้วให้ AI คิดให้ทั้งหมด'}
+              </p>
             </div>
 
             {/* ── Section 2: From + Recipients ── */}
@@ -1588,60 +1621,8 @@ export default function CampaignsPage() {
                     <FileText className="h-3.5 w-3.5" />
                     <span className="hidden sm:inline">ดึงคอนเทนต์</span>
                   </Button>
-                  <Button
-                    variant="outline" size="sm" className="h-7 gap-1.5 text-xs"
-                    onClick={() => setAiPanelOpen(v => !v)}
-                  >
-                    <Sparkles className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">สร้างด้วย AI</span>
-                  </Button>
                 </div>
               </div>
-
-              {aiPanelOpen && (
-                <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2.5">
-                  <div className="grid gap-1.5">
-                    <Label className="text-xs">เลือกสินค้า</Label>
-                    <ProductPicker value={aiProductIds} onChange={setAiProductIds} />
-                  </div>
-                  <div className="grid gap-1.5">
-                    <Label className="text-xs">โทนการเขียน</Label>
-                    <div className="flex flex-wrap gap-1.5">
-                      {([
-                        { value: 'auto', label: '✨ ให้ AI เลือกเอง' },
-                        { value: 'friendly', label: 'เป็นกันเอง' },
-                        { value: 'formal', label: 'เป็นทางการ' },
-                        { value: 'educational', label: 'ให้ความรู้' },
-                        { value: 'storytelling', label: 'เล่าเรื่อง' },
-                      ] as const).map(opt => (
-                        <button key={opt.value} type="button" onClick={() => setAiTone(opt.value)}
-                          className={cn('text-[11px] px-2 py-1 rounded border transition-colors',
-                            aiTone === opt.value ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-muted')}>
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Checkbox id="ai-use-brand-context" checked={aiUseBrandContext}
-                      onCheckedChange={(v) => setAiUseBrandContext(v === true)} />
-                    <Label htmlFor="ai-use-brand-context" className="text-xs font-normal cursor-pointer">
-                      ใช้ข้อมูลแบรนด์ (brand.md) เป็นบริบทให้ AI
-                    </Label>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground">
-                    {campaignSubject.trim()
-                      ? 'มีหัวข้ออีเมลอยู่แล้ว — AI จะเขียนเนื้อหาให้ตรงกับหัวข้อนี้ (ไม่แก้หัวข้อ/ชื่อแคมเปญ) ไม่จำเป็นต้องเป็นประโยคหัวข้อสมบูรณ์ พิมพ์เป็นไอเดียคร่าวๆ ก็ได้'
-                      : 'ยังไม่มีหัวข้ออีเมล — พิมพ์ไอเดีย/หัวข้อคร่าวๆ ไว้ในช่อง "หัวข้ออีเมล" ด้านบนได้ก่อน generate หรือปล่อยว่างให้ AI คิดให้ทั้งหมด'}
-                  </p>
-                  <Button size="sm" className="gap-1.5"
-                    disabled={aiGenerating || (aiProductIds.length === 0 && !campaignSubject.trim() && !aiUseBrandContext)}
-                    onClick={handleGenerateWithAI}>
-                    {aiGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                    {aiGenerating ? 'กำลังสร้าง...' : 'สร้าง'}
-                  </Button>
-                </div>
-              )}
 
               <Tabs defaultValue="edit">
                 <TabsList className="h-8 w-full sm:w-auto">
@@ -1684,8 +1665,16 @@ export default function CampaignsPage() {
 
           </div>
           <DialogFooter className="flex-col sm:flex-row gap-2">
-            <Button variant="ghost" onClick={() => setIsCampaignDialogOpen(false)} className="sm:mr-auto">
+            <Button variant="ghost" onClick={() => setIsCampaignDialogOpen(false)}>
               ยกเลิก
+            </Button>
+            <Button
+              variant="outline" className="gap-1.5 sm:mr-auto"
+              disabled={aiGenerating || (aiProductIds.length === 0 && !campaignSubject.trim() && !aiUseBrandContext)}
+              onClick={handleGenerateWithAI}
+            >
+              {aiGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              {aiGenerating ? 'กำลังสร้าง...' : 'สร้างด้วย AI'}
             </Button>
             <Button
               variant="outline"

@@ -96,28 +96,16 @@ function content_plan_is_direct(mixed $generationMode): bool
 }
 
 /**
- * request ของ generate-plan มีอย่างน้อยหนึ่งใน trigger/topic source หรือไม่
+ * request ของ generate-plan มีแหล่งข้อมูลให้ AI อย่างน้อยหนึ่งอย่างหรือไม่
  *
- * เป็น guard แรกก่อน resolve Trigger ใดๆ — ใช้ได้ทั้ง Direct mode และ legacy
- * Content Plan mode: Direct creation อาจไม่มี Trigger เลยก็ได้ (มีแค่ Topic)
- * ส่วน legacy/Trigger-only Content Plan ไม่มี Topic ที่ผู้ใช้พิมพ์เอง (มีแค่
- * Trigger) — ต้องมีอย่างน้อยหนึ่งอย่างเสมอ ไม่งั้นไม่มีอะไรให้ AI ทำงานด้วยเลย
+ * ใช้ทั้ง Direct mode และ legacy Content Plan mode — หัวข้อ, Trigger, Skill และ
+ * Knowledge Base ล้วนให้บริบท AI ได้ จึงนับเท่ากัน ไม่บังคับหัวข้อเป็นช่องเดียว
+ * (change content-campaign-optional-topic-sources)
  */
-function content_plan_has_any_topic_source(array $triggerIds, string $triggerCommand, string $sourceTopic): bool
+function content_plan_has_any_topic_source(array $triggerIds, string $triggerCommand, string $sourceTopic, array $skillIds = [], array $brandContextIds = []): bool
 {
-    return (bool)$triggerIds || $triggerCommand !== '' || $sourceTopic !== '';
-}
-
-/**
- * Direct mode ต้องมี source_topic ที่ผู้ใช้พิมพ์เองเสมอ
- *
- * Legacy/Trigger-only Content Plan mode ไม่มี Topic แบบนี้ (AI คิดหัวข้อเอง
- * ต่อ item) — ถูก guard ไว้แล้วด้วย content_plan_has_any_topic_source() จึง
- * ต้องไม่ถูกบังคับซ้ำที่นี่ (ไม่งั้น legacy mode จะสร้าง Content ไม่ได้เลย)
- */
-function content_plan_direct_requires_topic(bool $isDirect, string $sourceTopic): bool
-{
-    return $isDirect && $sourceTopic === '';
+    return (bool)$triggerIds || $triggerCommand !== '' || $sourceTopic !== ''
+        || (bool)$skillIds || (bool)$brandContextIds;
 }
 
 /**
@@ -244,7 +232,11 @@ function content_plan_user_message(bool $isDirect, array $args): string
     if (!$triggerCommands && !empty($args['trigger_command'])) $triggerCommands = [(string)$args['trigger_command']];
 
     if ($isDirect) {
-        $lines[] = 'Original User Topic/Seed (SOURCE OF TRUTH): ' . (string)($args['source_topic'] ?? '');
+        // หัวข้อไม่บังคับแล้ว (มี Trigger/Skill/KB แทนได้) — ไม่พิมพ์บรรทัด SOURCE OF TRUTH ว่างให้ AI สับสน
+        $directTopic = trim((string)($args['source_topic'] ?? ''));
+        if ($directTopic !== '') {
+            $lines[] = 'Original User Topic/Seed (SOURCE OF TRUTH): ' . $directTopic;
+        }
         if ($triggerCommands) {
             $lines[] = 'Trigger Instructions (apply all selected Triggers; do not replace the Topic): ' . implode(' | ', $triggerCommands);
         }

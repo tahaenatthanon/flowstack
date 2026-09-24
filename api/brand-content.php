@@ -983,7 +983,9 @@ if ($action === 'generate-plan' && $method === 'POST') {
     if (!$skillIds && !empty($body['skill_id'])) $skillIds = [(string)$body['skill_id']];
     $brandContextIds = $body['brand_context_ids'] ?? [];
     // Direct creation may have no Trigger; preserve the legacy command only as metadata.
-    if (!content_plan_has_any_topic_source($triggerIds, $triggerCommand, $sourceTopic)) jsonError('กรุณาระบุหัวข้อ');
+    if (!content_plan_has_any_topic_source($triggerIds, $triggerCommand, $sourceTopic, $skillIds, is_array($brandContextIds) ? $brandContextIds : [])) {
+        jsonError('กรุณาระบุอย่างน้อย 1 อย่าง: หัวข้อ, Trigger, Skill หรือ Knowledge Base');
+    }
 
     // Resolve selected Triggers and their mandatory linked Skills within this tenant.
     $triggerRows = [];
@@ -1020,12 +1022,6 @@ if ($action === 'generate-plan' && $method === 'POST') {
     $platforms = array_values(array_filter(array_map('strval', $platforms), fn($p) => $p !== ''));
     // Content type chosen by the user (article/video) — drives AI prompt flow later
     $type = normalizeContentType($body['type'] ?? null);
-    // Direct mode always requires an explicit user-typed Topic. Legacy/Trigger-only
-    // Content Plan mode has no such Topic (AI invents a topic per item) — it is
-    // already guarded above (content_plan_has_any_topic_source) to require at
-    // least one of triggerIds/triggerCommand/sourceTopic, so it must not be
-    // re-blocked here.
-    if (content_plan_direct_requires_topic($isDirect, $sourceTopic)) jsonError('กรุณาระบุหัวข้อ');
 
     // Load global settings
     $stmt = $db->prepare('SELECT global_instruction FROM content_global_settings WHERE tenant_id=?');
@@ -1283,8 +1279,8 @@ if ($action === 'generate-plan' && $method === 'POST') {
     // so selecting multiple platforms produces a single content item per day.
     foreach ($days as [$dayLabel, $dayOrder]) {
         $scheduledDate = content_plan_scheduled_date($isDirect, $weekStart, $dayOrder);
-        // Preserve legacy plan-mode behavior when callers did not provide source_topic;
-        // direct mode always requires an explicit Topic.
+        // Plan mode ไม่มี source_topic → ใช้ trigger command แทน; Direct mode ส่งค่าว่างได้
+        // (หัวข้อไม่บังคับ — Trigger/Skill/KB เป็นบริบทแยกอยู่แล้ว)
         $promptTopic = $originalTopic !== '' ? $originalTopic : ($isDirect ? '' : $triggerCommand);
         $userMsg = content_plan_user_message($isDirect, [
             'source_topic'    => $promptTopic,
