@@ -57,9 +57,9 @@ function passingHtml(): string {
 }
 
 function aeoFailHtml(): string {
-    // SEO ยังผ่าน (มี H2 + 500 คำ + keyword) แต่ AEO qa_structure/direct_answer ล้ม
-    // (h2 ไม่เป็นคำถาม + intro filler ไม่ตอบหัวข้อ)
-    return '<p>สวัสดีครับ ยินดีต้อนรับทุกท่านเข้าสู่บทความของเราครับ วันนี้เรามีเรื่องดี ๆ มาแบ่งปัน ' . filler() . '</p>' .
+    // SEO ยังผ่าน (มี H2 + 500 คำ + keyword) แต่ AEO direct_answer (Required) ล้ม
+    // — ย่อหน้าแรกสั้นไม่ตอบหัวข้อ (quality-required-tiers: qa_structure เป็นข้อแนะนำแล้ว ไม่บล็อก)
+    return '<p>สวัสดีครับ</p><p>ยินดีต้อนรับทุกท่านเข้าสู่บทความของเราครับ วันนี้เรามีเรื่องดี ๆ มาแบ่งปัน ' . filler() . '</p>' .
            '<h2>ภาพรวมทั่วไป</h2><p>' . filler() . '</p>' .
            '<h2>รายละเอียดเพิ่มเติม</h2><p>' . filler() . '</p>';
 }

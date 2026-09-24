@@ -1,10 +1,4 @@
-# content-quality-recheck Specification
-
-## Purpose
-
-กำหนดการตรวจ Quality (SEO/AEO) ซ้ำของคอนเทนต์ที่บันทึกแล้ว โดยไม่ generate เนื้อหาใหม่ คืน `quality_status`/`failed_required` ที่ตัดสินจาก Required rule (`quality_required_status`) และการเซ็ต marker `quality_checked_at` — ปุ่ม "ตรวจ SEO/AEO ใหม่" ที่ footer ของ `ContentCardDialog` เป็นจุดตรวจเดียว ปิดใช้งานเมื่อมีการแก้ไขที่ยังไม่บันทึก (แก้ไขโดย change `quality-required-tiers`)
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: endpoint quality-recheck ประเมิน Quality โดยไม่ generate เนื้อหาใหม่
 ระบบ SHALL มี endpoint `POST /api/brand-content.php?action=quality-recheck` ที่รับ `item_id` ของ `content_items` ที่เป็นของ tenant ปัจจุบัน

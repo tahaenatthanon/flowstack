@@ -3,7 +3,7 @@
  * SEO checklist — ประเมินคุณภาพ SEO ของคอนเทนต์ก่อนเผยแพร่ (Phase 4)
  *
  * seo_evaluate()  : ฟังก์ชันบริสุทธิ์ (ไม่แตะ DB/network) คืนคะแนน + ผลตรวจแต่ละกฎ
- * seo_gate_check(): อ่านการตั้งค่าเกตจาก content_global_settings แล้วตัดสินว่าจะบล็อกหรือไม่
+ * seo_gate_status(): ผ่าน/ไม่ผ่านจาก Required rule — การบล็อกจริงอยู่ที่ quality_required_gate() (publish-dispatch.php)
  *
  * เรียกใช้ร่วมกันจาก 4 เส้นทางเผยแพร่ (send_now, cron scheduler, ?action=publish,
  * ?action=cron-publish) และ endpoint ?action=seo-checklist สำหรับ UI สด
@@ -20,15 +20,15 @@
 const SEO_TITLE_MAX = 60;
 const META_DESC_MIN = 120;
 const META_DESC_MAX = 160;
-const WORD_COUNT_MIN = 500;
+const WORD_COUNT_MIN = 500;       // ช่วงแนะนำ (Recommended)
+const WORD_COUNT_HARD_MIN = 300;  // เพดานแข็ง (Required): น้อยกว่านี้ = failed
+const META_DESC_HARD_MAX = 160;   // เพดานแข็ง (Required): ยาวกว่านี้ = failed; สั้นกว่า META_DESC_MIN = needs_improvement
 const H2_MIN = 1;
 const H1_MAX = 1;
-const SEO_GEN_MAX_ATTEMPTS = 3;
 const SEO_KEYWORD_DENSITY_MAX = 0.04; // 4% — เกินนี้ถือว่า keyword stuffing
-// Quality gate policy: 80+ is publishable when all required rules pass.
-// 70–79 is needs_improvement; <70 is failed.
-const SEO_GATE_PASS_SCORE = 80;
-const SEO_GATE_WARN_SCORE = 70;
+// Quality gate policy: ผ่าน/ไม่ผ่านตัดสินจาก Required rule ที่ `failed` เท่านั้น — คะแนนแสดงเป็นข้อมูล
+// การ repair ตอน generate จำกัด 1 รอบรวม SEO+AEO (ดู change quality-required-tiers)
+const QUALITY_REPAIR_MAX_ROUNDS = 1;
 
 // Research-rule coverage thresholds (fraction of research items that must be covered).
 const SEO_RELATED_MIN  = 0.6; // related_keywords: ≥0.6 passed, =0 failed
@@ -38,25 +38,25 @@ const SEO_PAA_MIN      = 0.5; // paa_questions: ≥0.5 passed, =0 failed
 const SEO_GAP_MIN      = 0.5; // content_gap: ≥0.5 passed, =0 failed
 
 // Weight catalog for the 15-rule SEO checklist. Total weight = 100.
-// `critical` rules block the publish gate even when total score meets threshold.
-// `tier` กำหนดว่า rule ใด block generation: required (ไม่ผ่าน → generation ล้ม),
-// optional (เตือนเท่านั้น), informational (แสดงคุณภาพเท่านั้น).
+// `tier` คือตัวตัดสิน Quality Gate: required (`failed` → บล็อก), recommended (แนะนำเท่านั้น),
+// informational (แสดงคุณภาพเท่านั้น) — คะแนนรวมและ `critical` ไม่ใช้ตัดสินผ่าน/ไม่ผ่าน
+// (`critical` คงไว้ใน rule object เพื่อไม่ให้รูป response เปลี่ยน)
 const SEO_WEIGHTS = [
     'seo_title'                 => ['weight' => 8,  'critical' => true,  'tier' => 'required'],
     'meta_description'          => ['weight' => 8,  'critical' => true,  'tier' => 'required'],
     'slug'                      => ['weight' => 6,  'critical' => false, 'tier' => 'required'],
     'h1'                        => ['weight' => 6,  'critical' => true,  'tier' => 'required'],
-    'heading_structure'         => ['weight' => 7,  'critical' => false, 'tier' => 'required'],
+    'heading_structure'         => ['weight' => 7,  'critical' => false, 'tier' => 'recommended'],
     'content_length'            => ['weight' => 8,  'critical' => true,  'tier' => 'required'],
-    'search_intent'             => ['weight' => 8,  'critical' => false, 'tier' => 'required'],
+    'search_intent'             => ['weight' => 8,  'critical' => false, 'tier' => 'recommended'],
     'primary_keyword_placement' => ['weight' => 8,  'critical' => true,  'tier' => 'required'],
     'keyword_stuffing'          => ['weight' => 7,  'critical' => false, 'tier' => 'required'],
-    'related_keywords'          => ['weight' => 6,  'critical' => false, 'tier' => 'required'],
-    'topic_coverage'            => ['weight' => 8,  'critical' => false, 'tier' => 'required'],
-    'paa_questions'             => ['weight' => 6,  'critical' => false, 'tier' => 'required'],
-    'content_gap'               => ['weight' => 6,  'critical' => false, 'tier' => 'required'],
+    'related_keywords'          => ['weight' => 6,  'critical' => false, 'tier' => 'recommended'],
+    'topic_coverage'            => ['weight' => 8,  'critical' => false, 'tier' => 'recommended'],
+    'paa_questions'             => ['weight' => 6,  'critical' => false, 'tier' => 'recommended'],
+    'content_gap'               => ['weight' => 6,  'critical' => false, 'tier' => 'recommended'],
     'structured_data'           => ['weight' => 5,  'critical' => true,  'tier' => 'required'],
-    'internal_linking'          => ['weight' => 3,  'critical' => false, 'tier' => 'optional'],
+    'internal_linking'          => ['weight' => 3,  'critical' => false, 'tier' => 'recommended'],
 ];
 
 // Video-only rule (not part of the 15-article weight sum).
@@ -111,25 +111,17 @@ function seo_normalized_score(array $rules): int {
 }
 
 /**
- * กำหนดสถานะ SEO Quality Gate จาก required rules + คะแนนรวม
- * 80+ = passed, 70–79 = needs_improvement, <70 = failed
+ * กำหนดสถานะ SEO Quality Gate — `failed` เฉพาะเมื่อมี Required rule ที่ `failed`
+ * คะแนนรวมและ `critical` ไม่ใช้ตัดสิน (คะแนนแสดงเป็นข้อมูลเท่านั้น)
  *
  * @param array $eval ผลลัพธ์จาก seo_evaluate() รูป ['score' => int, 'rules' => array]
- * @return string 'passed' | 'needs_improvement' | 'failed'
+ * @return string 'passed' | 'failed'
  */
 function seo_gate_status(array $eval): string {
-    $score = (int)($eval['score'] ?? 0);
-    $rules = $eval['rules'] ?? [];
-    foreach ($rules as $r) {
+    foreach (($eval['rules'] ?? []) as $r) {
         $status = $r['status'] ?? $r['level'] ?? '';
-        $tier   = $r['tier'] ?? 'required';
-        // required rule ที่ failed → gate failed (ไม่ว่า score สูงแค่ไหน)
-        if ($tier === 'required' && $status === 'failed') return 'failed';
-        // กันถอยหลัง: critical flag เดิมที่ failed → failed
-        if (!empty($r['critical']) && $status === 'failed') return 'failed';
+        if (($r['tier'] ?? 'required') === 'required' && $status === 'failed') return 'failed';
     }
-    if ($score < SEO_GATE_WARN_SCORE) return 'failed';
-    if ($score < SEO_GATE_PASS_SCORE) return 'needs_improvement';
     return 'passed';
 }
 
@@ -226,98 +218,89 @@ function seo_intent_match(string $text, string $intent): array {
  * Return generation requirements (generation contract) derived from the same
  * thresholds/rules used by seo_evaluate(). This keeps the AI prompt and evaluator in sync.
  *
- * @return array<int,array{key:string,tier:string,requirement:string,min?:int|float,max?:int|float,pass_condition:string}>
+ * `tier` มาจาก SEO_WEIGHTS; `pass_condition` = เกณฑ์ผ่านของข้อนั้น (ข้อ Required ไม่ผ่าน = บล็อก);
+ * `recommended` (ถ้ามี) = ช่วงที่แนะนำ — min/max คือเป้าหมายที่บอก AI ใน prompt
+ *
+ * @return array<int,array{key:string,tier:string,requirement:string,min?:int|float,max?:int|float,pass_condition:string,recommended?:string}>
  */
 function seo_generation_requirements(string $type): array {
     $isVideo = strtolower(trim($type)) === 'video';
 
     $contract = [
         'seo_title'                 => [
-            'tier' => 'required',
             'requirement' => "เขียน SEO title กระชับ",
             'max' => SEO_TITLE_MAX,
             'pass_condition' => "SEO title ไม่ว่างและยาวไม่เกิน " . SEO_TITLE_MAX . " ตัวอักษร",
         ],
         'meta_description'          => [
-            'tier' => 'required',
             'requirement' => "เขียนคำอธิบาย meta",
             'min' => META_DESC_MIN,
             'max' => META_DESC_MAX,
-            'pass_condition' => "ยาว " . META_DESC_MIN . "–" . META_DESC_MAX . " ตัวอักษร",
+            'pass_condition' => "คำอธิบาย meta ไม่ว่างและยาวไม่เกิน " . META_DESC_HARD_MAX . " ตัวอักษร",
+            'recommended' => "ยาว " . META_DESC_MIN . "–" . META_DESC_MAX . " ตัวอักษร",
         ],
         'slug'                      => [
-            'tier' => 'required',
             'requirement' => "กำหนด slug ตัวพิมพ์เล็ก คั่นด้วยขีด (a-z, 0-9, -)",
             'pass_condition' => "slug ไม่ว่างและตรง pattern ^[a-z0-9]+(-[a-z0-9]+)*$",
         ],
         'h1'                        => [
-            'tier' => 'required',
             'requirement' => "ห้ามใส่ H1 ซ้ำเกิน 1 ตัวในเนื้อหา (สงวนให้ชื่อบทความ)",
             'max' => H1_MAX,
             'pass_condition' => "มี H1 ไม่เกิน " . H1_MAX . " ตัว",
         ],
         'heading_structure'         => [
-            'tier' => 'required',
             'requirement' => "ใช้หัวข้อ H2/H3 อย่างเป็นเหตุเป็นผล",
             'min' => H2_MIN,
             'pass_condition' => "มี H2 อย่างน้อย " . H2_MIN . " หัวข้อ",
         ],
         'content_length'            => [
-            'tier' => 'required',
             'requirement' => "เขียนเนื้อหาให้มีความยาวเพียงพอ",
             'min' => WORD_COUNT_MIN,
-            'pass_condition' => "เนื้อหามีอย่างน้อย " . WORD_COUNT_MIN . " คำตามตัวนับของระบบ",
+            'pass_condition' => "เนื้อหามีอย่างน้อย " . WORD_COUNT_HARD_MIN . " คำตามตัวนับของระบบ",
+            'recommended' => "เนื้อหามีอย่างน้อย " . WORD_COUNT_MIN . " คำ",
         ],
         'search_intent'             => [
-            'tier' => 'required',
             'requirement' => "เขียนเนื้อหาให้สอดคล้องกับ search intent จาก research brief (เมื่อมี)",
             'pass_condition' => "content สอดคล้องกับ intent (signal terms ตรง) หรือ n/a เมื่อไม่มี research",
         ],
         'primary_keyword_placement' => [
-            'tier' => 'required',
             'requirement' => "ใส่คีย์เวิร์ดหลักใน title, ย่อหน้าแรก และหัวข้อ อย่างเป็นธรรมชาติ",
-            'pass_condition' => "คีย์เวิร์ดหลักปรากฏในตำแหน่งสำคัญครบถ้วน",
+            'pass_condition' => "คีย์เวิร์ดหลักปรากฏในตำแหน่งสำคัญ (title / ย่อหน้าแรก / หัวข้อ) อย่างน้อย 1 ตำแหน่ง",
+            'recommended' => "คีย์เวิร์ดหลักปรากฏครบทุกตำแหน่งสำคัญ",
         ],
         'keyword_stuffing'          => [
-            'tier' => 'required',
             'requirement' => "ใช้คีย์เวิร์ดอย่างเป็นธรรมชาติ ไม่หนาแน่นเกิน",
             'max' => SEO_KEYWORD_DENSITY_MAX,
             'pass_condition' => "ความหนาแน่นคีย์เวิร์ดไม่เกิน " . (int)(SEO_KEYWORD_DENSITY_MAX * 100) . "% ของจำนวนคำ",
         ],
         'related_keywords'          => [
-            'tier' => 'required',
             'requirement' => "ใส่คีย์เวิร์ดรองจาก research ให้ครบตามเกณฑ์",
             'min' => SEO_RELATED_MIN,
             'pass_condition' => "ครอบคลุม secondary keywords ≥ " . (int)(SEO_RELATED_MIN * 100) . "% (n/a เมื่อไม่มี research)",
         ],
         'topic_coverage'            => [
-            'tier' => 'required',
             'requirement' => "ครอบคลุมหัวข้อตาม outline จาก research",
             'min' => SEO_TOPIC_MIN,
             'pass_condition' => "ครอบคลุม outline ≥ " . (int)(SEO_TOPIC_MIN * 100) . "% (n/a เมื่อไม่มี research)",
         ],
         'paa_questions'             => [
-            'tier' => 'required',
             'requirement' => "ตอบคำถาม People Also Ask จาก research",
             'min' => SEO_PAA_MIN,
             'pass_condition' => "ตอบคำถาม PAA ≥ " . (int)(SEO_PAA_MIN * 100) . "% (n/a เมื่อไม่มี research)",
         ],
         'content_gap'               => [
-            'tier' => 'required',
             'requirement' => "เติมช่องว่างเนื้อหา (content gaps) จาก research",
             'min' => SEO_GAP_MIN,
             'pass_condition' => "เติม content gaps ≥ " . (int)(SEO_GAP_MIN * 100) . "% (n/a เมื่อไม่มี research)",
         ],
         'structured_data'           => [
-            'tier' => 'required',
             'requirement' => "ใส่ structured data เป็น JSON ที่ถูกต้อง",
             'pass_condition' => "structured data มี @context และ @type",
         ],
         'internal_linking'          => [
-            'tier' => 'optional',
             'requirement' => "ใส่ internal link อย่างน้อย 1 ลิงก์ (คำแนะนำ)",
             'min' => 1,
-            'pass_condition' => "มี internal link ≥ 1 (optional ไม่ block)",
+            'pass_condition' => "มี internal link ≥ 1 (ข้อแนะนำ ไม่ block)",
         ],
     ];
 
@@ -328,7 +311,7 @@ function seo_generation_requirements(string $type): array {
     $requirements = [];
     foreach ($ordered as $key) {
         if (!isset($contract[$key])) continue;
-        $req = ['key' => $key] + $contract[$key];
+        $req = ['key' => $key, 'tier' => SEO_WEIGHTS[$key]['tier']] + $contract[$key];
         $requirements[] = $req;
     }
     if ($isVideo) {
@@ -361,7 +344,10 @@ function seo_contract_hints(string $type): string {
             $line .= ' (' . implode(', ', $bounds) . ')';
         }
         if (!empty($r['pass_condition'])) {
-            $line .= ' — ผ่านเมื่อ: ' . $r['pass_condition'];
+            $line .= (($r['tier'] ?? 'required') === 'required' ? ' — ต้องผ่าน: ' : ' — ข้อแนะนำ: ') . $r['pass_condition'];
+        }
+        if (!empty($r['recommended'])) {
+            $line .= ' — แนะนำ: ' . $r['recommended'];
         }
         $lines[] = $line;
     }
@@ -484,14 +470,14 @@ function seo_evaluate(array $item): array {
         $rules[] = seo_make_rule('seo_title', 'passed', "SEO title มีความยาวเหมาะสม ({$len} ตัวอักษร)");
     }
 
-    // ── 2. meta_description 120–160 ─────────────────────────────────────────
+    // ── 2. meta_description: ว่าง/ยาวเกิน META_DESC_HARD_MAX = failed; สั้นกว่า META_DESC_MIN = needs_improvement ──
     $dlen = mb_strlen($metaDesc);
     if ($metaDesc === '') {
         $rules[] = seo_make_rule('meta_description', 'failed', 'ยังไม่ได้กรอกคำอธิบาย meta');
+    } elseif ($dlen > META_DESC_HARD_MAX) {
+        $rules[] = seo_make_rule('meta_description', 'failed', "คำอธิบาย meta ยาวเกินไป ({$dlen} ตัวอักษร ต้องไม่เกิน " . META_DESC_HARD_MAX . ")");
     } elseif ($dlen < META_DESC_MIN) {
-        $rules[] = seo_make_rule('meta_description', 'failed', "คำอธิบาย meta สั้นเกินไป ({$dlen} ตัวอักษร ควร " . META_DESC_MIN . "–" . META_DESC_MAX . ")");
-    } elseif ($dlen > META_DESC_MAX) {
-        $rules[] = seo_make_rule('meta_description', 'failed', "คำอธิบาย meta ยาวเกินไป ({$dlen} ตัวอักษร ควร " . META_DESC_MIN . "–" . META_DESC_MAX . ")");
+        $rules[] = seo_make_rule('meta_description', 'needs_improvement', "คำอธิบาย meta สั้นเกินไป ({$dlen} ตัวอักษร ควร " . META_DESC_MIN . "–" . META_DESC_MAX . ")");
     } else {
         $rules[] = seo_make_rule('meta_description', 'passed', "คำอธิบาย meta มีความยาวเหมาะสม ({$dlen} ตัวอักษร)");
     }
@@ -541,8 +527,10 @@ function seo_evaluate(array $item): array {
         $rules[] = seo_make_rule('content_length', 'failed', $isVideo ? 'วิดีโอไม่มี script/description ให้วัดจำนวนคำ' : 'ไม่มีเนื้อหาบทความ');
     } else {
         $wc = seo_word_count($bodyForCount);
-        if ($wc < WORD_COUNT_MIN) {
-            $rules[] = seo_make_rule('content_length', 'failed', "เนื้อหาสั้นเกินไป (~{$wc} คำ ควร ≥ " . WORD_COUNT_MIN . ")");
+        if ($wc < WORD_COUNT_HARD_MIN) {
+            $rules[] = seo_make_rule('content_length', 'failed', "เนื้อหาสั้นเกินไป (~{$wc} คำ ต้อง ≥ " . WORD_COUNT_HARD_MIN . " ควร ≥ " . WORD_COUNT_MIN . ")");
+        } elseif ($wc < WORD_COUNT_MIN) {
+            $rules[] = seo_make_rule('content_length', 'needs_improvement', "เนื้อหาค่อนข้างสั้น (~{$wc} คำ ควร ≥ " . WORD_COUNT_MIN . ")");
         } else {
             $rules[] = seo_make_rule('content_length', 'passed', "จำนวนคำเพียงพอ (~{$wc} คำ)");
         }
@@ -579,8 +567,9 @@ function seo_evaluate(array $item): array {
         }
         if ($hits === $checks) {
             $rules[] = seo_make_rule('primary_keyword_placement', 'passed', "คีย์เวิร์ดหลัก \"{$primaryKw}\" อยู่ในตำแหน่งสำคัญครบถ้วน");
-        } elseif ($hits >= (int) ceil($checks / 2)) {
-            $rules[] = seo_make_rule('primary_keyword_placement', 'needs_improvement', "คีย์เวิร์ดหลัก \"{$primaryKw}\" อยู่ในตำแหน่งสำคัญ {$hits}/{$checks} ตำแหน่ง");
+        } elseif ($hits >= 1) {
+            // Required ผ่านเมื่ออยู่อย่างน้อย 1 ตำแหน่ง — ครบทุกตำแหน่งเป็นช่วงแนะนำ
+            $rules[] = seo_make_rule('primary_keyword_placement', 'needs_improvement', "คีย์เวิร์ดหลัก \"{$primaryKw}\" อยู่ในตำแหน่งสำคัญ {$hits}/{$checks} ตำแหน่ง (ควรครบทุกตำแหน่ง)");
         } else {
             $rules[] = seo_make_rule('primary_keyword_placement', 'failed', "คีย์เวิร์ดหลัก \"{$primaryKw}\" ปรากฏในตำแหน่งสำคัญเพียง {$hits}/{$checks} ตำแหน่ง");
         }
@@ -820,53 +809,4 @@ function seo_structured_has_type(array $sd, string $type): bool {
 function seo_contains(string $haystack, string $needle): bool {
     if ($needle === '' || $haystack === '') return false;
     return mb_stripos($haystack, $needle) !== false;
-}
-
-/**
- * ตรวจเกต SEO — อ่านการตั้งค่าจาก content_global_settings แล้วตัดสินว่าจะบล็อกหรือไม่
- *
- * @return array{blocked:bool, reason:?string, score?:int, rules?:array}
- */
-function seo_gate_check(PDO $db, string $tenantId, array $item): array {
-    $stmt = $db->prepare(
-        'SELECT seo_gate_enabled, seo_gate_min_score FROM content_global_settings WHERE tenant_id = ?'
-    );
-    $stmt->execute([$tenantId]);
-    $cfg = $stmt->fetch(PDO::FETCH_ASSOC);
-
-    // ไม่มีแถวการตั้งค่า หรือเกตปิด → ไม่บล็อก (default ปิด = flow เดิมไม่พัง)
-    if (!$cfg || (int)($cfg['seo_gate_enabled'] ?? 0) !== 1) {
-        return ['blocked' => false, 'reason' => null];
-    }
-
-    $minScore = (int)($cfg['seo_gate_min_score'] ?? 0);
-    $eval  = seo_evaluate($item);
-    $gate  = seo_gate_status($eval);
-    $fails = array_values(array_filter($eval['rules'], fn($r) => ($r['status'] ?? '') === 'failed'));
-    $lowScore = $eval['score'] < $minScore;
-
-    if ($gate !== 'failed' && !$lowScore) {
-        return ['blocked' => false, 'reason' => null, 'score' => $eval['score'], 'gate' => $gate, 'rules' => $eval['rules']];
-    }
-
-    // ข้อความเหตุผลภาษาไทย
-    $parts = [];
-    if (!empty($fails)) {
-        $lines = array_map(fn($r) => '• ' . $r['message'], $fails);
-        $parts[] = 'ไม่ผ่านเกณฑ์ SEO ' . count($fails) . ' ข้อ:' . "\n" . implode("\n", $lines);
-    }
-    if ($gate === 'failed' && $eval['score'] < SEO_GATE_WARN_SCORE) {
-        $parts[] = "คะแนน SEO {$eval['score']} ต่ำกว่าเกณฑ์ขั้นต่ำ (" . SEO_GATE_WARN_SCORE . ")";
-    }
-    if ($lowScore) {
-        $parts[] = "คะแนน SEO {$eval['score']} ต่ำกว่าเกณฑ์ขั้นต่ำ {$minScore}";
-    }
-
-    return [
-        'blocked' => true,
-        'reason'  => implode("\n", $parts),
-        'score'   => $eval['score'],
-        'gate'    => $gate,
-        'rules'   => $eval['rules'],
-    ];
 }

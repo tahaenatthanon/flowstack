@@ -22,12 +22,12 @@ import { apiFetch } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import { useConfirm } from '@/hooks/useConfirm';
 import { useQueryClient } from '@tanstack/react-query';
-import { useContentGlobalSettings, useQualityRecheck } from '@/hooks/useContent';
+import { useContentGlobalSettings, useQualityRecheck, type QualityRecheckResponse } from '@/hooks/useContent';
 import { useResearchRun, RESEARCH_STEP_LABELS, researchSeedTopic } from '@/hooks/useResearchRun';
 import ArticleEditor from '@/components/content/ArticleEditor';
 import ImageViewer from '@/components/content/ImageViewer';
 import type { SeoFields } from '@/components/content/types';
-import { emptySeoFields, SEO_GATE_LABEL } from '@/components/content/types';
+import { emptySeoFields } from '@/components/content/types';
 
 function CollapsibleSection({ title, defaultOpen = false, children }: { title: string; defaultOpen?: boolean; children: React.ReactNode }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -123,11 +123,14 @@ export function ContentCardDialog({
   // Mandatory Research — ทุกการสร้างเนื้อหาต้องผ่าน Fetch/Reuse → Analyze → Generate
   const { run: runResearch, cancel: cancelResearch, step: researchStep } = useResearchRun();
 
-  // ตรวจ Quality โดยไม่เขียนเนื้อหาใหม่ — ต่างจาก "AI เขียนให้" ที่ generate ทั้งชุด
-  // ปุ่มนี้แค่ประเมิน SEO/AEO ซ้ำแล้วเซ็ต quality_checked_at เพื่อปลดล็อก publish gate
+  // "ตรวจ SEO/AEO ใหม่" — ประเมินเนื้อหาที่บันทึกล่าสุดโดยไม่เขียนเนื้อหาใหม่ (ต่างจาก "AI เขียนให้")
+  // แล้วเซ็ต quality_checked_at; ขออนุมัติ/เผยแพร่ยังประเมินใหม่เองทุกครั้งด้วย Quality Gate กลาง
   const qualityRecheck = useQualityRecheck();
   // override ค่าจาก response ทันทีหลังกด — ไม่ต้องรอ invalidate query ของรายการ content ทั้งชุด
   const [qualityRecheckedAt, setQualityRecheckedAt] = useState<string | null>(null);
+  // ผลตรวจล่าสุดส่งลงแผง SEO/AEO ของ ArticleEditor; refreshKey เพิ่มเมื่อบันทึก → แผงดึงผลของเวอร์ชันใหม่
+  const [qualityResult, setQualityResult] = useState<QualityRecheckResponse | null>(null);
+  const [qualityRefreshKey, setQualityRefreshKey] = useState(0);
 
   // Snapshot ค่าก่อนกด "AI เขียนให้" สำหรับคืนค่าเมื่อยกเลิกแล้ว generate-article
   // เขียนผลลัพธ์ลง content_items ไปแล้วก่อน checkpoint จะทัน (ดู openspec cancel-ai-generation-rollback)
@@ -173,7 +176,7 @@ export function ContentCardDialog({
   }, [existingItem?.article_content]);
 
   const hasArticle = !!(articleData?.html || articleData?.title);
-  // ค่านี้ใช้ทั้งโชว์ "ตรวจ Quality ล่าสุด" และเตือนที่ปุ่ม "บันทึก" ว่าการบันทึกจะล้างค่านี้ทิ้ง
+  // ค่านี้ใช้ทั้งโชว์ "ตรวจ SEO/AEO ล่าสุด" และเตือนที่ปุ่ม "บันทึก" ว่าการบันทึกจะล้างค่านี้ทิ้ง
   // (api/content-items.php ล้าง quality_checked_at ทุกครั้งที่ body มีฟิลด์เนื้อหา ไม่ว่าค่าจะเปลี่ยนจริงหรือไม่)
   const qualityCheckedAtValue = qualityRecheckedAt ?? articleData?.quality_checked_at ?? null;
 
@@ -401,6 +404,11 @@ export function ContentCardDialog({
         handleGenerateImage();
       }
 
+      // บันทึกแล้ว = เนื้อหาเวอร์ชันใหม่ → ผลตรวจเดิมใช้ไม่ได้ (backend ล้าง quality_checked_at แล้ว)
+      setQualityRecheckedAt(null);
+      setQualityResult(null);
+      setQualityRefreshKey(k => k + 1);
+
       // อัปเดต snapshot ให้ isDirty กลับเป็น false หลังบันทึกสำเร็จ
       initialSnapshotRef.current = JSON.stringify({
         topic: topic.trim(), caption, platforms, imageBrief: imageBrief.trim(), scheduledDate, articleHtml, seoFields,
@@ -521,15 +529,18 @@ export function ContentCardDialog({
       qc.invalidateQueries({ queryKey: ['content', 'items'] });
       qc.invalidateQueries({ queryKey: ['content', 'plans'] });
       if (res?.generation_status === 'failed') {
+        // ไม่ผ่านข้อบังคับหลัง AI repair 1 รอบ → ผู้ใช้แก้เอง บันทึก แล้วกด "ตรวจ SEO/AEO ใหม่"
+        const failed: Array<{ quality: string; message: string }> = res?.failed_required ?? [];
         toast({
-          title: 'สร้างเนื้อหาแล้ว แต่ยังไม่ผ่าน Quality Gate',
-          description: `SEO ${res?.seo?.score ?? 0}/100 · AEO ${res?.aeo?.score ?? 0}/100 · Script ${res?.script_passed === false ? 'ไม่ผ่าน' : 'ผ่าน'} — บันทึกเป็น “รอแก้ไข”`,
+          title: `สร้างเนื้อหาแล้ว แต่ยังไม่ผ่านข้อบังคับ SEO/AEO ${failed.length} ข้อ`,
+          description: (failed.length > 0 ? failed.map(f => `${f.quality}: ${f.message}`).join(' · ') + ' — ' : '')
+            + 'บันทึกเป็น “รอแก้ไข” แก้เนื้อหาเอง บันทึก แล้วกด “ตรวจ SEO/AEO ใหม่”',
           variant: 'destructive',
         });
       } else {
         toast({
-          title: 'สร้างเนื้อหาสำเร็จ — SEO + AEO + Script ผ่าน',
-          description: `SEO ${res?.seo?.score ?? 0}/100 · AEO ${res?.aeo?.score ?? 0}/100 · Script ทุก Platform ที่เลือกผ่าน`,
+          title: 'สร้างเนื้อหาสำเร็จ — ผ่านข้อบังคับ SEO/AEO',
+          description: `คะแนน SEO ${res?.seo?.score ?? 0}/100 · AEO ${res?.aeo?.score ?? 0}/100`,
         });
       }
     } catch (e: any) {
@@ -552,24 +563,24 @@ export function ContentCardDialog({
     setAiGenerating(false);
   };
 
-  // ตรวจ Quality ซ้ำบนเนื้อหาที่บันทึกล่าสุด — ไม่เรียก AI ไม่แก้เนื้อหา แค่ประเมิน SEO/AEO
-  // แล้วเซ็ต quality_checked_at เพื่อปลดล็อก publish gate (ดู openspec/changes/content-quality-recheck-action)
+  // ตรวจ SEO/AEO ซ้ำบนเนื้อหาที่บันทึกล่าสุด — ไม่เรียก AI ไม่แก้เนื้อหา แล้วเซ็ต quality_checked_at
+  // กดได้เฉพาะเมื่อไม่มีการแก้ไขค้าง เพื่อให้ผลตรงกับสิ่งที่ผู้ใช้เห็น (change quality-required-tiers)
   const handleQualityRecheck = async () => {
-    if (!existingItem?.id) return;
+    if (!existingItem?.id || isDirty) return;
     try {
       const res = await qualityRecheck.mutateAsync({ item_id: existingItem.id });
       setQualityRecheckedAt(res.quality_checked_at);
-      const seoGate = SEO_GATE_LABEL[res.seo.gate];
-      const aeoGate = SEO_GATE_LABEL[res.aeo.gate];
-      const failCount =
-        res.seo.rules.filter(r => r.status === 'failed').length +
-        res.aeo.rules.filter(r => r.status === 'failed').length;
+      setQualityResult(res);
+      const failCount = res.failed_required?.length ?? 0;
       toast({
-        title: 'ตรวจ Quality เสร็จแล้ว',
-        description: `SEO: ${seoGate.label} · AEO: ${aeoGate.label}` + (failCount > 0 ? ` · มี ${failCount} ข้อไม่ผ่าน` : ''),
+        title: failCount === 0 ? 'ตรวจ SEO/AEO แล้ว — ผ่านข้อบังคับทั้งหมด' : `ตรวจ SEO/AEO แล้ว — ไม่ผ่าน (ติดข้อบังคับ ${failCount} ข้อ)`,
+        description: failCount > 0
+          ? res.failed_required.map(f => `${f.quality}: ${f.message}`).join(' · ')
+          : `คะแนน SEO ${res.seo.score}/100 · AEO ${res.aeo.score}/100`,
+        ...(failCount > 0 && { variant: 'destructive' as const }),
       });
     } catch (e: any) {
-      toast({ title: 'ตรวจ Quality ไม่สำเร็จ', description: e?.message, variant: 'destructive' });
+      toast({ title: 'ตรวจ SEO/AEO ไม่สำเร็จ', description: e?.message, variant: 'destructive' });
     }
   };
 
@@ -744,6 +755,8 @@ export function ContentCardDialog({
                 seoFields={seoFields}
                 onSeoChange={setSeoFields}
                 contentItemId={existingItem?.id}
+                qualityResult={qualityResult}
+                qualityRefreshKey={qualityRefreshKey}
                 platform={platforms.length > 0 ? platforms[0] : undefined}
                 topic={topic}
               />
@@ -1176,19 +1189,24 @@ export function ContentCardDialog({
             </Button>
           )}
           <Button variant="outline" onClick={() => onOpenChange(false)}>ยกเลิก</Button>
-          {qualityCheckedAtValue && (
+          {existingItem?.id && isDirty ? (
+            <span className="text-[11px] text-amber-600 self-center" data-testid="quality-recheck-save-first">
+              บันทึกบทความก่อนตรวจ SEO/AEO
+            </span>
+          ) : qualityCheckedAtValue && (
             <span className="text-[11px] text-muted-foreground self-center hidden sm:inline">
-              ตรวจ Quality ล่าสุด {formatThaiDate(new Date(String(qualityCheckedAtValue).replace(' ', 'T')))}
+              ตรวจ SEO/AEO ล่าสุด {formatThaiDate(new Date(String(qualityCheckedAtValue).replace(' ', 'T')))}
             </span>
           )}
           <Button
             variant="outline"
             className="gap-1.5"
             onClick={handleQualityRecheck}
-            disabled={!existingItem?.id || qualityRecheck.isPending}
+            disabled={!existingItem?.id || isDirty || qualityRecheck.isPending}
+            title={isDirty ? 'บันทึกบทความก่อนตรวจ SEO/AEO' : undefined}
           >
             {qualityRecheck.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />}
-            ตรวจ Quality
+            ตรวจ SEO/AEO ใหม่
           </Button>
           {aiGenerating ? (
             <Button variant="outline" className="gap-1.5" onClick={handleCancelAI}>
@@ -1204,7 +1222,7 @@ export function ContentCardDialog({
             onClick={handleSave}
             disabled={saving || !topic.trim() || !isDirty}
             className="gap-1.5"
-            title={qualityCheckedAtValue ? 'การบันทึกจะล้างผลตรวจ Quality เดิม ต้องกด "ตรวจ Quality" ใหม่ก่อนเผยแพร่' : undefined}
+            title={qualityCheckedAtValue ? 'การบันทึกจะล้างผลตรวจเดิม ต้องกด "ตรวจ SEO/AEO ใหม่" ก่อนขออนุมัติ/เผยแพร่' : undefined}
           >
             <Save className="h-3.5 w-3.5" />{saving ? 'กำลังบันทึก...' : 'บันทึก'}
           </Button>

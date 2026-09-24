@@ -587,7 +587,9 @@ export function getCanonicalContentType(item: Pick<ContentItem, 'type'> | Pick<P
 // ตรงกับผลลัพธ์จาก api/lib/seo-checklist.php ผ่าน ?action=seo-checklist
 export type SeoRuleLevel = 'pass' | 'warn' | 'fail' | 'pending' | 'skip';
 export type SeoRuleStatus = 'passed' | 'needs_improvement' | 'failed' | 'n/a' | 'pending' | 'skip';
-export type SeoRuleTier = 'required' | 'optional' | 'informational';
+// 'optional' = ค่าเดิมก่อน change quality-required-tiers — แสดงเป็นข้อแนะนำเหมือน 'recommended'
+export type SeoRuleTier = 'required' | 'recommended' | 'informational' | 'optional';
+// gate ตัดสินจาก Required rule ที่ failed เท่านั้น (passed/failed) — needs_improvement คงไว้รองรับข้อมูลเดิม
 export type SeoGateStatus = 'passed' | 'needs_improvement' | 'failed';
 
 export interface SeoRule {
@@ -606,7 +608,6 @@ export interface SeoChecklistResult {
   gate: SeoGateStatus;
   rules: SeoRule[];
   seo_gate_enabled: 0 | 1;
-  seo_gate_min_score: number;
 }
 
 export interface AeoChecklistResult {
@@ -622,10 +623,24 @@ export const SEO_GATE_LABEL: Record<SeoGateStatus, { label: string; className: s
 };
 
 export const SEO_TIER_LABEL: Record<SeoRuleTier, string> = {
-  required:      'บังคับ',
-  optional:      'แนะนำ',
+  required:      'ข้อบังคับ',
+  recommended:   'ข้อแนะนำ',
+  optional:      'ข้อแนะนำ',
   informational: 'ข้อมูล',
 };
+
+/** Required rule ที่ไม่ผ่าน — ตัวตัดสินผ่าน/ไม่ผ่านของ SEO/AEO (ตรงกับ quality_required_status ฝั่ง PHP) */
+export function requiredFailedRules(rules: SeoRule[] | undefined | null): SeoRule[] {
+  return (rules ?? []).filter(r => (r.tier ?? 'required') === 'required' && (r.status ?? r.level) === 'failed');
+}
+
+/** รายการ Required rule ที่ไม่ผ่าน จาก quality-recheck / generate-article */
+export interface QualityFailedRequired {
+  quality: 'SEO' | 'AEO';
+  key: string;
+  message: string;
+  expected: string;
+}
 
 // ─── Constants ──────────────────────────────────────────────────────
 export const TYPE_MAP: Record<string, { label: string; icon: React.ElementType; color: string }> = {

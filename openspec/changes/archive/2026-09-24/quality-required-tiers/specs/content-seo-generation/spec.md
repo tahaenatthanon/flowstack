@@ -1,35 +1,4 @@
-## Purpose
-
-กำหนดให้การสร้างเนื้อหาผ่าน `generate-article` ใช้กฎ SEO/AEO Checklist เป็นเงื่อนไข โดยใช้ source of truth เดียวกับ `seo_evaluate()`/`aeo_evaluate()` ประเมินเนื้อหาที่สร้าง แล้ว repair รวม SEO+AEO ไม่เกิน 1 รอบ (`QUALITY_REPAIR_MAX_ROUNDS`) ส่งเฉพาะ Required rule ที่ `failed` เป็น feedback — Recommended/needs_improvement ไม่กระตุ้น repair, วิดีโอไม่ repair และไม่ถูกตัดสินด้วย SEO/AEO, และปุ่ม "ตรวจ SEO/AEO ใหม่" เป็นจุดตรวจเดียวที่เหลืออยู่ (แก้ไขโดย change `quality-required-tiers`)
-
-## Requirements
-
-### Requirement: กฎ SEO ใน prompt มาจาก source of truth เดียวกับ seo_evaluate
-ระบบ SHALL มีฟังก์ชัน `seo_generation_requirements(string $type): array` ใน `api/lib/seo-checklist.php` ที่คืนข้อกำหนดภาษาไทยที่ AI ต้องปฏิบัติตามครบ (generation contract) โดยแต่ละข้อระบุ `key`, `tier`, `requirement` (สิ่งที่ต้องมี), `min`/`max` (ค่าเกณฑ์), และ `pass_condition` (เงื่อนไขที่ถือว่าผ่าน) โดยอ่าน threshold เดียวกับ `seo_evaluate()` (ผ่าน named constants) และ SHALL ใช้ข้อกำหนดนี้แทนกฎ SEO ที่ hardcode ไว้เดิมใน `generate-article`
-
-#### Scenario: prompt บทความมีข้อกำหนดครบชุด
-- **WHEN** `seo_generation_requirements('article')` ถูกเรียก
-- **THEN** ผลลัพธ์แต่ละข้อมี `key`, `tier`, `requirement` และ `pass_condition` (และ `min`/`max` เมื่อเกี่ยวข้อง)
-- **AND** ข้อกำหนดภาษาไทยอ้างอิงค่า threshold เดียวกับที่ `seo_evaluate()` ใช้ตรวจ
-
-#### Scenario: requirement กับ evaluator ใช้เกณฑ์เดียวกัน
-- **WHEN** rule `content_length` มี `min = 500` ใน requirements
-- **THEN** `seo_evaluate()` ตรวจ `content_length` ด้วย threshold 500 เดียวกัน
-
-#### Scenario: ใช้ข้อกำหนดร่วมแทนการ hardcode
-- **WHEN** `generate-article` สร้าง system prompt สำหรับบทความ
-- **THEN** ส่วนข้อกำหนด SEO มาจาก `seo_generation_requirements($type)` ไม่ใช่ข้อความ hardcode แยกชุด
-
-### Requirement: ประเมินเนื้อหาที่สร้างด้วย seo_evaluate ก่อนคืนผล
-ระบบ SHALL เรียก `seo_evaluate()` กับรายการที่ประกอบเสร็จแล้ว (แมป `article_content` เป็น array, `type`, `title`, `seo_title`, `slug`, `meta_description`, `meta_keywords`, `structured_data`, `og_image`) ในเส้นทาง `generate-article` ก่อนคืนผลให้ผู้ใช้
-
-#### Scenario: ประเมินหลังสร้างเนื้อหาบทความ
-- **WHEN** `generate-article` สร้างเนื้อหาบทความสำเร็จและประกอบ `$art` เสร็จ
-- **THEN** ระบบเรียก `seo_evaluate()` ด้วยฟิลด์ของรายการนั้น และได้ `score` + `rules`
-
-#### Scenario: ประเมินวิดีโอด้วย type=video
-- **WHEN** รายการมี `type = 'video'`
-- **THEN** ระบบส่ง `type = 'video'` ให้ `seo_evaluate()` เพื่อเลือก ruleset วิดีโอ
+## MODIFIED Requirements
 
 ### Requirement: สร้างใหม่พร้อม feedback จนกว่า Required Rules ผ่าน
 เมื่อผลประเมินหลังสร้าง (SEO และ AEO) มี Required rule ที่ `failed` ระบบ SHALL ส่ง feedback ให้ AI repair **1 รอบรวม SEO+AEO**
@@ -111,25 +80,6 @@
 - **WHEN** ระบบ repair ครบ 1 รอบแล้วยังมี Required rule `failed`
 - **THEN** content ถูกบันทึกด้วย `status='revision'`
 - **AND** response มี `generation_status='failed'`, `seo_passed=false` และรายละเอียด rule ที่ยังไม่ผ่าน
-
-### Requirement: AI ผลิต meta_keywords ได้เมื่อไม่มี research
-เมื่อไม่ส่ง `research_job_id` ระบบ SHALL ใช้ `meta_keywords` ที่ AI ผลิต (จาก `mainData['meta_keywords']`) แทนการบังคับเป็น `''` และเมื่อมี research brief SHALL ใช้ keywords จาก research เป็น override
-
-#### Scenario: ไม่มี research ใช้ keyword จาก AI
-- **WHEN** generate-article ถูกเรียกโดยไม่มี research_job_id และ AI ผลิต `meta_keywords` ให้
-- **THEN** `content_items.meta_keywords` เก็บ keyword ที่ AI ผลิต (ไม่เป็น `''` เสมอ)
-- **AND** `primary_keyword_placement`/`keyword_stuffing` ไม่เป็น `pending` ถาวรเมื่อมี keyword
-
-#### Scenario: มี research ใช้ keyword จาก research
-- **WHEN** generate-article ถูกเรียกพร้อม research_job_id
-- **THEN** `content_items.meta_keywords` ใช้ keywords จาก research เป็น override (ตามพฤติกรรมเดิม)
-
-### Requirement: Model ไม่ใช่ตัวรับประกัน SEO
-ระบบ SHALL ให้ผู้ใช้เปลี่ยน model ตาม AI Settings ได้ แต่ gate SHALL ตัดสินโดย Evaluator ของระบบเท่านั้น — การเปลี่ยน model SHALL ไม่ถือเป็นการรับประกันว่า content ผ่าน SEO
-
-#### Scenario: เปลี่ยน model ไม่กระทบ gate
-- **WHEN** ผู้ใช้เปลี่ยน writing model ใน AI Settings
-- **THEN** เกณฑ์ gate และการตรวจของ Evaluator ยังคงเหมือนเดิม และ model มีหน้าที่เพียง generate/repair content ตาม requirements
 
 ### Requirement: "ตรวจ SEO ใหม่" ตรวจด้วยกฎ 15 ข้อชุดเดียวกับ Generation
 การตรวจใหม่ SHALL มีจุดเดียวคือปุ่ม "ตรวจ SEO/AEO ใหม่" ที่เรียก `quality-recheck` การตรวจนี้:

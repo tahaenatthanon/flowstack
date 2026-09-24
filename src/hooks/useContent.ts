@@ -1,7 +1,7 @@
 // src/hooks/useContent.ts
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api';
-import type { ContentItem, BrandContext, ContentSkill, ContentTrigger, ContentPlan, PlanItem, PublishChannel, ContentSchedule, PublishQueueItem, GlobalSettings, AIGatewaySettings, PostingAnalyticsResponse, ResultMetricsResponse, ContentOverview, ContentAnalytics, SeoChecklistResult, AeoChecklistResult } from '@/components/content/types';
+import type { ContentItem, BrandContext, ContentSkill, ContentTrigger, ContentPlan, PlanItem, PublishChannel, ContentSchedule, PublishQueueItem, GlobalSettings, AIGatewaySettings, PostingAnalyticsResponse, ResultMetricsResponse, ContentOverview, ContentAnalytics, SeoChecklistResult, AeoChecklistResult, QualityFailedRequired } from '@/components/content/types';
 
 // ── Query keys ─────────────────────────────────────────────────
 
@@ -406,6 +406,9 @@ export function useTestResearchProvider() {
 export interface QualityRecheckResponse {
   seo: SeoChecklistResult;
   aeo: AeoChecklistResult;
+  /** ผ่าน/ไม่ผ่านจาก Required rule ของ SEO+AEO (quality_required_status) */
+  quality_status: 'passed' | 'failed';
+  failed_required: QualityFailedRequired[];
   quality_checked_at: string;
 }
 

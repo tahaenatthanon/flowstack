@@ -37,7 +37,6 @@ function mockChecklists(seoRules: any[], seoOverrides: Record<string, any> = {})
         gate: 'passed',
         rules: seoRules,
         seo_gate_enabled: 1,
-        seo_gate_min_score: 0,
         ...seoOverrides,
       } as any;
     }
@@ -143,5 +142,32 @@ describe('ArticleEditor', () => {
     await waitFor(() => {
       expect(screen.getByText('กฎใหม่จากระบบ')).toBeTruthy();
     });
+  });
+
+  // change quality-required-tiers: แผงผลตรวจแสดงผลอย่างเดียว — ตรวจใหม่ที่ปุ่มของ dialog จุดเดียว
+  it('SEO/AEO panel has no recheck button and groups rules by tier', async () => {
+    mockChecklists([
+      { key: 'seo_title', status: 'passed', tier: 'required', level: 'pass', message: 'SEO title ผ่าน' },
+      { key: 'content_gap', status: 'failed', tier: 'recommended', level: 'fail', message: 'content gap ไม่ผ่าน' },
+    ]);
+    render(<ArticleEditor {...defaultProps} contentItemId='item-3' />);
+    fireEvent.click(await screen.findByText('SEO / AEO Metadata'));
+    await waitFor(() => expect(screen.getByText('SEO title ผ่าน')).toBeTruthy());
+    expect(screen.queryByRole('button', { name: /ตรวจใหม่/ })).toBeNull();
+    expect(screen.getAllByText('ข้อแนะนำ (Recommended)').length).toBeGreaterThan(0);
+    expect(screen.getByText('content gap ไม่ผ่าน')).toBeTruthy();
+  });
+
+  it('shows qualityResult from the dialog recheck instead of its own fetch', async () => {
+    mockChecklists([{ key: 'seo_title', status: 'passed', tier: 'required', level: 'pass', message: 'ผลที่ดึงเอง' }]);
+    const qualityResult = {
+      seo: { score: 70, gate: 'failed', rules: [{ key: 'seo_title', status: 'failed', tier: 'required', level: 'fail', weight: 8, score: 0, critical: true, message: 'ผลจากปุ่มตรวจใหม่' }], seo_gate_enabled: 1 },
+      aeo: { score: 90, gate: 'passed', rules: [] },
+    } as any;
+    render(<ArticleEditor {...defaultProps} contentItemId='item-4' qualityResult={qualityResult} />);
+    fireEvent.click(await screen.findByText('SEO / AEO Metadata'));
+    await waitFor(() => expect(screen.getByText('ผลจากปุ่มตรวจใหม่')).toBeTruthy());
+    expect(screen.queryByText('ผลที่ดึงเอง')).toBeNull();
+    expect(screen.getByText('ไม่ผ่าน (ติดข้อบังคับ 1 ข้อ)')).toBeTruthy();
   });
 });

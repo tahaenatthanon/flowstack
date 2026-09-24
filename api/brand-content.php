@@ -614,8 +614,8 @@ if ($action === 'seo-checklist') {
 
     $eval = seo_evaluate($item);
 
-    // สถานะเกตของ tenant (ให้ UI รู้ว่ากฎ fail จะบล็อกจริงหรือไม่)
-    $cfgStmt = $db->prepare('SELECT seo_gate_enabled, seo_gate_min_score FROM content_global_settings WHERE tenant_id=?');
+    // สถานะเกตของ tenant (ให้ UI รู้ว่า Required ที่ fail จะบล็อกจริงหรือไม่) — seo_gate_min_score เลิกใช้แล้ว
+    $cfgStmt = $db->prepare('SELECT seo_gate_enabled FROM content_global_settings WHERE tenant_id=?');
     $cfgStmt->execute([$tenantId]);
     $cfg = $cfgStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
@@ -624,7 +624,6 @@ if ($action === 'seo-checklist') {
         'gate'               => $eval['gate'],
         'rules'              => $eval['rules'],
         'seo_gate_enabled'   => (int)($cfg['seo_gate_enabled'] ?? 0),
-        'seo_gate_min_score' => (int)($cfg['seo_gate_min_score'] ?? 0),
     ]);
 }
 
@@ -678,15 +677,16 @@ if ($action === 'quality-recheck') {
 
     $seoEval = seo_evaluate($item);
     $aeoEval = aeo_evaluate($item);
+    $recheckStatus = quality_required_status($seoEval, $aeoEval, (string)($item['type'] ?? 'article'));
 
-    $cfgStmt = $db->prepare('SELECT seo_gate_enabled, seo_gate_min_score FROM content_global_settings WHERE tenant_id=?');
+    $cfgStmt = $db->prepare('SELECT seo_gate_enabled FROM content_global_settings WHERE tenant_id=?');
     $cfgStmt->execute([$tenantId]);
     $cfg = $cfgStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
     // เซ็ต quality_checked_at เสมอไม่ว่าผลจะผ่านเกณฑ์หรือไม่ — marker นี้บอกว่า "ประเมินแล้วบน
     // เวอร์ชันนี้" ไม่ใช่ "ผ่านแล้ว" (ความหมายเดียวกับที่ generate-article เซ็ตตอน generate สำเร็จ
     // ที่ brand-content.php:2902-2903) เกณฑ์ผ่าน/ไม่ผ่านของ web platform ยังคงตัดสินแยกโดย
-    // final_publish_gate_check() ที่ publish-dispatch.php ตามเดิม ไม่เกี่ยวกับ marker นี้
+    // quality_required_gate() ที่ publish-dispatch.php ซึ่งประเมินใหม่ทุกครั้ง ไม่ใช้ผลของ recheck นี้
     $art = json_decode((string)($item['article_content'] ?? ''), true);
     if (!is_array($art)) $art = [];
     $checkedAt = dbNow($db);
@@ -700,13 +700,15 @@ if ($action === 'quality-recheck') {
             'gate'               => $seoEval['gate'],
             'rules'              => $seoEval['rules'],
             'seo_gate_enabled'   => (int)($cfg['seo_gate_enabled'] ?? 0),
-            'seo_gate_min_score' => (int)($cfg['seo_gate_min_score'] ?? 0),
         ],
         'aeo' => [
             'score' => $aeoEval['score'],
             'gate'  => $aeoEval['gate'],
             'rules' => $aeoEval['rules'],
         ],
+        // ผ่าน/ไม่ผ่านตัดสินจาก Required rule (quality_required_status) — ตัวเดียวกับ Quality Gate กลาง
+        'quality_status'     => $recheckStatus['status'],
+        'failed_required'    => $recheckStatus['failed_required'],
         'quality_checked_at' => $checkedAt,
     ]);
 }
@@ -2979,40 +2981,28 @@ if ($action === 'generate-article') {
     // Determine content type from the content item, independent of publish platform.
     $ciType = $isVideo ? 'video' : 'article';
 
-    // SEO/AEO post-generation gates: evaluate the exact object that will be persisted.
-    // Only `fail` rules trigger a repair attempt; warn/pending/skip never block generation.
-    $seoEval = seo_evaluate([
-        'type' => $ciType,
-        'title' => $artTitle,
-        'seo_title' => $art['seo_title'],
-        'slug' => $art['slug'],
-        'meta_description' => $art['meta_description'],
-        'meta_keywords' => $art['meta_keywords'],
-        'structured_data' => $art['structured_data'],
-        'og_image' => $art['og_image'],
-        'article_content' => $art,
-        'research_brief' => $researchBrief,
-    ]);
+    // SEO/AEO post-generation gate (change quality-required-tiers): evaluate the exact object
+    // that will be persisted. ผ่าน/ไม่ผ่านตัดสินจาก Required rule ที่ `failed` เท่านั้น
+    // (quality_required_status) — repair รวม SEO+AEO ไม่เกิน QUALITY_REPAIR_MAX_ROUNDS รอบ
+    // ส่งเฉพาะ Required ที่ failed; วิดีโอไม่ repair และไม่ถูกตัดสินด้วย SEO/AEO
+    // closure อ้าง $art/$artTitle แบบ reference เพื่อให้ประเมินค่าล่าสุดหลัง repair (arrow fn จับค่าตอนสร้าง)
+    $evalItem = static function () use (&$art, &$artTitle, $ciType, $researchBrief): array { return [
+        'type' => $ciType, 'title' => $artTitle, 'seo_title' => $art['seo_title'], 'slug' => $art['slug'],
+        'meta_description' => $art['meta_description'], 'meta_keywords' => $art['meta_keywords'],
+        'structured_data' => $art['structured_data'], 'og_image' => $art['og_image'],
+        'article_content' => $art, 'research_brief' => $researchBrief,
+    ]; };
+    $seoEval = seo_evaluate($evalItem());
+    $aeoEval = aeo_evaluate($evalItem());
 
-    for ($seoAttempt = 1; $seoAttempt < SEO_GEN_MAX_ATTEMPTS; $seoAttempt++) {
-        // Repaired เมื่อ Quality Gate ยังไม่ผ่าน (failed/needs_improvement หรือ critical rule ล้ม)
-        if (seo_gate_status($seoEval) === 'passed') break;
-
-        $seoIssues = array_values(array_filter($seoEval['rules'], static fn(array $r): bool => in_array($r['status'] ?? '', ['failed', 'needs_improvement'], true)));
-        usort($seoIssues, static fn(array $a, array $b): int => ($b['weight'] ?? 0) <=> ($a['weight'] ?? 0));
-
-        $feedback = implode("\n", array_map(
-            static fn(array $r): string =>
-                '- [' . ($r['key'] ?? 'rule') . '] ' . ($r['status'] ?? '') . "\n" .
-                '  expected: ' . seo_contract_pass_condition($ciType, $r['key'] ?? '') . "\n" .
-                '  message: ' . ($r['message'] ?? ''),
-            $seoIssues
-        ));
+    for ($repairRound = 0; $repairRound < QUALITY_REPAIR_MAX_ROUNDS && quality_should_repair($seoEval, $aeoEval, $isVideo); $repairRound++) {
+        $feedback = quality_repair_feedback($seoEval, $aeoEval, $ciType);
         $repairSystem = "CRITICAL: ตอบเป็นภาษาไทยเท่านั้น ห้ามใช้ภาษาจีน เกาหลี ญี่ปุ่น (CJK). English OK for technical terms only.\n" .
-            "คุณเป็น SEO Content Editor ให้แก้ไข JSON เดิมให้ผ่าน SEO Quality Gate แล้วตอบกลับเป็น JSON object เท่านั้น ไม่มี markdown fence และต้องส่งข้อมูลทุก field กลับมาให้ครบ\n" .
+            "คุณเป็น SEO/AEO Content Editor ให้แก้ไข JSON เดิมให้ผ่านข้อบังคับ (Required) ที่ระบุ แล้วตอบกลับเป็น JSON object เท่านั้น ไม่มี markdown fence และต้องส่งข้อมูลทุก field กลับมาให้ครบ\n" .
             "SEO Checklist Requirements:\n" . seo_contract_hints($ciType) . "\n" .
-            "ห้ามเปลี่ยนสาระสำคัญของเนื้อหาโดยไม่จำเป็น และห้ามลบ field เดิมที่ผ่านแล้ว";
-        $repairUser = "เนื้อหานี้ยังไม่ผ่าน SEO Quality Gate ให้แก้เฉพาะข้อที่ติดต่อไปนี้ แล้วส่ง JSON ฉบับสมบูรณ์กลับมา:\n{$feedback}\n\nJSON ปัจจุบัน:\n" .
+            "AEO Checklist Requirements:\n" . aeo_generation_requirements() . "\n" .
+            "ห้ามเปลี่ยน Topic, facts หรือสาระสำคัญโดยไม่จำเป็น และห้ามลบ field เดิมที่ผ่านแล้ว";
+        $repairUser = "เนื้อหานี้ยังไม่ผ่านข้อบังคับ SEO/AEO ให้แก้เฉพาะข้อที่ติดต่อไปนี้ แล้วส่ง JSON ฉบับสมบูรณ์กลับมา:\n{$feedback}\n\nJSON ปัจจุบัน:\n" .
             json_encode($mainData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
         try {
@@ -3054,6 +3044,7 @@ if ($action === 'generate-article') {
                     : json_encode($sd, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES))
                 : null;
             $art = [
+                'tone' => !$isVideo ? $articleTone : null,
                 'title' => $artTitle,
                 'excerpt' => $artExcerpt,
                 'html' => $fullHtml,
@@ -3071,84 +3062,11 @@ if ($action === 'generate-article') {
                 'structured_data' => $structuredData,
                 'og_image' => $mainData['og_image'] ?? '',
             ];
-            $seoEval = seo_evaluate([
-                'type' => $ciType, 'title' => $artTitle, 'seo_title' => $art['seo_title'],
-                'slug' => $art['slug'], 'meta_description' => $art['meta_description'],
-                'meta_keywords' => $art['meta_keywords'], 'structured_data' => $art['structured_data'],
-                'og_image' => $art['og_image'], 'article_content' => $art,
-                'research_brief' => $researchBrief,
-            ]);
+            // ประเมินใหม่ครบทุกข้อทั้ง SEO และ AEO หลัง repair
+            $seoEval = seo_evaluate($evalItem());
+            $aeoEval = aeo_evaluate($evalItem());
         } catch (Throwable $repairError) {
-            error_log('[brand-content seo-repair] attempt=' . ($seoAttempt + 1) . ' error: ' . $repairError->getMessage());
-            break;
-        }
-    }
-    // AEO repair runs after SEO repair, then SEO is re-evaluated because an AEO edit
-    // can change the article body/structured data and therefore affect SEO.
-    $aeoEval = aeo_evaluate([
-        'type' => $ciType,
-        'title' => $artTitle,
-        'seo_title' => $art['seo_title'],
-        'meta_description' => $art['meta_description'],
-        'meta_keywords' => $art['meta_keywords'],
-        'structured_data' => $art['structured_data'],
-        'article_content' => $art,
-        'research_brief' => $researchBrief,
-    ]);
-
-    for ($aeoAttempt = 1; $aeoAttempt < SEO_GEN_MAX_ATTEMPTS && aeo_gate_status($aeoEval) !== 'passed'; $aeoAttempt++) {
-        $aeoIssues = array_values(array_filter($aeoEval['rules'], static fn(array $r): bool => in_array($r['status'] ?? '', ['failed', 'needs_improvement'], true)));
-        usort($aeoIssues, static fn(array $a, array $b): int => ($b['weight'] ?? 0) <=> ($a['weight'] ?? 0));
-        $feedback = implode("\n", array_map(
-            static fn(array $r): string => '- [' . ($r['key'] ?? 'rule') . '] ' . ($r['status'] ?? '') . "\n  message: " . ($r['message'] ?? ''),
-            $aeoIssues
-        ));
-        $repairSystem = "CRITICAL: ตอบเป็นภาษาไทยเท่านั้น ห้ามใช้ภาษาจีน เกาหลี ญี่ปุ่น (CJK). English OK for technical terms only.\n" .
-            "คุณเป็น AEO Content Editor ให้แก้ไข JSON เดิมให้ผ่าน AEO Quality Gate แล้วตอบกลับเป็น JSON object เท่านั้น ไม่มี markdown fence และต้องส่งข้อมูลทุก field กลับมาให้ครบ\n" .
-            "AEO Checklist Requirements:\n" . aeo_generation_requirements() . "\n" .
-            "ห้ามเปลี่ยน Topic, facts หรือสาระสำคัญโดยไม่จำเป็น และห้ามลบ field เดิมที่ผ่านแล้ว";
-        $repairUser = "เนื้อหานี้ยังไม่ผ่าน AEO Quality Gate ให้แก้เฉพาะข้อที่ระบุ แล้วส่ง JSON ฉบับสมบูรณ์กลับมา:\n{$feedback}\n\nJSON ปัจจุบัน:\n" .
-            json_encode($mainData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        try {
-            $aeoRaw = $aiCall($repairSystem, $repairUser);
-            $aeoData = json_decode($aeoRaw, true);
-            if (!is_array($aeoData) && preg_match('/\{.*\}/s', $aeoRaw, $am)) $aeoData = json_decode($am[0], true);
-            if (!is_array($aeoData)) break;
-            $mainData = array_replace_recursive($mainData, $sanitizeArr($aeoData));
-            // Keep AEO repair from reintroducing scripts for unselected platforms.
-            $repairedScripts = is_array($mainData['scripts'] ?? null) ? $mainData['scripts'] : [];
-            $mainData['scripts'] = array_intersect_key($repairedScripts, array_flip($scriptPlatforms));
-            $artTitle = $mainData['title'] ?? $artTitle;
-            $artExcerpt = $mainData['excerpt'] ?? $artExcerpt;
-            $aiHtml = $mainData['full_html'] ?? '';
-            if (!empty(trim(strip_tags($aiHtml)))) {
-                $fullHtml = '<article class="prose prose-sm max-w-none"><h1>' . htmlspecialchars($artTitle) . '</h1>';
-                if ($artExcerpt) $fullHtml .= '<p class="lead text-muted-foreground italic">' . htmlspecialchars($artExcerpt) . '</p>';
-                $fullHtml .= $aiHtml . '</article>';
-            }
-            $sd = $mainData['structured_data'] ?? null;
-            $faq = $mainData['structured_data_faq'] ?? null;
-            $structuredData = is_array($sd)
-                ? (($faq && is_array($faq) && !empty($faq['mainEntity'])) ? json_encode([$sd, $faq], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : json_encode($sd, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES))
-                : null;
-            $art = [
-                'tone' => !$isVideo ? $articleTone : null,
-                'title' => $artTitle, 'excerpt' => $artExcerpt, 'html' => $fullHtml,
-                'headlines' => $mainData['headlines'] ?? [], 'scripts' => $mainData['scripts'] ?? [],
-                'script_sections' => $mainData['script_sections'] ?? [], 'visuals' => $mainData['visuals'] ?? [],
-                'hashtags' => $mainData['hashtags'] ?? [], 'seo_title' => $mainData['seo_title'] ?? $artTitle,
-                'slug' => $mainData['slug'] ?? '', 'meta_description' => $mainData['meta_description'] ?? $artExcerpt,
-                'meta_keywords' => $researchMetaKeywords !== '' ? $researchMetaKeywords : trim((string)($mainData['meta_keywords'] ?? '')),
-                'structured_data' => $structuredData, 'og_image' => $mainData['og_image'] ?? '',
-            ];
-            $aeoEval = aeo_evaluate([
-                'type' => $ciType, 'title' => $artTitle, 'seo_title' => $art['seo_title'],
-                'meta_description' => $art['meta_description'], 'meta_keywords' => $art['meta_keywords'],
-                'structured_data' => $art['structured_data'], 'article_content' => $art,
-                'research_brief' => $researchBrief,
-            ]);
-        } catch (Throwable $aeoError) {
-            error_log('[brand-content aeo-repair] attempt=' . ($aeoAttempt + 1) . ' error: ' . $aeoError->getMessage());
+            error_log('[brand-content quality-repair] round=' . ($repairRound + 1) . ' error: ' . $repairError->getMessage());
             break;
         }
     }
@@ -3157,18 +3075,14 @@ if ($action === 'generate-article') {
     $finalScripts = is_array($mainData['scripts'] ?? null) ? $mainData['scripts'] : [];
     $mainData['scripts'] = array_intersect_key($finalScripts, array_flip($scriptPlatforms));
 
-    // Final SEO re-check after AEO repairs; both gates must pass.
-    $seoEval = seo_evaluate([
-        'type' => $ciType, 'title' => $artTitle, 'seo_title' => $art['seo_title'], 'slug' => $art['slug'],
-        'meta_description' => $art['meta_description'], 'meta_keywords' => $art['meta_keywords'],
-        'structured_data' => $art['structured_data'], 'og_image' => $art['og_image'],
-        'article_content' => $art, 'research_brief' => $researchBrief,
-    ]);
     $seoGate = seo_gate_status($seoEval);
     $aeoGate = aeo_gate_status($aeoEval);
-    $seoPassed = $seoGate === 'passed';
-    $aeoPassed = $aeoGate === 'passed';
-    $generationStatus = ($seoPassed && $aeoPassed) ? 'success' : 'failed';
+    $qualityStatus = quality_required_status($seoEval, $aeoEval, $ciType);
+    // วิดีโอไม่ถูกตัดสินด้วย SEO/AEO — ผลประเมินคืนไปแสดงเป็นข้อมูลเท่านั้น
+    $qualityPassed = $isVideo || $qualityStatus['status'] === 'passed';
+    $seoPassed = $isVideo || $seoGate === 'passed';
+    $aeoPassed = $isVideo || $aeoGate === 'passed';
+    $generationStatus = $qualityPassed ? 'success' : 'failed';
     // Quality is marked only after the final SEO/AEO checks pass. The
     // timestamp is stored inside the same article_content snapshot as the
     // quality result, so a later content edit can remove both and return to
@@ -3176,26 +3090,10 @@ if ($action === 'generate-article') {
     if ($generationStatus === 'success') {
         $art['quality_checked_at'] = dbNow($db);
     }
-    // SEO หรือ AEO ไม่ผ่านหลัง repair ครบ max attempts → revision
-    $finalStatus = ($seoPassed && $aeoPassed) ? null : 'revision';
-    // รายการ required rule ที่ fail (key, message, expected) — ให้ผู้ใช้เห็นสาเหตุจริง
-    $failedRequired = array_values(array_map(
-        static fn(array $r): array => [
-            'key' => $r['key'] ?? '',
-            'message' => $r['message'] ?? '',
-            'expected' => seo_contract_pass_condition($ciType, $r['key'] ?? ''),
-            'quality' => 'SEO',
-        ],
-        array_filter($seoEval['rules'], static fn(array $r): bool => ($r['tier'] ?? '') === 'required' && ($r['status'] ?? '') === 'failed')
-    ));
-    foreach (array_filter($aeoEval['rules'], static fn(array $r): bool => ($r['tier'] ?? '') === 'required' && ($r['status'] ?? '') === 'failed') as $r) {
-        $failedRequired[] = [
-            'key' => $r['key'] ?? '',
-            'message' => $r['message'] ?? '',
-            'expected' => 'AEO: ต้องผ่านกฎ ' . ($r['key'] ?? ''),
-            'quality' => 'AEO',
-        ];
-    }
+    // Required ยังไม่ผ่านหลัง repair ครบรอบ → revision (ผู้ใช้แก้เองแล้วกด "ตรวจ SEO/AEO ใหม่")
+    $finalStatus = $qualityPassed ? null : 'revision';
+    // รายการ required rule ที่ fail (quality, key, message, expected) — ให้ผู้ใช้เห็นสาเหตุจริง
+    $failedRequired = $isVideo ? [] : $qualityStatus['failed_required'];
     // Checkpoint ปลายทาง: เช็ค cancel_requested อีกครั้งทันทีก่อนเขียนผลลัพธ์ AI ที่เพิ่งได้มา
     // ลง content_items — ถ้าถูกยกเลิกระหว่างรอ AI Gateway (checkpoint ต้นทางเช็คไม่ทัน)
     // ให้ข้าม UPDATE ทั้งหมดและคืน {cancelled:true} แทน error เพราะ AI ทำงานเสร็จจริงแล้ว

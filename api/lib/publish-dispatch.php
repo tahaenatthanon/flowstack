@@ -162,31 +162,109 @@ function publish_social_final_text(array $post): string {
 }
 
 /**
- * Final publish gate shared by immediate publish, queued publish and scheduled publish.
- * Article SEO/AEO is the only content-level Quality gate — Platform Script has no
- * SEO/AEO gate of its own (removed; see openspec/changes/archive/.../remove-script-seo-aeo).
- * Approval and platform selection are always hard requirements.
+ * ผ่าน/ไม่ผ่านของ Quality (SEO+AEO) — `failed` เฉพาะเมื่อมี Required rule ที่ `failed`
+ * คะแนนรวม, `critical`, `needs_improvement` และ Recommended rule ไม่ใช้ตัดสิน
+ * ใช้ร่วมกันทั้งตอน Generate และใน quality_required_gate() (change quality-required-tiers)
+ *
+ * @return array{status:string, failed_required:list<array{quality:string,key:string,message:string,expected:string}>}
  */
-function content_quality_gate_check(PDO $db, string $tenantId, array $content, ?array $researchBrief = null): array {
-    $articleSnapshot = $content['article_content'] ?? null;
-    if (is_string($articleSnapshot)) $articleSnapshot = json_decode($articleSnapshot, true);
-    if (!is_array($articleSnapshot) || empty($articleSnapshot['quality_checked_at'])) {
-        return ['blocked' => true, 'reason' => 'Quality gate: Content นี้ยังไม่มีผล Quality ของเวอร์ชันปัจจุบัน กรุณาตรวจ Quality ใหม่ก่อน Request Approval'];
+function quality_required_status(array $seoEval, array $aeoEval, string $type = 'article'): array {
+    $failed = [];
+    foreach (['SEO' => $seoEval, 'AEO' => $aeoEval] as $quality => $eval) {
+        foreach (($eval['rules'] ?? []) as $r) {
+            if (($r['tier'] ?? 'required') !== 'required' || ($r['status'] ?? '') !== 'failed') continue;
+            $key = (string)($r['key'] ?? '');
+            $failed[] = [
+                'quality' => $quality,
+                'key' => $key,
+                'message' => (string)($r['message'] ?? ''),
+                'expected' => $quality === 'SEO' ? seo_contract_pass_condition($type, $key) : 'AEO: ต้องผ่านกฎ ' . $key,
+            ];
+        }
     }
-    $selected = publish_content_platforms($content);
-    $webPlatforms = array_values(array_diff($selected, SCRIPT_PLATFORMS));
-    $brief = $researchBrief ?? (is_array($content['research_brief'] ?? null) ? $content['research_brief'] : null);
-
-    if ($webPlatforms) {
-        $seo = seo_evaluate(array_merge($content, ['research_brief' => $brief]));
-        if (seo_gate_status($seo) !== 'passed') return ['blocked' => true, 'reason' => 'Article SEO gate: Quality ยังไม่ผ่าน', 'seo' => $seo];
-        $aeo = aeo_evaluate(array_merge($content, ['research_brief' => $brief]));
-        if (aeo_gate_status($aeo) !== 'passed') return ['blocked' => true, 'reason' => 'Article AEO gate: Quality ยังไม่ผ่าน', 'seo' => $seo, 'aeo' => $aeo];
-    }
-    // Script/social platform (TikTok, Facebook ฯลฯ) ไม่มี Quality gate ของตัวเองอีกต่อไป
-    return ['blocked' => false, 'reason' => null];
+    return ['status' => $failed ? 'failed' : 'passed', 'failed_required' => $failed];
 }
 
+/**
+ * ตอน generate ควรเรียก AI repair ไหม — เฉพาะเมื่อมี Required rule ที่ `failed` และไม่ใช่วิดีโอ
+ * (needs_improvement / Recommended / pending / n/a ไม่กระตุ้น repair)
+ */
+function quality_should_repair(array $seoEval, array $aeoEval, bool $isVideo): bool {
+    return !$isVideo && quality_required_status($seoEval, $aeoEval)['status'] === 'failed';
+}
+
+/**
+ * feedback สำหรับ AI repair — เฉพาะ Required rule ที่ `failed` ของทั้ง SEO และ AEO
+ * แต่ละข้อมี key, status, expected (เกณฑ์ Required) และ message (มีค่าที่วัดได้จริง)
+ */
+function quality_repair_feedback(array $seoEval, array $aeoEval, string $type = 'article'): string {
+    $lines = [];
+    foreach (quality_required_status($seoEval, $aeoEval, $type)['failed_required'] as $f) {
+        $lines[] = "- [{$f['quality']}:{$f['key']}] failed\n  expected: {$f['expected']}\n  actual: {$f['message']}";
+    }
+    return implode("\n", $lines);
+}
+
+/**
+ * Quality Gate กลาง — ตัวเดียวที่ใช้ตัดสิน Quality ตอนขออนุมัติ, เผยแพร่ทันที/ตั้งเวลา และ cron
+ * ลำดับ: วิดีโอข้าม → marker quality_checked_at (ตรวจเวอร์ชันนี้แล้วหรือยัง) → สวิตช์รวม
+ * seo_gate_enabled ของ tenant → ประเมิน SEO/AEO ใหม่จาก $content (ข้อมูลที่อ่านจาก DB ในคำขอนั้น)
+ * ไม่ใช้ seo_score/aeo_score หรือผล recheck เดิมเป็นตัวตัดสิน และไม่อ่าน seo_gate_min_score
+ *
+ * @param bool $evaluateQuality false = เช็คแค่ marker (เช่น เลือกแต่ platform โซเชียล)
+ * @param bool $requireMarker   false = ข้ามการเช็ค marker (ผู้เรียกเช็คไปแล้ว)
+ * @return array{blocked:bool, reason:?string, seo?:array, aeo?:array, failed_required?:list}
+ */
+function quality_required_gate(PDO $db, string $tenantId, array $content, ?array $researchBrief = null, bool $evaluateQuality = true, bool $requireMarker = true): array {
+    if (strtolower(trim((string)($content['type'] ?? ''))) === 'video') {
+        return ['blocked' => false, 'reason' => null];
+    }
+    if ($requireMarker) {
+        $articleSnapshot = $content['article_content'] ?? null;
+        if (is_string($articleSnapshot)) $articleSnapshot = json_decode($articleSnapshot, true);
+        if (!is_array($articleSnapshot) || empty($articleSnapshot['quality_checked_at'])) {
+            return ['blocked' => true, 'reason' => 'Quality gate: ยังไม่ได้ตรวจ SEO/AEO ของเวอร์ชันนี้ กรุณาบันทึกแล้วกด "ตรวจ SEO/AEO ใหม่" ก่อน'];
+        }
+    }
+    if (!$evaluateQuality) return ['blocked' => false, 'reason' => null];
+
+    $cfgStmt = $db->prepare('SELECT seo_gate_enabled FROM content_global_settings WHERE tenant_id=?');
+    $cfgStmt->execute([$tenantId]);
+    if ((int)($cfgStmt->fetchColumn() ?: 0) !== 1) return ['blocked' => false, 'reason' => null];
+
+    $brief = $researchBrief ?? (is_array($content['research_brief'] ?? null) ? $content['research_brief'] : null);
+    $item = array_merge($content, ['research_brief' => $brief]);
+    $seo = seo_evaluate($item);
+    $aeo = aeo_evaluate($item);
+    $status = quality_required_status($seo, $aeo, (string)($content['type'] ?? 'article'));
+    if ($status['status'] === 'passed') {
+        return ['blocked' => false, 'reason' => null, 'seo' => $seo, 'aeo' => $aeo, 'failed_required' => []];
+    }
+    $groups = array_values(array_unique(array_column($status['failed_required'], 'quality')));
+    $lines = array_map(static fn(array $f): string => "• {$f['quality']}: {$f['message']}", $status['failed_required']);
+    return [
+        'blocked' => true,
+        'reason' => 'Article ' . implode('/', $groups) . ' gate: ไม่ผ่านข้อบังคับ ' . count($lines) . " ข้อ\n" . implode("\n", $lines),
+        'seo' => $seo,
+        'aeo' => $aeo,
+        'failed_required' => $status['failed_required'],
+    ];
+}
+
+/**
+ * Quality gate ตอนขออนุมัติ — เช็ค marker ทุกคอนเทนต์ (ยกเว้นวิดีโอ) และประเมิน SEO/AEO
+ * เฉพาะเมื่อเลือก platform เว็บ/CMS (platform โซเชียลไม่มี Quality gate ของตัวเอง)
+ */
+function content_quality_gate_check(PDO $db, string $tenantId, array $content, ?array $researchBrief = null): array {
+    $webPlatforms = array_values(array_diff(publish_content_platforms($content), SCRIPT_PLATFORMS));
+    return quality_required_gate($db, $tenantId, $content, $researchBrief, (bool)$webPlatforms);
+}
+
+/**
+ * Final publish gate shared by immediate publish, queued publish and scheduled publish.
+ * Approval and platform selection are always hard requirements; Quality ใช้ quality_required_gate()
+ * (ประเมิน SEO/AEO เฉพาะ platform เว็บ/CMS — platform โซเชียลไม่มี Quality gate)
+ */
 function final_publish_gate_check(PDO $db, string $tenantId, array $content, string $platform, ?array $researchBrief = null): array {
     $platform = strtolower(trim($platform));
     $selected = publish_content_platforms($content);
@@ -201,65 +279,29 @@ function final_publish_gate_check(PDO $db, string $tenantId, array $content, str
     if (($content['status'] ?? '') !== 'approved' || empty($content['approved_at'])) {
         return ['blocked' => true, 'reason' => 'Approval gate: คอนเทนต์นี้ยังไม่ผ่านการอนุมัติ'];
     }
-    // A publish/schedule action must use a Quality result from the current
-    // Content snapshot. The marker is persisted after the final generation
-    // checks. If it is missing, the Content was generated/edited without a
-    // current Quality result and must be rechecked.
-    $articleSnapshot = $content['article_content'] ?? null;
-    if (is_string($articleSnapshot)) {
-        $articleSnapshot = json_decode($articleSnapshot, true);
-    }
-    if (!is_array($articleSnapshot) || empty($articleSnapshot['quality_checked_at'])) {
-        return ['blocked' => true, 'reason' => 'Quality gate: Content นี้ยังไม่มีผล Quality ของเวอร์ชันปัจจุบัน กรุณาตรวจ Quality ใหม่ก่อนเผยแพร่/ตั้งเวลา'];
-    }
+    // Marker ของเวอร์ชันปัจจุบัน — การแก้เนื้อหาล้าง marker ทุกครั้ง จึงต้องตรวจใหม่ก่อนเผยแพร่/ตั้งเวลา
+    $markerGate = quality_required_gate($db, $tenantId, $content, $researchBrief, false);
+    if ($markerGate['blocked']) return $markerGate;
+
     if (!in_array($platform, $selected, true)) {
         return ['blocked' => true, 'reason' => "Platform gate: {$platform} ไม่ได้ถูกเลือกไว้ใน Content Item"];
     }
 
-    $brief = $researchBrief;
-    if ($brief === null && !empty($content['research_brief']) && is_array($content['research_brief'])) {
-        $brief = $content['research_brief'];
-    }
-
-    // Apply Quality only to the target platform/type: web targets use Article SEO/AEO.
-    // Script/social platforms (TikTok, Facebook ฯลฯ) ไม่มี Quality gate ของตัวเองอีกต่อไป —
-    // ผ่าน Approval + Platform gate ด้านบนแล้วก็เผยแพร่ได้ทันที ไม่ถูกบล็อกด้วย Article Quality
+    // Script/social platforms (TikTok, Facebook ฯลฯ) ไม่มี Quality gate ของตัวเอง —
+    // ผ่าน Approval + Platform gate ด้านบนแล้วก็เผยแพร่ได้ทันที
     if (in_array($platform, SCRIPT_PLATFORMS, true)) {
         return ['blocked' => false, 'reason' => null];
     }
 
-    // Web/CMS targets use Article SEO/AEO.
-    $seoGate = seo_gate_check($db, $tenantId, array_merge($content, ['research_brief' => $brief]));
-    if ($seoGate['blocked']) {
-        return [
-            'blocked' => true,
-            'reason' => 'Article SEO gate: ' . ($seoGate['reason'] ?? 'ไม่ผ่านเกณฑ์ SEO'),
-            'article' => ['seo' => $seoGate],
-        ];
-    }
-
-    $cfgStmt = $db->prepare('SELECT seo_gate_enabled FROM content_global_settings WHERE tenant_id=?');
-    $cfgStmt->execute([$tenantId]);
-    $gateEnabled = (int)($cfgStmt->fetchColumn() ?: 0) === 1;
-    $articleAeo = aeo_evaluate(array_merge($content, ['research_brief' => $brief]));
-    if ($gateEnabled && aeo_gate_status($articleAeo) !== 'passed') {
-        $fails = array_values(array_filter($articleAeo['rules'] ?? [], static fn(array $r): bool => ($r['status'] ?? '') === 'failed'));
-        $reason = $fails
-            ? implode("\\n", array_map(static fn(array $r): string => '• ' . ($r['message'] ?? ''), $fails))
-            : "คะแนน AEO {$articleAeo['score']}/100 ต่ำกว่าเกณฑ์ผ่าน";
-        return [
-            'blocked' => true,
-            'reason' => 'Article AEO gate: ' . $reason,
-            'article' => ['seo' => $seoGate, 'aeo' => $articleAeo],
-        ];
-    }
-
+    // Web/CMS targets: ประเมิน SEO/AEO ใหม่ด้วย gate กลาง (marker เช็คไปแล้วด้านบน)
+    $qualityGate = quality_required_gate($db, $tenantId, $content, $researchBrief, true, false);
     return [
-        'blocked' => false,
-        'reason' => null,
-        'article' => ['seo' => $seoGate, 'aeo' => $articleAeo],
+        'blocked' => $qualityGate['blocked'],
+        'reason' => $qualityGate['reason'],
+        'article' => ['seo' => $qualityGate['seo'] ?? null, 'aeo' => $qualityGate['aeo'] ?? null],
     ];
 }
+
 
 function publish_content_platforms(array $content): array {
     $raw = $content['platforms'] ?? null;

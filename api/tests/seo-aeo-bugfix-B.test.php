@@ -91,11 +91,11 @@ function makeResearchBrief(): array {
 // B-TC12 — AEO repair → evaluate ใหม่ คะแนนเปลี่ยนตามเนื้อหาใหม่ และผ่านได้
 // ═══════════════════════════════════════════════════════════════════════════
 {
-    // ก่อน repair: filler intro ไม่ตอบหัวข้อ + ไม่มี Q&A
+    // ก่อน repair: ย่อหน้าแรกสั้นไม่ตอบหัวข้อ (direct_answer = Required failed) + ไม่มี Q&A
     $bad = makeGoodArticle();
     $bad['article_content'] = json_encode([
         'title' => $bad['title'],
-        'html' => '<p>สวัสดีครับ วันนี้เราจะมาพูดถึงเรื่องทั่วไป</p>',
+        'html' => '<p>สวัสดีครับ</p>',
     ]);
     $before = aeo_evaluate($bad);
     $beforeGate = aeo_gate_status($before);

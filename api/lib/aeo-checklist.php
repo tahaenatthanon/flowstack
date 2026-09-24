@@ -4,21 +4,18 @@
  * No DB/network access. Evaluates the exact content object produced by generation.
  */
 
-// Quality gate policy: 80+ is publishable when all required rules pass.
-// 70–79 is needs_improvement; <70 is failed.
-const AEO_GATE_PASS_SCORE = 80;
-const AEO_GATE_WARN_SCORE = 70;
+// Quality gate policy: ผ่าน/ไม่ผ่านตัดสินจาก Required rule ที่ `failed` เท่านั้น — คะแนนแสดงเป็นข้อมูล
 const AEO_MIN_ANSWER_CHARS = 40;
 const AEO_MIN_QA = 2;
 
 const AEO_WEIGHTS = [
     'direct_answer'       => ['weight' => 15, 'tier' => 'required'],
-    'search_intent'       => ['weight' => 10, 'tier' => 'required'],
-    'qa_structure'        => ['weight' => 12, 'tier' => 'required'],
-    'heading_questions'   => ['weight' => 10, 'tier' => 'required'],
-    'snippet_readiness'   => ['weight' => 12, 'tier' => 'required'],
-    'paa_coverage'        => ['weight' => 10, 'tier' => 'required'],
-    'entity_clarity'      => ['weight' => 10, 'tier' => 'required'],
+    'search_intent'       => ['weight' => 10, 'tier' => 'recommended'],
+    'qa_structure'        => ['weight' => 12, 'tier' => 'recommended'],
+    'heading_questions'   => ['weight' => 10, 'tier' => 'recommended'],
+    'snippet_readiness'   => ['weight' => 12, 'tier' => 'recommended'],
+    'paa_coverage'        => ['weight' => 10, 'tier' => 'recommended'],
+    'entity_clarity'      => ['weight' => 10, 'tier' => 'recommended'],
     'structured_data'     => ['weight' => 11, 'tier' => 'required'],
 ];
 
@@ -49,13 +46,11 @@ function aeo_normalized_score(array $rules): int {
     return $possible > 0 ? (int)round(100 * $earned / $possible) : 0;
 }
 
+/** ผ่าน/ไม่ผ่าน: `failed` เฉพาะเมื่อมี Required rule ที่ `failed` — คะแนนไม่ใช้ตัดสิน */
 function aeo_gate_status(array $eval): string {
     foreach (($eval['rules'] ?? []) as $rule) {
         if (($rule['tier'] ?? 'required') === 'required' && ($rule['status'] ?? '') === 'failed') return 'failed';
     }
-    $score = (int)($eval['score'] ?? 0);
-    if ($score < AEO_GATE_WARN_SCORE) return 'failed';
-    if ($score < AEO_GATE_PASS_SCORE) return 'needs_improvement';
     return 'passed';
 }
 

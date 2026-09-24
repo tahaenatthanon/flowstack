@@ -156,46 +156,46 @@ function tally(bool $pass): void { global $PASS, $FAIL; $pass ? $PASS++ : $FAIL+
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// TC05 — SEO 79
+// TC05 — SEO 79 (quality-required-tiers: คะแนนไม่ใช้ตัดสิน → passed)
 // ═══════════════════════════════════════════════════════════════════════════
 {
     $eval = ['score' => 79, 'rules' => allPassedRules(['seo_title', 'slug', 'h1'])];
     $gate = seo_gate_status($eval);
-    $pass = $gate === 'needs_improvement';
-    record('TC05', 'SEO score = 79', 'needs_improvement', $gate, $pass);
+    $pass = $gate === 'passed';
+    record('TC05', 'SEO score = 79 ไม่มี required failed', 'passed', $gate, $pass);
     tally($pass);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// TC06 — AEO 79
+// TC06 — AEO 79 (quality-required-tiers: คะแนนไม่ใช้ตัดสิน → passed)
 // ═══════════════════════════════════════════════════════════════════════════
 {
     $eval = ['score' => 79, 'rules' => allPassedRules(['direct_answer', 'qa_structure'])];
     $gate = aeo_gate_status($eval);
-    $pass = $gate === 'needs_improvement';
-    record('TC06', 'AEO score = 79', 'needs_improvement', $gate, $pass);
+    $pass = $gate === 'passed';
+    record('TC06', 'AEO score = 79 ไม่มี required failed', 'passed', $gate, $pass);
     tally($pass);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// TC07 — SEO ต่ำกว่า 70
+// TC07 — SEO ต่ำกว่า 70 (quality-required-tiers: ไม่มี required failed → passed)
 // ═══════════════════════════════════════════════════════════════════════════
 {
     $eval = ['score' => 69, 'rules' => allPassedRules(['seo_title', 'slug'])];
     $gate = seo_gate_status($eval);
-    $pass = $gate === 'failed';
-    record('TC07', 'SEO score = 69 (<70)', 'failed', $gate, $pass);
+    $pass = $gate === 'passed';
+    record('TC07', 'SEO score = 69 ไม่มี required failed', 'passed', $gate, $pass);
     tally($pass);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// TC08 — AEO ต่ำกว่า 70
+// TC08 — AEO ต่ำกว่า 70 (quality-required-tiers: ไม่มี required failed → passed)
 // ═══════════════════════════════════════════════════════════════════════════
 {
     $eval = ['score' => 50, 'rules' => allPassedRules(['direct_answer'])];
     $gate = aeo_gate_status($eval);
-    $pass = $gate === 'failed';
-    record('TC08', 'AEO score = 50 (<70)', 'failed', $gate, $pass);
+    $pass = $gate === 'passed';
+    record('TC08', 'AEO score = 50 ไม่มี required failed', 'passed', $gate, $pass);
     tally($pass);
 }
 
@@ -256,6 +256,7 @@ function tally(bool $pass): void { global $PASS, $FAIL; $pass ? $PASS++ : $FAIL+
     // before: filler intro (no direct answer) + no headings
     $bad = makeGoodArticle();
     $bad['article_content'] = json_encode(['title' => $bad['title'], 'html' => '<p>สวัสดีครับ วันนี้เราจะมาพูดถึงเรื่องทั่วไป</p>']);
+    $bad['structured_data'] = ''; // AEO required (structured_data) ตก
     $before = aeo_evaluate($bad);
     $beforeGate = aeo_gate_status($before);
 
@@ -347,7 +348,7 @@ function tally(bool $pass): void { global $PASS, $FAIL; $pass ? $PASS++ : $FAIL+
     // ถ้า research rules ถูกนับเป็น 0 แต่รวมใน denominator (34 weight) score จะ ≈ 65 (failed)
     // จริงได้ 98 → พิสูจน์ว่า normalize ตัด n/a ออกจาก denominator (ไม่ scorer inversion)
     $researchExcludedFromDenominator = $sumApplicableWeight < 100;
-    $noInversion = $seo['score'] >= SEO_GATE_PASS_SCORE;
+    $noInversion = $seo['score'] >= 80; // คะแนนเป็นข้อมูล — ใช้เช็ค normalization เท่านั้น
     $pass = $researchRulesNA && $researchExcludedFromDenominator && $noInversion;
     record('TC16', 'ไม่มี Research → คะแนน normalize จาก applicable rules',
         'research rules n/a, ไม่ scorer inversion, score >= 80',

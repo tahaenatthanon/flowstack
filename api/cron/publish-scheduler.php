@@ -142,17 +142,8 @@ foreach ($entries as $entry) {
             echo "  [{$queueId}] blocked by approval gate\n";
             continue;
         }
-
-        // ประเมินด้วยเนื้อหาที่จะเผยแพร่จริง (รวม content_override ถ้ามี)
-        $gateItem['caption']         = $content['caption'];
-        $gateItem['article_content'] = $content['article_content'];
-        $gate = seo_gate_check($db, $entry['tenant_id'], $gateItem);
-        if ($gate['blocked']) {
-            $db->prepare("UPDATE content_publish_queue SET status='failed', error_msg=? WHERE id=?")
-               ->execute([mb_substr('SEO gate: ' . $gate['reason'], 0, 500), $queueId]);
-            echo "  [{$queueId}] blocked by SEO gate\n";
-            continue;
-        }
+        // Quality (SEO/AEO) ตัดสินใน Final Publish Gate ด้านล่างด้วย Quality Gate กลางตัวเดียว
+        // (quality_required_gate — ประเมินเฉพาะ platform เว็บ/CMS)
     } else {
         $db->prepare("UPDATE content_publish_queue SET status='failed', error_msg=? WHERE id=?")
            ->execute(['Final Publish Gate: ไม่พบ Content Item ต้นฉบับ', $queueId]);

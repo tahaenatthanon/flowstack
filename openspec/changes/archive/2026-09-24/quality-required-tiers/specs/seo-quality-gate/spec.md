@@ -1,8 +1,4 @@
-## Purpose
-
-กำหนด SEO/AEO Quality Gate — ผ่าน/ไม่ผ่านตัดสินจาก Required rule ที่ `failed` เท่านั้น (คะแนนรวมและ `critical` แสดงเป็นข้อมูล ไม่ใช้ตัดสิน), tier แบ่งเป็น required/recommended/informational, AI Repair loop รวม SEO+AEO ไม่เกิน 1 รอบ (`QUALITY_REPAIR_MAX_ROUNDS`), และการแสดงผลคะแนนรวม/รายข้อ — ตัดสินใจแบบเดียวกับ Quality Gate กลาง (ดู `quality-required-gate`) (แก้ไขโดย change `quality-required-tiers`)
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: SEO Quality Gate กำหนดสถานะจากคะแนนรวมและ critical rules
 ระบบ SHALL มีฟังก์ชัน `seo_gate_status(array $eval): string` และ `aeo_gate_status(array $eval): string` ที่คืน `passed` หรือ `failed`
@@ -27,13 +23,6 @@
 - **WHEN** recommended rule เป็น `needs_improvement`/`failed` แต่ required rules ไม่ `failed`
 - **THEN** gate เป็น `passed` (recommended แนะนำเท่านั้น)
 
-### Requirement: แยก SEO Score ออกจาก SEO Gate
-ระบบ SHALL แยกความหมายของ `score` (คะแนนคุณภาพรวม — informational สำหรับแสดงผล) ออกจาก `gate` (ตัวตัดสินว่า Content ผ่านข้อกำหนด) โดยการมีคะแนนสูง SHALL ไม่ทำให้ Content ผ่าน หากยังมี required rule ที่ `failed`
-
-#### Scenario: คะแนนสูงแต่มี rule failed ไม่ถือว่าผ่าน
-- **WHEN** คะแนนรวม ≥ 90 แต่มี required rule `failed`
-- **THEN** gate เป็น `failed` แม้ score สูง และ generation ไม่ถือเป็น success
-
 ### Requirement: Rule tier กำหนดว่า rule ใด block generation
 ระบบ SHALL กำหนด tier ของแต่ละ rule ผ่าน weight catalog (`SEO_WEIGHTS`, `AEO_WEIGHTS`) เป็น 3 ค่า:
 - `required`: `failed` แล้วบล็อก
@@ -54,21 +43,6 @@
 #### Scenario: research rules เป็น recommended
 - **WHEN** อ่าน tier ของ `topic_coverage`, `paa_questions` และ `content_gap`
 - **THEN** ทั้งสามข้อเป็น `recommended`
-
-### Requirement: critical rules มีชุดที่กำหนดแน่นอน
-ระบบ SHALL กำหนด critical rules เป็น {`seo_title`, `meta_description`, `h1`, `content_length`, `primary_keyword_placement`, `structured_data`} และ SHALL เปิดเผยชุดนี้ผ่านรายการน้ำหนัก (weight catalog) เพื่อให้ `seo_gate_status()` และ UI อ้างอิงชุดเดียวกัน
-
-#### Scenario: critical flags อ่านได้จาก weight catalog
-- **WHEN** ผู้เรียกอ่าน weight catalog ของระบบ
-- **THEN** แต่ละข้อมี flag ระบุว่าเป็น critical หรือไม่ และชุด critical ประกอบด้วย 6 ข้อที่กำหนด
-
-### Requirement: บังคับตรวจครบ 15 ข้อและห้ามข้าม
-เมื่อสร้าง Content ระบบ SHALL ประเมินครบทั้ง 15 ข้อทุกครั้ง โดย SHALL ไม่ข้าม checklist และ SHALL ไม่ให้ AI เลือกตรวจเฉพาะบางข้อ และ SHALL ไม่ตั้งกฎใดเป็น `skip` เพียงเพราะเป็น Article หรือ Video
-
-#### Scenario: ผลประเมินมี 15 rule object โดยไม่มี skip
-- **WHEN** `seo_evaluate()` ถูกเรียกด้วย content ที่เป็น article หรือ video
-- **THEN** ผลลัพธ์ `rules` มีครบทั้ง 15 key
-- **AND** ไม่มี rule ใดมี `status = 'skip'`
 
 ### Requirement: AI Repair loop ตรวจใหม่ครบทั้ง 15 ข้อ
 เมื่อ `quality_required_status()` ของผลหลังสร้างเป็น `failed` ระบบ SHALL เรียก AI repair **1 รอบรวม SEO และ AEO** ส่ง feedback เฉพาะ Required rule ที่ `failed` ของทั้งสองชุด แล้ว SHALL ประเมินใหม่ครบทุกข้อทั้ง SEO และ AEO แล้วตัดสินผลครั้งเดียว

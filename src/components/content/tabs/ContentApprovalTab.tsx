@@ -23,8 +23,9 @@ import { useToast } from '@/hooks/use-toast';
 import { useContentItems, contentKeys } from '@/hooks/useContent';
 import { apiFetch } from '@/lib/api';
 import {
-  STATUS_MAP, PLATFORM_MAP, TYPE_MAP, type ContentItem, type SeoChecklistResult,
+  STATUS_MAP, PLATFORM_MAP, TYPE_MAP, requiredFailedRules, type ContentItem, type SeoChecklistResult, type AeoChecklistResult,
 } from '@/components/content/types';
+import QualityChecklist from '@/components/content/QualityChecklist';
 import { parsePlatforms } from '@/lib/contentPlatforms';
 import ContentDetailView from '@/components/content/views/ContentDetailView';
 
@@ -41,8 +42,9 @@ export default function ContentApprovalTab() {
   const [reasonDialog, setReasonDialog] = useState<{ open: boolean; item: ContentItem | null; kind: 'revision' | 'rejected' }>({ open: false, item: null, kind: 'rejected' });
   const [rejectReason, setRejectReason] = useState('');
   const [confirmApprove, setConfirmApprove] = useState<ContentItem | null>(null);
-  // ผลตรวจเกต SEO ของรายการที่กำลังจะอนุมัติ (ดึงเมื่อเปิด dialog)
+  // ผลตรวจ SEO/AEO ของรายการที่กำลังจะอนุมัติ (ดึงเมื่อเปิด dialog)
   const [approveGate, setApproveGate] = useState<SeoChecklistResult | null>(null);
+  const [approveAeo, setApproveAeo] = useState<AeoChecklistResult | null>(null);
   const [approveGateLoading, setApproveGateLoading] = useState(false);
   // Row click opens a read-only detail dialog; null means closed
   const [detailItem, setDetailItem] = useState<ContentItem | null>(null);
@@ -57,18 +59,22 @@ export default function ContentApprovalTab() {
     if (reasonDialog.open && reasonRef.current) autoResizeReason(reasonRef.current);
   }, [reasonDialog.open]);
 
-  // ดึงผลตรวจเกต SEO เมื่อเปิด dialog อนุมัติ — ถ้าเกตเปิดและมีกฎไม่ผ่าน
-  // เนื้อหานี้จะเผยแพร่ไม่ได้ จึงบล็อกการอนุมัติไว้ก่อนพร้อมแจ้งกฎที่ติด
+  // ดึงผลตรวจ SEO/AEO เมื่อเปิด dialog อนุมัติ — ถ้าเกตเปิดและมีข้อบังคับ (Required) ไม่ผ่าน
+  // เนื้อหานี้จะเผยแพร่ไม่ได้ จึงบล็อกการอนุมัติไว้ก่อนพร้อมแจ้งข้อที่ติด
+  // วิดีโอไม่ผ่าน SEO/AEO gate (change quality-required-tiers) จึงไม่ต้องดึงผลตรวจ
   useEffect(() => {
-    if (!confirmApprove) { setApproveGate(null); setApproveGateLoading(false); return; }
-    let cancelled = false;
     setApproveGate(null);
+    setApproveAeo(null);
+    if (!confirmApprove || confirmApprove.type === 'video') { setApproveGateLoading(false); return; }
+    let cancelled = false;
     setApproveGateLoading(true);
-    apiFetch<SeoChecklistResult>(
-      '/brand-content.php?action=seo-checklist&item_id=' + encodeURIComponent(confirmApprove.id),
-    )
-      .then(res => { if (!cancelled) setApproveGate(res); })
-      .catch(() => { if (!cancelled) setApproveGate(null); })
+    const id = encodeURIComponent(confirmApprove.id);
+    Promise.all([
+      apiFetch<SeoChecklistResult>('/brand-content.php?action=seo-checklist&item_id=' + id),
+      apiFetch<AeoChecklistResult>('/brand-content.php?action=aeo-checklist&item_id=' + id),
+    ])
+      .then(([seo, aeo]) => { if (!cancelled) { setApproveGate(seo); setApproveAeo(aeo); } })
+      .catch(() => { if (!cancelled) { setApproveGate(null); setApproveAeo(null); } })
       .finally(() => { if (!cancelled) setApproveGateLoading(false); });
     return () => { cancelled = true; };
   }, [confirmApprove]);
@@ -171,11 +177,10 @@ export default function ContentApprovalTab() {
   const hasActiveFilters = !!searchQuery || statusFilter !== 'all' || typeFilter !== 'all' || platformFilter !== 'all';
 
   // เกต SEO ของรายการที่กำลังจะอนุมัติ — mirror ตรรกะ seo_gate_check() ฝั่ง backend
-  const approveFails = approveGate?.rules.filter(r => r.status === 'failed' || r.level === 'fail') ?? [];
+  // บล็อกเฉพาะข้อบังคับ (Required) ที่ไม่ผ่าน — คะแนนและข้อแนะนำไม่บล็อก
+  const approveFails = [...requiredFailedRules(approveGate?.rules), ...requiredFailedRules(approveAeo?.rules)];
   const approveGateOn = approveGate?.seo_gate_enabled === 1;
-  const approveLowScore = !!approveGate && approveGate.score < approveGate.seo_gate_min_score;
-  const approveGateFailed = approveGate?.gate === 'failed';
-  const approveBlocked = approveGateOn && (approveGateFailed || approveLowScore);
+  const approveBlocked = approveGateOn && approveFails.length > 0;
 
   return (
     <>
@@ -371,14 +376,14 @@ export default function ContentApprovalTab() {
             <DialogTitle>ยืนยันการอนุมัติ</DialogTitle>
             <DialogDescription>
               {approveBlocked
-                ? `"${confirmApprove?.title}" ยังไม่ผ่านเกณฑ์ SEO ที่บังคับ จึงยังอนุมัติไม่ได้`
+                ? `"${confirmApprove?.title}" ยังไม่ผ่านข้อบังคับ SEO/AEO จึงยังอนุมัติไม่ได้`
                 : `ต้องการอนุมัติ "${confirmApprove?.title}" ใช่หรือไม่? เนื้อหาจะถูกเปลี่ยนสถานะเป็นอนุมัติแล้ว`}
             </DialogDescription>
           </DialogHeader>
 
           {approveGateLoading && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" /> กำลังตรวจเกณฑ์ SEO...
+              <Loader2 className="h-4 w-4 animate-spin" /> กำลังตรวจเกณฑ์ SEO/AEO...
             </div>
           )}
 
@@ -386,11 +391,11 @@ export default function ContentApprovalTab() {
             <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 space-y-2">
               <div className="flex items-center gap-1.5 text-sm font-medium text-destructive">
                 <AlertTriangle className="h-4 w-4 shrink-0" />
-                เกต SEO เปิดอยู่ — ต้องแก้ก่อนอนุมัติ
+                เกต SEO/AEO เปิดอยู่ — ต้องแก้ข้อบังคับก่อนอนุมัติ
               </div>
               {approveFails.length > 0 && (
                 <>
-                  <p className="text-xs text-destructive/90">รายการที่ยังไม่ผ่าน ({approveFails.length}):</p>
+                  <p className="text-xs text-destructive/90">ข้อบังคับที่ยังไม่ผ่าน ({approveFails.length}):</p>
                   <ul className="space-y-1">
                     {approveFails.map(r => (
                       <li key={r.key} className="flex items-start gap-1.5 text-xs text-destructive">
@@ -401,14 +406,16 @@ export default function ContentApprovalTab() {
                   </ul>
                 </>
               )}
-              {approveLowScore && (
-                <p className="text-xs text-destructive">
-                  คะแนน SEO {approveGate?.score} ต่ำกว่าเกณฑ์ขั้นต่ำ {approveGate?.seo_gate_min_score}
-                </p>
-              )}
               <p className="text-[11px] text-muted-foreground">
                 แก้ไขที่ SEO / AEO Metadata ของเนื้อหา แล้วบันทึกก่อนอนุมัติอีกครั้ง
               </p>
+            </div>
+          )}
+
+          {!approveGateLoading && (approveGate || approveAeo) && (
+            <div className="grid grid-cols-1 gap-2 max-h-72 overflow-y-auto">
+              {approveGate && <QualityChecklist title="SEO" result={approveGate} gateDisabled={!approveGateOn} />}
+              {approveAeo && <QualityChecklist title="AEO" result={approveAeo} />}
             </div>
           )}
 
