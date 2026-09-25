@@ -203,7 +203,7 @@ try {
 // tenant มาจาก content_items เพราะ content_post_metrics.content_item_id ชี้ไปที่นั่น
 // is_active ของ channel ไม่ถูกกรอง: ปิดช่องทางแล้วโพสต์เก่ายังมี engagement ให้เก็บ
 $stmt = $db->prepare(
-    "SELECT q.id AS queue_id, q.content_id, q.channel_id, q.platform_post_id, q.sent_at,
+    "SELECT q.id AS queue_id, q.content_id, q.channel_id, q.platform_post_id, q.platform_post_type, q.sent_at,
             ci.tenant_id, pc.platform, pc.credentials_encrypted, pc.name AS channel_name
      FROM content_publish_queue q
      JOIN publish_channels pc ON pc.id = q.channel_id
@@ -261,7 +261,8 @@ foreach ($rows as $row) {
     ];
 
     try {
-        $res = fetch_post_insights($row['platform'], $channel, (string) $row['platform_post_id']);
+        // platform_post_type บอกว่า id เป็น video id หรือไม่ — Facebook ต้องใช้ video_insights กับ video id
+        $res = fetch_post_insights($row['platform'], $channel, (string) $row['platform_post_id'], $row['platform_post_type']);
     } catch (Exception $e) {
         $res = ['success' => false, 'unsupported' => false, 'error' => $e->getMessage()];
     }

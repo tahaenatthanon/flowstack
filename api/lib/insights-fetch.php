@@ -26,6 +26,8 @@ if (!defined('GRAPH_API_BASE')) {
  * @param string $platform ค่าจาก publish_channels.platform
  * @param array  $channel  แถว publish_channels (ต้องมี credentials_encrypted)
  * @param string $postId   platform_post_id ของช่องทางนั้น
+ * @param ?string $postType content_publish_queue.platform_post_type — 'video' = video id
+ *                          (Facebook ต้องใช้ video_insights) · null/อื่น ๆ = post id
  * @return array {
  *   success:     bool,
  *   unsupported: bool   true = platform นี้ยังไม่รองรับในเฟสนี้ (ไม่ใช่ error)
@@ -35,7 +37,7 @@ if (!defined('GRAPH_API_BASE')) {
  *   raw:         mixed  payload ดิบเท่าที่ได้ ไว้ debug
  * }
  */
-function fetch_post_insights(string $platform, array $channel, string $postId): array {
+function fetch_post_insights(string $platform, array $channel, string $postId, ?string $postType = null): array {
     if ($postId === '') {
         return _insights_fail('ไม่มี id โพสต์สำหรับดึง insights');
     }
@@ -43,7 +45,9 @@ function fetch_post_insights(string $platform, array $channel, string $postId): 
     $creds = insights_channel_creds($channel);
 
     return match ($platform) {
-        'facebook'  => fetch_facebook_insights($creds, $postId),
+        'facebook'  => $postType === 'video'
+            ? fetch_facebook_video_insights($creds, $postId)
+            : fetch_facebook_insights($creds, $postId),
         'instagram' => fetch_instagram_insights($creds, $postId),
         // platform อื่น (tiktok/lineoa/linkedin/twitter/wix/custom/wordpress/lotusdomino)
         // ยังไม่มี API/creds ในเฟสนี้ — คืน unsupported ไม่ใช่ error เพื่อไม่ให้ cron ล้มทั้งรอบ
@@ -204,9 +208,9 @@ function fetch_facebook_insights(array $creds, string $postId): array {
  *
  * @return array { success: bool, metrics: array, warning: ?string, raw: mixed, error: ?string, data: mixed }
  */
-function _insights_fb_metrics(string $postId, array $metrics, string $token): array {
+function _insights_fb_metrics(string $postId, array $metrics, string $token, string $edge = 'insights'): array {
     $call = fn(string $metricParam) => _insights_get(
-        GRAPH_API_BASE . '/' . rawurlencode($postId) . '/insights?' . http_build_query([
+        GRAPH_API_BASE . '/' . rawurlencode($postId) . '/' . $edge . '?' . http_build_query([
             'metric'       => $metricParam,
             'access_token' => $token,
         ])
@@ -244,6 +248,51 @@ function _insights_fb_metrics(string $postId, array $metrics, string $token): ar
         'metrics' => $collected,
         'warning' => 'Graph API ปฏิเสธ metric: ' . implode(', ', $rejected),
         'raw'     => $raw,
+    ];
+}
+
+// ─── Facebook video ─────────────────────────────────────────────────────────────
+// โพสต์วิดีโอที่เผยแพร่ผ่าน /{page_id}/videos เก็บ **video id** (platform_post_type='video')
+// video id เรียก /{id}/insights ไม่ได้ — ตอบ "(#100) Tried accessing nonexisting field (insights)"
+// ต้องใช้ /{video_id}/video_insights แทน (Page token เดิม สิทธิ์ read_insights)
+//
+// mapping (ยิงทดสอบกับเพจจริง 25 ก.ย. 2026 — วิดีโอที่มีในเพจเป็น Reel ตัวเดียว):
+//   fb_reels_total_plays               → views  ยอดเล่นของ Reel (วิดีโอที่อัปผ่าน /videos ถูกจัดเป็น Reel ได้)
+//   total_video_views                  → views  ตัวสำรองสำหรับวิดีโอที่ไม่ใช่ Reel — ขอได้ไม่ error
+//                                               แต่ยังยืนยันค่าจริงไม่ได้เพราะเพจไม่มีวิดีโอแบบนั้น
+//   post_video_likes_by_reaction_type  → likes  ผลรวม reaction ทุกชนิด (Reel ที่ทดสอบคืน [] = 0)
+//
+// ⚠️ ห้ามใส่ post_video_views ในชุดนี้: video_insights ตอบ error code 1 "An unknown error"
+// ซึ่งไม่ใช่ code 100 — fallback ทีละ metric จะไม่ทำงานและคำขอจะล้มทั้งชุด
+
+function fb_video_metric_names(): array {
+    return ['fb_reels_total_plays', 'total_video_views', 'post_video_likes_by_reaction_type'];
+}
+
+function fetch_facebook_video_insights(array $creds, string $videoId): array {
+    $token = $creds['access_token'] ?? '';
+    if (!$token) {
+        return _insights_fail('creds ของ Facebook ไม่ครบ — ไม่มี access_token');
+    }
+
+    $res = _insights_fb_metrics($videoId, fb_video_metric_names(), $token, 'video_insights');
+    if (!$res['success']) return _insights_fail($res['error'], $res['data'] ?? null);
+
+    $metrics = $res['metrics'];
+    $warning = $res['warning'];
+    // metric ที่ไม่มีข้อมูลจะไม่อยู่ใน data เลย (ไม่ใช่ค่า 0) — แยกให้เห็นใน log ว่าไม่มีตัวเลขวิว
+    if (!isset($metrics['fb_reels_total_plays']) && !isset($metrics['total_video_views'])) {
+        $warning = trim(($warning ? "$warning; " : '') . 'video_insights ไม่คืนยอดเล่นวิดีโอ — views = 0');
+    }
+
+    return [
+        'success'     => true,
+        'unsupported' => false,
+        'views'       => (int) ($metrics['fb_reels_total_plays'] ?? $metrics['total_video_views'] ?? 0),
+        'likes'       => (int) ($metrics['post_video_likes_by_reaction_type'] ?? 0),
+        'error'       => null,
+        'warning'     => $warning,
+        'raw'         => $res['raw'],
     ];
 }
 

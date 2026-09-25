@@ -227,8 +227,8 @@ foreach ($entries as $entry) {
         // เก็บเนื้อ response ทุกกรณีเช่นเดียวกับ send_now — sent เพียงอย่างเดียวพิสูจน์ไม่ได้
         $snippet = extract_response_snippet($result);
         $db->prepare(
-            "UPDATE content_publish_queue SET status='sent', sent_at=NOW(), platform_post_id=?, published_url=?, response_snippet=? WHERE id=?"
-        )->execute([$meta['platform_post_id'], $meta['published_url'], $snippet, $queueId]);
+            "UPDATE content_publish_queue SET status='sent', sent_at=NOW(), platform_post_id=?, platform_post_type=?, published_url=?, response_snippet=? WHERE id=?"
+        )->execute([$meta['platform_post_id'], $meta['platform_post_type'], $meta['published_url'], $snippet, $queueId]);
         // บันทึกผลเผยแพร่กลับ content_items (content_id คือ content_items.id)
         // platform: เขียนตาม channel ที่โพสต์จริง — analytics-recalculate group by คอลัมน์นี้
         $db->prepare(

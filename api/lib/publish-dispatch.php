@@ -469,8 +469,12 @@ function dispatch_content(string $platform, array $channel, array $content): arr
  *                    (facebook ยิง permalink lookup) จะตั้งคีย์นี้ไว้ให้
  *                    ถ้าไม่มี ค่อย fallback ไป WordPress ที่คืน URL ใน data.link
  *                    platform อื่นที่ยังไม่มี URL ที่เชื่อถือได้ → null
+ * platform_post_type : ชนิดของ id — dispatch_* ที่ได้ id ซึ่งไม่ใช่ post id ต้องตั้ง
+ *                    $result['platform_post_type'] เอง (facebook /videos → 'video')
+ *                    ไม่ได้ตั้ง → 'post' · ไม่มี id → null
+ *                    content-metrics-sync ใช้ค่านี้เลือก endpoint ของ insights
  *
- * @return array{platform_post_id: ?string, published_url: ?string}
+ * @return array{platform_post_id: ?string, published_url: ?string, platform_post_type: ?string}
  */
 function extract_publish_meta(array $result, string $platform, array $channel): array {
     $postId = (isset($result['platform_post_id']) && $result['platform_post_id'] !== '')
@@ -484,7 +488,14 @@ function extract_publish_meta(array $result, string $platform, array $channel): 
         $url = (string) $result['data']['link'];
     }
 
-    return ['platform_post_id' => $postId, 'published_url' => $url];
+    $postType = null;
+    if ($postId !== null) {
+        $postType = (isset($result['platform_post_type']) && $result['platform_post_type'] !== '')
+            ? (string) $result['platform_post_type']
+            : 'post';
+    }
+
+    return ['platform_post_id' => $postId, 'published_url' => $url, 'platform_post_type' => $postType];
 }
 
 /**
@@ -597,8 +608,8 @@ function publish_via_central_flow(
         if (!empty($result['success'])) {
             $meta = extract_publish_meta($result, $platform, $channel);
             $db->prepare(
-                "UPDATE content_publish_queue SET status='sent', sent_at=NOW(), platform_post_id=?, published_url=?, response_snippet=? WHERE id=?"
-            )->execute([$meta['platform_post_id'], $meta['published_url'], $snippet, $queueId]);
+                "UPDATE content_publish_queue SET status='sent', sent_at=NOW(), platform_post_id=?, platform_post_type=?, published_url=?, response_snippet=? WHERE id=?"
+            )->execute([$meta['platform_post_id'], $meta['platform_post_type'], $meta['published_url'], $snippet, $queueId]);
             $db->prepare(
                 "UPDATE content_items SET published_url=COALESCE(?, published_url), external_post_id=COALESCE(?, external_post_id), updated_at=NOW() WHERE id=? AND tenant_id=?"
             )->execute([$meta['published_url'], $meta['platform_post_id'], $contentId, $tenantId]);
@@ -857,6 +868,9 @@ function dispatch_facebook(array $channel, array $creds, string $title, string $
         if ($isVideo) {
             // /videos ไม่คืน post_id แบบผสมเหมือน /photos — id ที่ได้คือ video id ตรงๆ ใช้ได้ทันที
             $result['platform_post_id'] = $result['data']['id'] ?? null;
+            // video id เรียก /{id}/insights ไม่ได้ (error 100) ต้องใช้ /{id}/video_insights —
+            // บอกชนิดไว้ให้ content-metrics-sync เลือก endpoint ถูก (ไม่เดาจากรูปแบบ id)
+            $result['platform_post_type'] = 'video';
         } else {
             // อ่าน post_id ก่อน id — /photos คืน id เป็น photo id เปล่า ซึ่งใช้ทั้ง permalink
             // lookup และ /insights ไม่ได้ ส่วน post_id เป็นรูปแบบผสม {page_id}_{post_id}
