@@ -14,6 +14,7 @@ import { AnalyticsContentTab } from '@/components/content/AnalyticsContentTab';
 import { AnalyticsSocialTab } from '@/components/content/AnalyticsSocialTab';
 import { AnalyticsWebsiteTab } from '@/components/content/AnalyticsWebsiteTab';
 import { OverviewEngagementSummary } from '@/components/content/OverviewEngagementSummary';
+import { OverviewPageSummary } from '@/components/content/OverviewPageSummary';
 import { OverviewEngagementTrendChart, type TrendRange } from '@/components/content/OverviewEngagementTrendChart';
 import { OverviewPlatformPerformanceTable, type PlatformPeriod } from '@/components/content/OverviewPlatformPerformanceTable';
 import ReportDateFilter from '@/components/reports/ReportDateFilter';
@@ -216,6 +217,9 @@ export default function ContentDashboardPage() {
           <TabsContent value="overview" className="space-y-6">
             {/* การ์ดสรุป Engagement — all-time snapshot, สิ่งแรกที่เห็นในแท็บนี้โดยตั้งใจ */}
             <OverviewEngagementSummary snapshot={bi?.social_snapshot} isLoading={biLoading} />
+
+            {/* การ์ดเพจ Facebook — 28 วันล่าสุดคงที่ ไม่ผูกตัวเลือกช่วงเวลาของ widget อื่น */}
+            <OverviewPageSummary summary={bi?.page_summary} isLoading={biLoading} />
 
             {/* กราฟแนวโน้ม Engagement — ควบคุมด้วย trendRange (7/30/90 วัน) แยกจาก platformPeriod ของตารางท้ายหน้า */}
             <OverviewEngagementTrendChart
@@ -581,6 +585,8 @@ export default function ContentDashboardPage() {
                 <AnalyticsSocialTab
                   social={biAnalytics?.social}
                   socialLoading={biAnalyticsLoading}
+                  from={from}
+                  to={to}
                 />
               </TabsContent>
 

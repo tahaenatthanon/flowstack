@@ -368,6 +368,43 @@ export interface ContentOverview {
   social_snapshot: SocialSnapshot;
   engagement_trend: EngagementTrendPoint[];
   platform_performance: PlatformPerformanceRow[];
+  /** การ์ดเพจ Facebook ในแท็บภาพรวม — ช่วง 28 วันล่าสุดคงที่ */
+  page_summary: PageSummary;
+}
+
+/** สรุปเพจ Facebook 28 วันล่าสุด (มาจาก facebook_page_insights_daily) */
+export interface PageSummary {
+  /** false = ยังไม่เคยซิงก์ข้อมูลเพจ → ต้องแสดง "—" ไม่ใช่ 0 */
+  has_data: boolean;
+  /** ยอดผู้ติดตามล่าสุด (page_follows เป็นยอดสะสม ไม่ใช่ผลรวมรายวัน) */
+  followers: number | null;
+  /** ผลต่างยอดผู้ติดตามเทียบวันแรกของช่วง 28 วัน */
+  followers_change: number | null;
+  /** ผลรวมการเข้าชมเพจ 28 วัน */
+  page_views: number | null;
+}
+
+/** จุดรายวันของ page insights — key อื่นนอกจาก date คือชื่อ metric ของ Graph API; null = ไม่มีข้อมูลวันนั้น */
+export type PageInsightsDailyPoint = { date: string } & Record<string, number | null | string>;
+
+/** ?action=page_insights — ข้อมูลเพจ Facebook ตามช่วงวันที่ของแท็บวิเคราะห์ */
+export interface PageInsights {
+  range: DateRange;
+  /** false = ยังไม่เคยซิงก์ข้อมูลเพจ (ไม่ใช่ "ทุกค่าเป็น 0") */
+  has_data: boolean;
+  last_fetched_at: string | null;
+  /**
+   * ค่ารวมของช่วงต่อ metric ตามกติกาฝั่ง backend: page_follows = ค่าล่าสุด (ไม่ sum),
+   * page_total_media_view_unique = null (รวมข้ามวันไม่ได้), ที่เหลือ = ผลรวม
+   * page_video_view_time หน่วยมิลลิวินาที
+   */
+  totals: Record<string, number | null>;
+  /** metric ที่คืนเป็น object แยกชนิด (page_actions_post_reactions_total) รวมแยกตามชนิด */
+  breakdown: Record<string, Record<string, number>>;
+  /** ค่าวันแรกในช่วงที่มีข้อมูลของ metric แบบยอดสะสม (ใช้คำนวณผลต่าง) */
+  first: Record<string, number>;
+  /** ทุกวันในช่วง */
+  daily: PageInsightsDailyPoint[];
 }
 
 export interface ThroughputPoint {
@@ -455,6 +492,10 @@ export interface SocialTopPost {
   likes: number;
   /** views + likes */
   engagement: number;
+  /** post_clicks; null = แพลตฟอร์มไม่รายงาน → แสดง "—" */
+  clicks: number | null;
+  /** เวลาดูวิดีโอเฉลี่ย (ms) จาก video_insights; null = ไม่ใช่วิดีโอ/ไม่มีข้อมูล → แสดง "—" */
+  video_avg_watch_ms: number | null;
   /** permalink จริงจาก content_items.published_url; null = ไม่มี (ไม่เดา URL) */
   published_url: string | null;
 }

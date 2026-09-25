@@ -5,7 +5,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { getPlatformLabel, getPlatformColors } from '@/lib/platformConfig';
 import { usePublishChannels, useChannelConnectionStatus } from '@/hooks/useContent';
+import { formatDurationMs } from '@/lib/durationFormat';
 import { PlatformIcon } from './PlatformIcon';
+import { PageInsightsSection } from './PageInsightsSection';
 import { PLATFORM_MAP } from './types';
 import type { SocialEngagementSummary } from './types';
 
@@ -17,8 +19,9 @@ import type { SocialEngagementSummary } from './types';
  * — ครอบคลุมเฉพาะแพลตฟอร์มที่มีข้อมูลจริงในช่วงที่เลือก (อ่านจาก `social.platforms`)
  *
  * ห้ามใส่ mock data หรือค่า hardcode เด็ดขาด เพราะจะทำให้ผู้ใช้เข้าใจผิดว่ามีข้อมูลแล้ว
- * เมตริกระดับเพจ (followers/reach/impressions/engagement rate) ยังไม่แสดงในเฟสนี้
- * เพราะต้องเชื่อมต่อ OAuth page insights ซึ่งเป็นงาน integration เฟสถัดไป
+ * ข้อมูลระดับเพจ (ผู้ติดตาม, เข้าชมเพจ, reaction, วิดีโอ) อยู่ใน PageInsightsSection ด้านบนสุด
+ * — มาจาก facebook_page_insights_daily ผ่าน ?action=page_insights (Page token เดิมมีสิทธิ์
+ * read_insights อยู่แล้ว ไม่ต้องทำ OAuth เพิ่ม)
  */
 
 function platformLabel(platform: string): string {
@@ -50,9 +53,12 @@ interface Props {
   /** จาก `useContentAnalytics` — ส่งเป็น prop ตามแบบ AnalyticsContentTab (query เดียวต่อหน้า) */
   social?: SocialEngagementSummary;
   socialLoading?: boolean;
+  /** ช่วงวันที่ของตัวกรองแท็บวิเคราะห์ — ส่งต่อให้ PageInsightsSection */
+  from?: string;
+  to?: string;
 }
 
-export function AnalyticsSocialTab({ social, socialLoading = false }: Props) {
+export function AnalyticsSocialTab({ social, socialLoading = false, from, to }: Props) {
   const navigate = useNavigate();
   const hasData = !!social?.has_data;
   const platformsLabel = formatPlatforms(social?.platforms ?? []);
@@ -116,6 +122,9 @@ export function AnalyticsSocialTab({ social, socialLoading = false }: Props) {
 
   return (
     <div className="space-y-6">
+      {/* ข้อมูลระดับเพจ — ภาพรวมกว้างสุดจึงอยู่บนสุด ก่อนส่วนระดับโพสต์ */}
+      <PageInsightsSection from={from} to={to} />
+
       {/* แถว stat card — ค่าทุกใบมาจาก social เท่านั้น */}
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-2">
@@ -255,6 +264,8 @@ export function AnalyticsSocialTab({ social, socialLoading = false }: Props) {
                       <th className="py-2 px-3 font-medium whitespace-nowrap">วันเผยแพร่</th>
                       <th className="py-2 px-3 font-medium text-right">วิว</th>
                       <th className="py-2 px-3 font-medium text-right">ไลก์</th>
+                      <th className="py-2 px-3 font-medium text-right">คลิก</th>
+                      <th className="py-2 px-3 font-medium text-right whitespace-nowrap">ดูเฉลี่ย</th>
                       <th className="py-2 pl-3 font-medium text-right">Engagement</th>
                     </tr>
                   </thead>
@@ -284,6 +295,9 @@ export function AnalyticsSocialTab({ social, socialLoading = false }: Props) {
                         <td className="py-2 px-3 whitespace-nowrap text-muted-foreground">{formatDate(post.published_at)}</td>
                         <td className="py-2 px-3 text-right font-mono">{post.views.toLocaleString()}</td>
                         <td className="py-2 px-3 text-right font-mono">{post.likes.toLocaleString()}</td>
+                        {/* null = แพลตฟอร์มไม่รายงาน / ไม่ใช่วิดีโอ → "—" ไม่ใช่ 0 */}
+                        <td className="py-2 px-3 text-right font-mono">{post.clicks === null ? '—' : post.clicks.toLocaleString()}</td>
+                        <td className="py-2 px-3 text-right font-mono whitespace-nowrap">{formatDurationMs(post.video_avg_watch_ms)}</td>
                         <td className="py-2 pl-3 text-right font-mono font-semibold">{post.engagement.toLocaleString()}</td>
                       </tr>
                     ))}
@@ -295,7 +309,7 @@ export function AnalyticsSocialTab({ social, socialLoading = false }: Props) {
         </Card>
       )}
 
-      {/* notice card — สะท้อนขอบเขตจริง ไม่สัญญาว่าเมตริกระดับเพจ "กำลังจะมา" */}
+      {/* notice card — สะท้อนขอบเขตและที่มาของข้อมูลตามจริง */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
@@ -305,7 +319,7 @@ export function AnalyticsSocialTab({ social, socialLoading = false }: Props) {
         </CardHeader>
         <CardContent className="space-y-3 text-sm text-muted-foreground">
           <p>
-            ทุกตัวเลขในหน้านี้คือ engagement ระดับโพสต์ (วิว + ไลก์) ดึงกลับจาก Graph API โดยงานซิงก์อัตโนมัติ
+            ตัวเลขระดับโพสต์คือ engagement (วิว + ไลก์) ดึงกลับจาก Graph API โดยงานซิงก์อัตโนมัติ
             ครอบคลุมเฉพาะ <span className="text-foreground">{platformsLabel}</span> ที่เผยแพร่ในช่วงวันที่ที่เลือก
             {social?.last_fetched_at && (
               <> · ซิงก์ล่าสุด {new Date(social.last_fetched_at).toLocaleString('th-TH')}</>
@@ -316,8 +330,8 @@ export function AnalyticsSocialTab({ social, socialLoading = false }: Props) {
             ปัจจุบันโพสต์ Facebook feed คืนค่าวิวเป็น 0 ดังนั้น Engagement รวม (= วิว + ไลก์) จึงมาจากไลก์เป็นหลัก
           </p>
           <p>
-            เมตริกระดับเพจ — ผู้ติดตาม (followers), Reach, Impressions, Engagement Rate — ยังไม่แสดงในเฟสนี้
-            เพราะต้องเชื่อมต่อ OAuth page insights (Facebook Graph / Instagram) ซึ่งเป็นงาน integration เฟสถัดไป
+            <span className="text-foreground">ข้อมูลเพจ</span> (ผู้ติดตาม, เข้าชมเพจ, reaction, วิดีโอ) มาจาก Facebook Page Insights
+            ที่ระบบเก็บไว้วันละครั้ง — ข้อมูลของวันล่าสุดอาจยังไม่ครบ เพราะ Facebook ลงข้อมูลย้อนหลังให้ภายหลัง
           </p>
         </CardContent>
       </Card>

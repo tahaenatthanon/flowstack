@@ -73,6 +73,7 @@
 
 ## Migration Plan
 
+0. `2026_09_25_150000_drop_orphan_content_page_metrics.sql`: ลบตาราง `content_page_metrics` และ cron `content-page-metrics-sync` ที่เป็นงานทดลองค้างใน DB local (ไม่มีโค้ด/migration/spec ใน repo, ไฟล์ cron ไม่มีอยู่จริง) สำรองไว้ที่ `database/backups/2026_09_25_orphan_content_page_metrics.sql` บน production ไม่มีผล
 1. `2026_09_25_HHMMSS_create_facebook_page_insights_daily.sql`
 2. `2026_09_25_HHMMSS_add_click_reaction_watch_to_content_post_metrics.sql`
 3. `2026_09_25_HHMMSS_register_facebook_page_insights_sync_cron.sql` (`INSERT IGNORE` รูปแบบเดียวกับ `register_content_metrics_sync_cron.sql`, interval "วันละครั้ง")

@@ -11,6 +11,8 @@
 //                        performance table
 //   ?action=analytics  → throughput trend, lead time, SEO, plan conversion,
 //                        publish success by platform
+//   ?action=page_insights → Facebook page metrics per day (facebook_page_insights_daily)
+//                        for the analytics → social sub-tab, &from/&to like analytics
 //
 // ?action=analytics accepts &from=YYYY-MM-DD&to=YYYY-MM-DD. ?action=overview has no
 // page-level date range (it is a "right now" snapshot of the production queue), but
@@ -18,7 +20,8 @@
 //   &trend_range=7|30|90       → engagement_trend bucketing (default 7)
 //   &platform_period=day|week|month → platform_performance rolling window (default day)
 //
-// No migration: every column read here already exists.
+// Page metrics come from facebook_page_insights_daily (filled daily by cron
+// facebook-page-insights-sync); everything else reads existing content tables.
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/auth.php';
@@ -108,6 +111,106 @@ function fetchSocialSeriesRows(PDO $db, string $tenantId, ?string $fromDt, ?stri
     );
     $stmt->execute($params);
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * How each Facebook page metric may be combined across days. The single place
+ * this rule lives — ?action=page_insights and overview's page_summary both read
+ * it, so the two can never disagree. Anything not listed is 'sum' (NO MAGIC:
+ * the default is stated here, not implied somewhere else).
+ *   latest     = running total per day (a gauge) — summing it is wrong
+ *                (page_follows 2,2,2… over 28 days is 2 followers, not 56)
+ *   object_sum = value per day is an object by reaction type; sum each type
+ *   daily_only = unique count per day; uniques cannot be added across days
+ */
+const PAGE_METRIC_AGG = [
+    'page_follows'                      => 'latest',
+    'page_actions_post_reactions_total' => 'object_sum',
+    'page_total_media_view_unique'      => 'daily_only',
+];
+
+function pageMetricAgg(string $metric): string {
+    return PAGE_METRIC_AGG[$metric] ?? 'sum';
+}
+
+/**
+ * Facebook page insights for a tenant over [$from, $to] (YYYY-MM-DD, inclusive),
+ * read from facebook_page_insights_daily (filled by cron facebook-page-insights-sync).
+ *
+ * @return array {
+ *   has_data:        bool     false = no row ever synced for this tenant (not "all zero")
+ *   last_fetched_at: ?string
+ *   totals:          array<metric, ?int>  combined per PAGE_METRIC_AGG; daily_only → null
+ *   breakdown:       array<metric, array<type, int>>  object_sum metrics, summed per type
+ *   first:           array<metric, ?int>  value on the first day in range that has data
+ *                                         (latest metrics only — for the "+N" change)
+ *   daily:           list<array{date: string, ...metric: ?int}>  every day in range,
+ *                                         null where no row exists for that day
+ * }
+ */
+function pageInsightsRange(PDO $db, string $tenantId, string $from, string $to): array {
+    $any = $db->prepare('SELECT MAX(fetched_at) FROM facebook_page_insights_daily WHERE tenant_id = ?');
+    $any->execute([$tenantId]);
+    $lastFetched = $any->fetchColumn() ?: null;
+
+    $stmt = $db->prepare(
+        "SELECT metric_date, metric, value, value_json
+           FROM facebook_page_insights_daily
+          WHERE tenant_id = ? AND metric_date BETWEEN ? AND ?
+          ORDER BY metric_date"
+    );
+    $stmt->execute([$tenantId, $from, $to]);
+
+    $byDate = []; $totals = []; $breakdown = []; $first = []; $latest = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $m = $r['metric'];
+        $v = $r['value'] === null ? null : (int)$r['value'];
+        $byDate[$r['metric_date']][$m] = $v;
+        if ($v === null) continue;
+
+        switch (pageMetricAgg($m)) {
+            case 'latest':
+                // rows are ordered by date, so the last one seen is the latest
+                if (!array_key_exists($m, $first)) $first[$m] = $v;
+                $latest[$m] = $v;
+                break;
+            case 'daily_only':
+                break;
+            case 'object_sum':
+                $totals[$m] = ($totals[$m] ?? 0) + $v;
+                $obj = $r['value_json'] !== null ? json_decode($r['value_json'], true) : null;
+                if (is_array($obj)) {
+                    foreach ($obj as $type => $n) {
+                        $breakdown[$m][$type] = ($breakdown[$m][$type] ?? 0) + (int)$n;
+                    }
+                }
+                break;
+            default:
+                $totals[$m] = ($totals[$m] ?? 0) + $v;
+        }
+    }
+    $totals = $latest + $totals;
+    foreach (array_keys(PAGE_METRIC_AGG, 'daily_only', true) as $m) $totals[$m] = null;
+
+    // Dense axis so charts show gaps as gaps, not as missing days.
+    $metrics = [];
+    foreach ($byDate as $row) $metrics += array_fill_keys(array_keys($row), true);
+    $daily = [];
+    for ($d = new DateTime($from), $end = new DateTime($to); $d <= $end; $d->modify('+1 day')) {
+        $k = $d->format('Y-m-d');
+        $point = ['date' => $k];
+        foreach (array_keys($metrics) as $m) $point[$m] = $byDate[$k][$m] ?? null;
+        $daily[] = $point;
+    }
+
+    return [
+        'has_data'        => $lastFetched !== null,
+        'last_fetched_at' => $lastFetched,
+        'totals'          => $totals,
+        'breakdown'       => (object)$breakdown,
+        'first'           => (object)$first,
+        'daily'           => $daily,
+    ];
 }
 
 // ─── OVERVIEW ──────────────────────────────────────────────────────
@@ -331,6 +434,18 @@ if ($action === 'overview') {
         return $b['avg_engagement_per_post'] <=> $a['avg_engagement_per_post'];
     });
 
+    // Facebook page cards — fixed "last 28 days" window, independent of the
+    // trend/platform controls above (same rules as ?action=page_insights).
+    $page28 = pageInsightsRange($db, $tenantId, date('Y-m-d', strtotime('-27 days')), date('Y-m-d'));
+    $followers      = $page28['totals']['page_follows'] ?? null;
+    $followersStart = $page28['first']->page_follows ?? null;
+    $pageSummary = [
+        'has_data'         => $page28['has_data'],
+        'followers'        => $followers,
+        'followers_change' => ($followers !== null && $followersStart !== null) ? $followers - $followersStart : null,
+        'page_views'       => $page28['totals']['page_views_total'] ?? null,
+    ];
+
     jsonResponse([
         'queue' => [
             'pending'         => (int)($q['pending'] ?? 0),
@@ -398,6 +513,7 @@ if ($action === 'overview') {
         ],
         'engagement_trend'   => $engagementTrend,
         'platform_performance' => $platformPerformance,
+        'page_summary'       => $pageSummary,
     ]);
 }
 
@@ -700,6 +816,9 @@ if ($action === 'analytics') {
                 ci.published_url,
                 MAX(m.views)      AS views,
                 MAX(m.likes)      AS likes,
+                -- NULL stays NULL (MAX over NULLs) = the platform did not report it
+                MAX(m.clicks)             AS clicks,
+                MAX(m.video_avg_watch_ms) AS video_avg_watch_ms,
                 MAX(m.fetched_at) AS fetched_at
          FROM content_post_metrics m
          JOIN content_items ci ON ci.id = m.content_item_id
@@ -768,11 +887,21 @@ if ($action === 'analytics') {
                 'published_url'   => $r['published_url'],
                 'views'           => 0,
                 'likes'           => 0,
+                'clicks'          => null,
+                'video_avg_watch_ms' => null,
                 '_platforms'      => [],
             ];
         }
         $topRaw[$cid]['views'] += $v;
         $topRaw[$cid]['likes'] += $l;
+        // null until some ช่องทาง actually reports it — "—" in the UI, not 0
+        if ($r['clicks'] !== null) {
+            $topRaw[$cid]['clicks'] = ($topRaw[$cid]['clicks'] ?? 0) + (int)$r['clicks'];
+        }
+        if ($r['video_avg_watch_ms'] !== null) {
+            // An average cannot be summed across ช่องทาง; keep the highest one reported.
+            $topRaw[$cid]['video_avg_watch_ms'] = max($topRaw[$cid]['video_avg_watch_ms'] ?? 0, (int)$r['video_avg_watch_ms']);
+        }
         $topRaw[$cid]['_platforms'][$plat] = true;
     }
     $socialPosts = count($socialItems);
@@ -825,6 +954,8 @@ if ($action === 'analytics') {
             'views'           => $p['views'],
             'likes'           => $p['likes'],
             'engagement'      => $p['views'] + $p['likes'],
+            'clicks'          => $p['clicks'],
+            'video_avg_watch_ms' => $p['video_avg_watch_ms'],
             'published_url'   => $p['published_url'],
         ];
     }, array_values($topRaw));
@@ -882,6 +1013,22 @@ if ($action === 'analytics') {
         ],
         'publish_success' => $publishSuccess,
     ]);
+}
+
+// ─── PAGE INSIGHTS ─────────────────────────────────────────────────
+// Facebook page-level metrics for the analytics → social sub-tab. Separate from
+// ?action=analytics so the other sub-tabs do not pay for this payload.
+if ($action === 'page_insights') {
+    // Same default window as ?action=analytics so the sub-tab lines up with it.
+    $from = dateParam('from') ?? date('Y-m-01', strtotime('-11 month'));
+    $to   = dateParam('to')   ?? date('Y-m-d');
+    if ($from > $to) jsonError('ช่วงวันที่ไม่ถูกต้อง — from ต้องไม่เกิน to', 400);
+    // `daily` has one point per day — cap the axis rather than silently truncate.
+    if ((new DateTime($from))->diff(new DateTime($to))->days > 1100) {
+        jsonError('ช่วงวันที่กว้างเกินไป — รองรับสูงสุด 3 ปี', 400);
+    }
+
+    jsonResponse(['range' => ['from' => $from, 'to' => $to]] + pageInsightsRange($db, $tenantId, $from, $to));
 }
 
 jsonError('Unknown action', 400);

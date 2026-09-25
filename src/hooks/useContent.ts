@@ -1,7 +1,7 @@
 // src/hooks/useContent.ts
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api';
-import type { ContentItem, BrandContext, ContentSkill, ContentTrigger, ContentPlan, PlanItem, PublishChannel, ContentSchedule, PublishQueueItem, GlobalSettings, AIGatewaySettings, PostingAnalyticsResponse, ResultMetricsResponse, ContentOverview, ContentAnalytics, SeoChecklistResult, AeoChecklistResult, QualityFailedRequired } from '@/components/content/types';
+import type { ContentItem, BrandContext, ContentSkill, ContentTrigger, ContentPlan, PlanItem, PublishChannel, ContentSchedule, PublishQueueItem, GlobalSettings, AIGatewaySettings, PostingAnalyticsResponse, ResultMetricsResponse, ContentOverview, ContentAnalytics, PageInsights, SeoChecklistResult, AeoChecklistResult, QualityFailedRequired } from '@/components/content/types';
 
 // ── Query keys ─────────────────────────────────────────────────
 
@@ -32,6 +32,8 @@ export const contentKeys = {
     [...contentKeys.all, 'biOverview', trendRange ?? '7', platformPeriod ?? 'day'] as const,
   biAnalytics: (from?: string, to?: string) =>
     [...contentKeys.all, 'biAnalytics', from ?? null, to ?? null] as const,
+  pageInsights: (from?: string, to?: string) =>
+    [...contentKeys.all, 'pageInsights', from ?? null, to ?? null] as const,
 };
 
 /** '?from=..&to=..' — เว้นว่างเมื่อไม่ระบุ ให้ backend ใช้ default 12 เดือน */
@@ -193,6 +195,19 @@ export function useContentAnalytics(from?: string, to?: string, enabled = true) 
   return useQuery<ContentAnalytics>({
     queryKey: contentKeys.biAnalytics(from, to),
     queryFn: () => apiFetch(`/content-analytics.php?action=analytics${dateRangeQuery(from, to)}`),
+    staleTime: 300_000,
+    enabled,
+  });
+}
+
+/**
+ * ข้อมูลเพจ Facebook (sub-tab โซเชียล) — ผูกช่วงวันที่เดียวกับแท็บวิเคราะห์ แต่ query key แยก
+ * เพื่อไม่ให้ sub-tab อื่นต้องโหลด payload นี้ (ดู content-dashboard-page-insights spec)
+ */
+export function usePageInsights(from?: string, to?: string, enabled = true) {
+  return useQuery<PageInsights>({
+    queryKey: contentKeys.pageInsights(from, to),
+    queryFn: () => apiFetch(`/content-analytics.php?action=page_insights${dateRangeQuery(from, to)}`),
     staleTime: 300_000,
     enabled,
   });

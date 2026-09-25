@@ -162,6 +162,8 @@ function _token_health_fail(string $error, $raw = null): array {
 // mapping ที่ใช้ (ตรวจกับเพจจริงเมื่อ 21 ส.ค. 2026 ทั้ง v19.0–v26.0 ได้ผลเหมือนกันหมด):
 //   post_video_views              → views  จำนวนครั้งที่วิดีโอถูกเล่นเกิน 3 วินาที
 //   post_reactions_by_type_total  → likes  ผลรวม reaction ทุกชนิด (like/love/haha/…)
+//                                 → reactions  object แยกชนิดดิบ (content_post_metrics.reactions_json)
+//   post_clicks                   → clicks (ตรวจกับเพจจริง 25 ก.ย. 2026 — ใช้ได้, period=lifetime)
 //
 // ⚠️ metric ตระกูล impressions ถูกยกเลิกไปแล้ว — post_impressions,
 // post_impressions_unique, post_impressions_organic, post_views, post_views_unique,
@@ -169,11 +171,11 @@ function _token_health_fail(string $error, $raw = null): array {
 // "(#100) The value must be a valid insights metric"
 // จึงไม่มีตัวเลข "คนเห็น" ระดับโพสต์ให้ดึงอีก ค่า views จะเป็น 0 สำหรับโพสต์ที่ไม่ใช่วิดีโอ
 // = "ไม่มีข้อมูลให้ดึง" ไม่ใช่ "ไม่มีคนเห็น" — ห้ามตีความเป็นยอดคนเห็นจริง
-// (metric ที่ยังใช้ได้และอาจมีประโยชน์ในอนาคต: post_clicks, post_reactions_<type>_total,
-//  post_video_views_organic/paid, post_consumptions* — ยังไม่มีคอลัมน์เก็บในเฟสนี้)
+// (metric ที่ยังใช้ได้และอาจมีประโยชน์ในอนาคต: post_reactions_<type>_total,
+//  post_video_views_organic/paid, post_consumptions* — ยังไม่มีคอลัมน์เก็บ)
 
 function fb_post_metric_names(): array {
-    return ['post_video_views', 'post_reactions_by_type_total'];
+    return ['post_video_views', 'post_reactions_by_type_total', 'post_clicks'];
 }
 
 function fetch_facebook_insights(array $creds, string $postId): array {
@@ -186,16 +188,36 @@ function fetch_facebook_insights(array $creds, string $postId): array {
     if (!$res['success']) return _insights_fail($res['error'], $res['data'] ?? null);
 
     $metrics = $res['metrics'];
+    $reactions = _insights_metric_raw_value($res['raw'], 'post_reactions_by_type_total');
 
     return [
         'success'     => true,
         'unsupported' => false,
         'views'       => (int) ($metrics['post_video_views'] ?? 0),
         'likes'       => (int) ($metrics['post_reactions_by_type_total'] ?? 0),
+        // null = Graph API ไม่คืน metric นี้มา (ไม่ใช่ 0) — ผู้เรียกเก็บเป็น NULL
+        'clicks'      => isset($metrics['post_clicks']) ? (int) $metrics['post_clicks'] : null,
+        'reactions'   => is_array($reactions) ? $reactions : null,
         'error'       => null,
         'warning'     => $res['warning'],
         'raw'         => $res['raw'],
     ];
+}
+
+/**
+ * ค่าดิบ (ก่อนรวมเป็นตัวเลข) ของ metric หนึ่งจาก raw ที่ _insights_fb_metrics() คืน
+ * raw มี 2 รูป: payload เดียว {data:[...]} (ยิงชุดรวมสำเร็จ) หรือ list ของ payload (ถอยยิงทีละตัว)
+ * ใช้ดึง object แยกชนิดของ reaction ที่ _insights_metric_map() รวมเป็นเลขเดียวไปแล้ว
+ */
+function _insights_metric_raw_value($raw, string $name) {
+    if (!is_array($raw)) return null;
+    $payloads = isset($raw['data']) ? [$raw] : $raw;
+    foreach ($payloads as $payload) {
+        foreach (($payload['data'] ?? []) as $item) {
+            if (($item['name'] ?? '') === $name) return $item['values'][0]['value'] ?? null;
+        }
+    }
+    return null;
 }
 
 /**
@@ -261,12 +283,13 @@ function _insights_fb_metrics(string $postId, array $metrics, string $token, str
 //   total_video_views                  → views  ตัวสำรองสำหรับวิดีโอที่ไม่ใช่ Reel — ขอได้ไม่ error
 //                                               แต่ยังยืนยันค่าจริงไม่ได้เพราะเพจไม่มีวิดีโอแบบนั้น
 //   post_video_likes_by_reaction_type  → likes  ผลรวม reaction ทุกชนิด (Reel ที่ทดสอบคืน [] = 0)
+//   post_video_avg_time_watched        → avg_watch_ms  เวลาดูเฉลี่ยต่อครั้ง หน่วยมิลลิวินาที
 //
 // ⚠️ ห้ามใส่ post_video_views ในชุดนี้: video_insights ตอบ error code 1 "An unknown error"
 // ซึ่งไม่ใช่ code 100 — fallback ทีละ metric จะไม่ทำงานและคำขอจะล้มทั้งชุด
 
 function fb_video_metric_names(): array {
-    return ['fb_reels_total_plays', 'total_video_views', 'post_video_likes_by_reaction_type'];
+    return ['fb_reels_total_plays', 'total_video_views', 'post_video_likes_by_reaction_type', 'post_video_avg_time_watched'];
 }
 
 function fetch_facebook_video_insights(array $creds, string $videoId): array {
@@ -290,10 +313,123 @@ function fetch_facebook_video_insights(array $creds, string $videoId): array {
         'unsupported' => false,
         'views'       => (int) ($metrics['fb_reels_total_plays'] ?? $metrics['total_video_views'] ?? 0),
         'likes'       => (int) ($metrics['post_video_likes_by_reaction_type'] ?? 0),
+        // null = ไม่มีข้อมูล (ไม่ใช่ 0) — ผู้เรียกเก็บเป็น NULL
+        'avg_watch_ms' => isset($metrics['post_video_avg_time_watched']) ? (int) $metrics['post_video_avg_time_watched'] : null,
         'error'       => null,
         'warning'     => $warning,
         'raw'         => $res['raw'],
     ];
+}
+
+// ─── Facebook page ──────────────────────────────────────────────────────────────
+// page insights รายวัน: GET /{page_id}/insights?metric=...&period=day&since=&until=
+// Page token เดิมของ publish_channels มี scope read_insights อยู่แล้ว (ตรวจ debug_token 25 ก.ย. 2026)
+// ทั้ง 22 ตัวด้านล่างยิงทดสอบกับเพจจริงแล้วตอบสำเร็จทุกตัว (25 ก.ย. 2026, v26.0)
+//
+// ความหมายที่ผู้เรียกต้องรู้ (กติกาการรวมค่าอยู่ที่ api/content-analytics.php):
+//   page_follows                       = ยอดผู้ติดตามสะสม ณ วันนั้น (gauge) — ห้าม sum ข้ามวัน
+//   page_actions_post_reactions_total  = object แยกชนิด reaction → คืนทั้ง object และผลรวม
+//   page_total_media_view_unique       = unique รายวัน — รวมข้ามวันไม่ได้
+//   page_video_view_time               = มิลลิวินาที
+//
+// วันที่ของข้อมูล: แต่ละค่ามี end_time = จุดสิ้นสุดของช่วง 24 ชม. ที่ค่านั้นครอบคลุม
+// (เช่น 2026-09-25T07:00:00+0000 คือข้อมูลของวันที่ 24 ตามเวลาเพจ) จึงใช้ end_time − 1 วัน
+
+function fb_page_metric_names(): array {
+    return [
+        'page_views_total', 'page_follows', 'page_media_view', 'page_total_media_view_unique',
+        'page_daily_follows', 'page_daily_unfollows', 'page_daily_follows_unique', 'page_daily_unfollows_unique',
+        'page_actions_post_reactions_total',
+        'page_actions_post_reactions_like_total', 'page_actions_post_reactions_love_total',
+        'page_actions_post_reactions_wow_total', 'page_actions_post_reactions_haha_total',
+        'page_actions_post_reactions_sorry_total', 'page_actions_post_reactions_anger_total',
+        'page_video_views', 'page_video_views_organic', 'page_video_views_paid',
+        'page_video_views_autoplayed', 'page_video_views_click_to_play', 'page_video_repeat_views',
+        'page_video_view_time',
+    ];
+}
+
+/**
+ * ดึง page insights รายวันของเพจ ช่วง $since..$until (YYYY-MM-DD)
+ * ไม่แตะฐานข้อมูล — การ upsert เป็นหน้าที่ของ api/cron/facebook-page-insights-sync.php
+ *
+ * Graph API จำกัดช่วง since/until ต่อคำขอราว 93 วัน — ผู้เรียกต้องไม่ขอเกินนั้น
+ *
+ * @return array {
+ *   success: bool,
+ *   points:  array<array{date: string, metric: string, value: ?int, value_json: ?array}>,
+ *   warning: ?string  ชื่อ metric ที่ถูกปฏิเสธ (ถอยยิงทีละตัวแล้ว)
+ *   error:   ?string
+ * }
+ */
+function fetch_facebook_page_insights(array $creds, string $since, string $until): array {
+    $pageId = (string) ($creds['page_id'] ?? '');
+    $token  = (string) ($creds['access_token'] ?? '');
+    if ($pageId === '' || $token === '') {
+        // ไม่ยิง request เมื่อ creds ไม่ครบ
+        return ['success' => false, 'points' => [], 'warning' => null,
+                'error' => 'creds ของ Facebook ไม่ครบ — ต้องมี page_id และ access_token'];
+    }
+
+    $call = fn(string $metricParam) => _insights_get(
+        GRAPH_API_BASE . '/' . rawurlencode($pageId) . '/insights?' . http_build_query([
+            'metric'       => $metricParam,
+            'period'       => 'day',
+            'since'        => $since,
+            'until'        => $until,
+            'access_token' => $token,
+        ])
+    );
+
+    $metrics = fb_page_metric_names();
+    $res = $call(implode(',', $metrics));
+    if ($res['success']) {
+        return ['success' => true, 'points' => _page_insights_points($res['data']['data'] ?? []),
+                'warning' => null, 'error' => null];
+    }
+    // ไม่ใช่ error เรื่องชื่อ metric (เช่น token ผิด 190) — ไม่ต้องถอย
+    if ((int) ($res['data']['error']['code'] ?? 0) !== 100) {
+        return ['success' => false, 'points' => [], 'warning' => null, 'error' => (string) $res['error']];
+    }
+
+    // เหตุผลเดียวกับ _insights_fb_metrics(): metric ที่ Meta ยกเลิกตัวเดียวทำให้ทั้งคำขอล้ม
+    $points = []; $rejected = [];
+    foreach ($metrics as $metric) {
+        $one = $call($metric);
+        if ($one['success']) {
+            $points = array_merge($points, _page_insights_points($one['data']['data'] ?? []));
+        } else {
+            $rejected[] = $metric;
+        }
+    }
+    if (!$points && count($rejected) === count($metrics)) {
+        return ['success' => false, 'points' => [], 'warning' => null, 'error' => (string) $res['error']];
+    }
+    return ['success' => true, 'points' => $points,
+            'warning' => $rejected ? 'Graph API ปฏิเสธ metric: ' . implode(', ', $rejected) : null,
+            'error' => null];
+}
+
+/** แปลง data[] ของ page insights เป็นจุดรายวัน — ค่า object เก็บดิบไว้ใน value_json และ value = ผลรวม */
+function _page_insights_points(array $items): array {
+    $out = [];
+    foreach ($items as $item) {
+        $name = (string) ($item['name'] ?? '');
+        if ($name === '') continue;
+        foreach (($item['values'] ?? []) as $v) {
+            $end = strtotime((string) ($v['end_time'] ?? ''));
+            if ($end === false) continue;
+            $raw = $v['value'] ?? null;
+            $isObj = is_array($raw);
+            $out[] = [
+                'date'       => gmdate('Y-m-d', $end - 86400),
+                'metric'     => $name,
+                'value'      => $isObj ? array_sum(array_map('intval', $raw)) : ($raw === null ? null : (int) $raw),
+                'value_json' => $isObj ? $raw : null,
+            ];
+        }
+    }
+    return $out;
 }
 
 // ─── Instagram ──────────────────────────────────────────────────────────────────

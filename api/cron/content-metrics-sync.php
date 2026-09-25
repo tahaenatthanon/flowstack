@@ -294,12 +294,17 @@ foreach ($rows as $row) {
     // time-series: INSERT แถวใหม่ทุกรอบ ไม่ทับแถวเดิม
     $db->prepare(
         "INSERT INTO content_post_metrics
-           (id, tenant_id, content_item_id, channel_id, platform, platform_post_id, views, likes, fetched_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())"
+           (id, tenant_id, content_item_id, channel_id, platform, platform_post_id, views, likes,
+            clicks, reactions_json, video_avg_watch_ms, fetched_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())"
     )->execute([
         generateUUID(), $row['tenant_id'], $row['content_id'], $row['channel_id'],
         $row['platform'], $row['platform_post_id'],
         (int) $res['views'], (int) $res['likes'],
+        // NULL = ปลายทางไม่รายงานค่านี้ (ไม่ใช่ 0) — platform/ชนิดโพสต์ที่ไม่มี key นี้ได้ NULL
+        isset($res['clicks']) ? (int) $res['clicks'] : null,
+        !empty($res['reactions']) ? json_encode($res['reactions'], JSON_UNESCAPED_UNICODE) : null,
+        isset($res['avg_watch_ms']) ? (int) $res['avg_watch_ms'] : null,
     ]);
 
     $touchedContent[$row['content_id']] = $row['tenant_id'];
