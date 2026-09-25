@@ -5,23 +5,27 @@
 // a COUNT/AVG over columns the list endpoint does not ship to the client
 // (approved_at, published_at, image_gen_status, seo_*).
 //
-// Two actions, one per dashboard tab:
-//   ?action=overview   → queue health, reach funnel, aging, asset generation,
-//                        all-time social snapshot, Engagement trend, per-platform
-//                        performance table
+// Actions:
+//   ?action=overview   → End-to-End Overview + BI Summary (spec content-overview-bi):
+//                        KPI, production funnel, status, unpublished aging,
+//                        publishing health, today/tomorrow schedule, engagement
+//                        trend, platform performance — plus the work section's
+//                        queue/aging (not date-bound)
 //   ?action=analytics  → throughput trend, lead time, SEO, plan conversion,
 //                        publish success by platform
 //   ?action=page_insights → Facebook page metrics per day (facebook_page_insights_daily)
 //                        for the analytics → social sub-tab, &from/&to like analytics
 //
-// ?action=analytics accepts &from=YYYY-MM-DD&to=YYYY-MM-DD. ?action=overview has no
-// page-level date range (it is a "right now" snapshot of the production queue), but
-// two of its widgets carry their own independent time controls:
-//   &trend_range=7|30|90       → engagement_trend bucketing (default 7)
-//   &platform_period=day|week|month → platform_performance rolling window (default day)
+// ?action=analytics accepts &from=YYYY-MM-DD&to=YYYY-MM-DD. ?action=overview takes no date
+// parameters: it summarizes all data the tenant has, with no period comparison
+// (content-overview-bi).
 //
 // Page metrics come from facebook_page_insights_daily (filled daily by cron
 // facebook-page-insights-sync); everything else reads existing content tables.
+//
+// "Engagement" of a social post means one thing everywhere in this file:
+// Reaction + Comment + Share + Click (socialEngagement() below). Video plays are
+// reported separately as views and are never part of it.
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/auth.php';
@@ -75,7 +79,8 @@ function dateParam(string $name): ?string {
  * ช่องทาง key when channel_id is NULL (channel row deleted, FK SET NULL).
  * Pass $fromDt/$toDt as null for an all-time cohort (no date filter).
  *
- * @return array rows: content_item_id, platform, published_at, views, likes
+ * @return array rows: content_item_id, platform, published_at, views, likes,
+ *               clicks, comments, shares (the last three NULL = not reported)
  */
 function fetchSocialSeriesRows(PDO $db, string $tenantId, ?string $fromDt, ?string $toDt): array {
     $cohortSql = '';
@@ -90,7 +95,10 @@ function fetchSocialSeriesRows(PDO $db, string $tenantId, ?string $fromDt, ?stri
                 m.platform,
                 ci.published_at,
                 MAX(m.views) AS views,
-                MAX(m.likes) AS likes
+                MAX(m.likes) AS likes,
+                MAX(m.clicks)   AS clicks,
+                MAX(m.comments) AS comments,
+                MAX(m.shares)   AS shares
          FROM content_post_metrics m
          JOIN content_items ci ON ci.id = m.content_item_id
          JOIN (SELECT content_item_id,
@@ -111,6 +119,39 @@ function fetchSocialSeriesRows(PDO $db, string $tenantId, ?string $fromDt, ?stri
     );
     $stmt->execute($params);
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * Parts of post-level Engagement → the content_post_metrics column each comes from.
+ * Save is not here on purpose: Facebook has no post-level save metric (post_saves
+ * is rejected as invalid). Video plays (views) are not interactions and stay out.
+ */
+const ENGAGEMENT_PARTS = [
+    'reactions' => 'likes',
+    'comments'  => 'comments',
+    'shares'    => 'shares',
+    'clicks'    => 'clicks',
+];
+
+/**
+ * Engagement breakdown of a set of deduped metrics rows. A NULL part (not reported
+ * yet — rows synced before the column existed, or a platform without it) adds 0.
+ *
+ * @return array{reactions: int, comments: int, shares: int, clicks: int}
+ */
+function engagementBreakdown(array $rows): array {
+    $out = array_fill_keys(array_keys(ENGAGEMENT_PARTS), 0);
+    foreach ($rows as $r) {
+        foreach (ENGAGEMENT_PARTS as $part => $col) {
+            $out[$part] += (int)($r[$col] ?? 0);
+        }
+    }
+    return $out;
+}
+
+/** Engagement of one metrics row = Reaction + Comment + Share + Click. */
+function socialEngagement(array $row): int {
+    return array_sum(engagementBreakdown([$row]));
 }
 
 /**
@@ -214,9 +255,245 @@ function pageInsightsRange(PDO $db, string $tenantId, string $from, string $to):
 }
 
 // ─── OVERVIEW ──────────────────────────────────────────────────────
-if ($action === 'overview') {
+// End-to-End Overview + BI Summary (spec content-overview-bi): การผลิต → การเผยแพร่
+// → ผลลัพธ์ จาก "ข้อมูลทั้งหมดที่ระบบมี" — ไม่มีช่วงเวลาและไม่มีการเปรียบเทียบ
+// (ผู้ใช้ตัดสินให้ไม่เทียบเดือนต่อเดือน) พร้อมข้อมูลของส่วน "งานที่ต้องจัดการ" (queue / aging)
 
-    // 1) Publish queue health — counts per status + overdue pending.
+/**
+ * Engagement = Reaction + Comment + Share + Click (D2, engagementBreakdown()) of the
+ * latest metrics row per (content item, ช่องทาง). Posts = distinct measured content
+ * items — the same denominator as Avg/Post, so every widget built from these rows
+ * adds up. engagement/avg/breakdown are null when nothing was measured ("—", not "0").
+ *
+ * @return array{engagement: ?int, breakdown: ?array, posts: int, avg_per_post: ?float, platforms: string[]}
+ */
+function overviewPostSummary(array $rows): array {
+    $items     = [];
+    $platforms = [];
+    foreach ($rows as $r) {
+        $items[$r['content_item_id']] = true;
+        $platforms[$r['platform']]    = true;
+    }
+    $breakdown  = engagementBreakdown($rows);
+    $engagement = array_sum($breakdown);
+    $posts = count($items);
+    $platformList = array_keys($platforms);
+    sort($platformList);
+    return [
+        'engagement'   => $posts > 0 ? $engagement : null,
+        'breakdown'    => $posts > 0 ? $breakdown : null,
+        'posts'        => $posts,
+        'avg_per_post' => $posts > 0 ? round($engagement / $posts, 1) : null,
+        'platforms'    => $platformList,
+    ];
+}
+
+if ($action === 'overview') {
+    // ── Global KPI (ข้อมูลทั้งหมด) ────────────────────────────────
+    // Only content marked as published counts ("คอนเทนต์ที่เผยแพร่แล้ว") — items that
+    // have metrics but no published_at (sent, but the item's status never synced) are
+    // left out, so Posts here equals the funnel's เผยแพร่ stage and the trend below
+    // (which needs a publish month) adds up to the same totals.
+    $allRows = array_values(array_filter(
+        fetchSocialSeriesRows($db, $tenantId, null, null),
+        static fn($r) => !empty($r['published_at'])
+    ));
+    $allSum  = overviewPostSummary($allRows);
+
+    // ผู้ติดตามเพจ — page-level gauge: the latest synced value, never summed.
+    $flStmtLatest = $db->prepare(
+        "SELECT value FROM facebook_page_insights_daily
+          WHERE tenant_id = ? AND metric = 'page_follows' AND value IS NOT NULL
+          ORDER BY metric_date DESC LIMIT 1"
+    );
+    $flStmtLatest->execute([$tenantId]);
+    $followersRaw = $flStmtLatest->fetchColumn();
+    $followers    = $followersRaw === false ? null : (int)$followersRaw;
+
+    $kpi = [
+        'engagement'   => $allSum['engagement'],
+        // reactions/comments/shares/clicks — sums to engagement
+        'breakdown'    => $allSum['breakdown'],
+        'posts'        => $allSum['posts'],
+        'avg_per_post' => $allSum['avg_per_post'],
+        'followers'    => [
+            'current'   => $followers,
+            // facebook_page_insights_daily is Facebook-only (one page per tenant).
+            'platforms' => $followers !== null ? ['facebook'] : [],
+        ],
+        // Platforms whose posts have been measured.
+        'platforms' => $allSum['platforms'],
+    ];
+
+    // ── การผลิต: funnel (D3) ──────────────────────────────────────
+    // Cohort = all content of the tenant; every stage counts "reached this stage or
+    // beyond", so the funnel can only narrow. approved_at is cleared when an approval
+    // is revoked, so "อนุมัติ" means approved *as of now*.
+    $fStmt = $db->prepare(
+        "SELECT
+            COUNT(*) AS created,
+            SUM(requested_at IS NOT NULL OR approved_at IS NOT NULL OR published_at IS NOT NULL) AS requested,
+            SUM(approved_at IS NOT NULL OR published_at IS NOT NULL)                             AS approved,
+            SUM(published_at IS NOT NULL)                                                        AS published
+         FROM content_items
+         WHERE tenant_id = ?"
+    );
+    $fStmt->execute([$tenantId]);
+    $f = $fStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    $fCreated   = (int)($f['created']   ?? 0);
+    $fRequested = (int)($f['requested'] ?? 0);
+    $fApproved  = (int)($f['approved']  ?? 0);
+    $fPublished = (int)($f['published'] ?? 0);
+    $stagePct = static fn(int $n, int $prev): ?float => $prev > 0 ? round($n / $prev * 100, 1) : null;
+    $funnel = [
+        'stages' => [
+            ['key' => 'created',   'count' => $fCreated,   'pct' => $fCreated > 0 ? 100.0 : null],
+            ['key' => 'requested', 'count' => $fRequested, 'pct' => $stagePct($fRequested, $fCreated)],
+            ['key' => 'approved',  'count' => $fApproved,  'pct' => $stagePct($fApproved,  $fRequested)],
+            ['key' => 'published', 'count' => $fPublished, 'pct' => $stagePct($fPublished, $fApproved)],
+        ],
+        'in_progress' => $fCreated - $fPublished,
+    ];
+
+    // ── การผลิต: สถานะคอนเทนต์ (ณ ตอนนี้) ─────────────────────────
+    $ssStmt = $db->prepare('SELECT status, COUNT(*) AS n FROM content_items WHERE tenant_id = ? GROUP BY status');
+    $ssStmt->execute([$tenantId]);
+    $statusSummary = ['total' => 0, 'by_status' => []];
+    foreach ($ssStmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $statusSummary['by_status'][(string)$r['status']] = (int)$r['n'];
+        $statusSummary['total'] += (int)$r['n'];
+    }
+
+    // ── การเผยแพร่: Publishing Health (ข้อมูลทั้งหมด) ─────────────
+    // Every queue row of the tenant. Email campaigns live elsewhere and are never
+    // counted here.
+    $hStmt = $db->prepare(
+        "SELECT
+            SUM(q.status IN ('pending', 'processing')) AS pending,
+            SUM(q.status = 'sent')                      AS sent,
+            SUM(q.status = 'failed')                    AS failed
+         FROM content_publish_queue q
+         WHERE q.tenant_id = ?"
+    );
+    $hStmt->execute([$tenantId]);
+    $h = $hStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    $hSent   = (int)($h['sent']   ?? 0);
+    $hFailed = (int)($h['failed'] ?? 0);
+    $hpStmt = $db->prepare(
+        "SELECT DISTINCT NULLIF(pc.platform, '') AS platform
+           FROM content_publish_queue q
+           JOIN publish_channels pc ON pc.id = q.channel_id
+          WHERE q.tenant_id = ?"
+    );
+    $hpStmt->execute([$tenantId]);
+    $healthPlatforms = array_values(array_filter(array_column($hpStmt->fetchAll(PDO::FETCH_ASSOC), 'platform')));
+    sort($healthPlatforms);
+    $publishingHealth = [
+        'pending'      => (int)($h['pending'] ?? 0),
+        'sent'         => $hSent,
+        'failed'       => $hFailed,
+        // null = nothing finished yet — a queue that never ran is not 0% or 100%.
+        'success_rate' => ($hSent + $hFailed) > 0 ? round($hSent / ($hSent + $hFailed) * 100, 1) : null,
+        'platforms'    => $healthPlatforms,
+    ];
+
+    // ── การเผยแพร่: กำหนดการวันนี้ / พรุ่งนี้ (D4) ────────────────
+    // Both scheduling sources, pending only. A content_schedules row gets its queue
+    // row only when cron-publish actually sends it (publish_via_central_flow), so
+    // pending rows never exist in both tables — no double count.
+    $todayDate    = date('Y-m-d');
+    $tomorrowDate = date('Y-m-d', strtotime('+1 day'));
+    $schStmt = $db->prepare(
+        "SELECT DATE(x.scheduled_at) AS d, DATE_FORMAT(x.scheduled_at, '%H:%i') AS t,
+                x.platform, COUNT(*) AS n
+           FROM (
+                SELECT cs.scheduled_at, NULLIF(pc.platform, '') AS platform
+                  FROM content_schedules cs
+                  JOIN publish_channels  pc  ON pc.id  = cs.channel_id
+                  JOIN content_plan_items cpi ON cpi.id = cs.plan_item_id
+                  JOIN content_plans     cp  ON cp.id  = cpi.plan_id
+                 WHERE cp.tenant_id = ? AND cs.status = 'pending'
+                   AND cs.scheduled_at BETWEEN ? AND ?
+                UNION ALL
+                SELECT pq.scheduled_at, NULLIF(pc.platform, '') AS platform
+                  FROM content_publish_queue pq
+                  JOIN publish_channels pc ON pc.id = pq.channel_id
+                 WHERE pq.tenant_id = ? AND pq.status = 'pending'
+                   AND pq.scheduled_at BETWEEN ? AND ?
+           ) x
+          GROUP BY d, t, x.platform
+          ORDER BY d, t, x.platform"
+    );
+    $schFrom = $todayDate . ' 00:00:00';
+    $schTo   = $tomorrowDate . ' 23:59:59';
+    $schStmt->execute([$tenantId, $schFrom, $schTo, $tenantId, $schFrom, $schTo]);
+    $scheduleSummary = [
+        'today'    => ['date' => $todayDate,    'rows' => []],
+        'tomorrow' => ['date' => $tomorrowDate, 'rows' => []],
+    ];
+    foreach ($schStmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $bucket = $r['d'] === $todayDate ? 'today' : 'tomorrow';
+        $scheduleSummary[$bucket]['rows'][] = [
+            'time'     => $r['t'],
+            'platform' => $r['platform'],
+            'count'    => (int)$r['n'],
+        ];
+    }
+
+    // ── ผลลัพธ์: Engagement Trend รายเดือน ─────────────────────────
+    // Every month from the first measured post's month to this month, by the month
+    // the post was *published* (interactions are lifetime totals, so they cannot be split
+    // by the day they happened). Months with no measured post → null (a gap, not 0).
+    $trendAgg = [];
+    foreach ($allRows as $r) {
+        $mk = substr((string)$r['published_at'], 0, 7);
+        if ($mk === '') continue;
+        if (!isset($trendAgg[$mk])) $trendAgg[$mk] = ['engagement' => 0, 'items' => []];
+        $trendAgg[$mk]['engagement'] += socialEngagement($r);
+        $trendAgg[$mk]['items'][$r['content_item_id']] = true;
+    }
+    $engagementTrend = [];
+    if ($trendAgg) {
+        $firstMonth = min(array_keys($trendAgg));
+        $thisMonth  = date('Y-m');
+        for ($m = new DateTimeImmutable($firstMonth . '-01'); $m->format('Y-m') <= $thisMonth; $m = $m->modify('+1 month')) {
+            $mk  = $m->format('Y-m');
+            $agg = $trendAgg[$mk] ?? null;
+            $engagementTrend[] = [
+                'month'      => $mk,
+                'engagement' => $agg ? $agg['engagement'] : null,
+                'posts'      => $agg ? count($agg['items']) : 0,
+            ];
+        }
+    }
+
+    // ── ผลลัพธ์: Platform Performance ─────────────────────────────
+    // Same rows as the KPI row, split by platform, so the table always adds up to it.
+    $byPlatform = [];
+    foreach ($allRows as $r) $byPlatform[$r['platform']][] = $r;
+    if ($followers !== null && !isset($byPlatform['facebook'])) $byPlatform['facebook'] = [];
+    $platformPerformance = [];
+    foreach ($byPlatform as $plat => $rows) {
+        $s = overviewPostSummary($rows);
+        $platformPerformance[] = [
+            'platform'     => $plat,
+            'posts'        => $s['posts'],
+            'engagement'   => $s['engagement'],
+            'avg_per_post' => $s['avg_per_post'],
+            // Only Facebook has follower data (page-level, one page per tenant).
+            'followers'    => $plat === 'facebook' ? $followers : null,
+        ];
+    }
+    usort($platformPerformance, static function ($a, $b) {
+        if ($a['avg_per_post'] === null && $b['avg_per_post'] === null) return 0;
+        if ($a['avg_per_post'] === null) return 1;
+        if ($b['avg_per_post'] === null) return -1;
+        return $b['avg_per_post'] <=> $a['avg_per_post'];
+    });
+
+    // ── งานที่ต้องจัดการ (ณ ตอนนี้, ไม่ผูกช่วงเวลา) ─────────────────
+    // Unchanged from before this change: queue health + failed rows for the retry
+    // button, and unpublished aging + oldest offenders.
     // "overdue" uses the same definition as content-publish.php?action=overdue_count
     // so the two never disagree on screen.
     $qStmt = $db->prepare(
@@ -234,7 +511,7 @@ if ($action === 'overview') {
 
     // Failed entries with the actionable error text, newest first.
     // channel_id is returned so the retry button can call send_now.
-    $fStmt = $db->prepare(
+    $flStmt = $db->prepare(
         "SELECT q.id, q.content_id, q.channel_id, q.scheduled_at, q.error_msg, q.retry_count,
                 ci.title,
                 pc.name                 AS channel_name,
@@ -246,24 +523,10 @@ if ($action === 'overview') {
          ORDER BY q.scheduled_at DESC
          LIMIT 8"
     );
-    $fStmt->execute([$tenantId]);
-    $failures = $fStmt->fetchAll(PDO::FETCH_ASSOC);
+    $flStmt->execute([$tenantId]);
+    $failures = $flStmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // 2) Reach funnel — how many items have *ever* reached each stage, derived
-    // from the workflow timestamps rather than the current status snapshot, so an
-    // item bounced back to draft after approval still counts as having reached it.
-    $funStmt = $db->prepare(
-        'SELECT
-            COUNT(*)                      AS created,
-            SUM(requested_at IS NOT NULL) AS requested,
-            SUM(approved_at  IS NOT NULL) AS approved,
-            SUM(published_at IS NOT NULL) AS published
-         FROM content_items WHERE tenant_id = ?'
-    );
-    $funStmt->execute([$tenantId]);
-    $fun = $funStmt->fetch(PDO::FETCH_ASSOC) ?: [];
-
-    // 3) Aging — unpublished items bucketed by days since creation.
+    // Unpublished content bucketed by days since creation.
     $aStmt = $db->prepare(
         "SELECT
             SUM(DATEDIFF(NOW(), created_at) <= 7)                                       AS d0_7,
@@ -278,7 +541,7 @@ if ($action === 'overview') {
     $aStmt->execute([$tenantId]);
     $aging = $aStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
-    // Oldest stale items, so the widget can name the actual offenders.
+    // Oldest unpublished items, so the widget can name the actual offenders.
     $sStmt = $db->prepare(
         "SELECT id, title, status, NULLIF(platform, '') AS platform,
                 DATEDIFF(NOW(), created_at) AS age_days
@@ -290,163 +553,25 @@ if ($action === 'overview') {
     $sStmt->execute([$tenantId]);
     $staleItems = $sStmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // 4) AI asset generation status.
-    $gStmt = $db->prepare(
-        "SELECT
-            SUM(image_gen_status = 'none')       AS img_none,
-            SUM(image_gen_status = 'generating') AS img_generating,
-            SUM(image_gen_status = 'done')       AS img_done,
-            SUM(image_gen_status = 'failed')     AS img_failed,
-            SUM(video_gen_status = 'none')       AS vid_none,
-            SUM(video_gen_status = 'generating') AS vid_generating,
-            SUM(video_gen_status = 'done')       AS vid_done,
-            SUM(video_gen_status = 'failed')     AS vid_failed
-         FROM content_items WHERE tenant_id = ?"
-    );
-    $gStmt->execute([$tenantId]);
-    $g = $gStmt->fetch(PDO::FETCH_ASSOC) ?: [];
-
-    // 5) Social snapshot — all-time Engagement summary card strip. No date filter
-    // (see fetchSocialSeriesRows) — deliberately independent of the trend/table
-    // widgets below, which each have their own time window.
-    $snapshotRows  = fetchSocialSeriesRows($db, $tenantId, null, null);
-    $snapEngagement = 0;
-    $snapLikes      = 0;
-    $snapItems      = [];
-    foreach ($snapshotRows as $r) {
-        $snapEngagement += (int)$r['views'] + (int)$r['likes'];
-        $snapLikes      += (int)$r['likes'];
-        $snapItems[$r['content_item_id']] = true;
-    }
-    $snapPosts = count($snapItems);
-
-    // 6) Engagement trend — bucketed by the `trend_range` param. Mapping is fixed
-    // (not a free granularity choice) so a short range can never produce a
-    // degenerate single-point chart: 7 → 7 daily buckets, 30 → ~4-5 weekly
-    // (rolling 7-day) buckets, 90 → ~3 monthly (rolling 30-day) buckets.
-    $trendRange = $_GET['trend_range'] ?? '7';
-    if (!in_array($trendRange, ['7', '30', '90'], true)) {
-        jsonError('trend_range ต้องเป็น 7, 30 หรือ 90', 400);
-    }
-    $trendDays      = (int)$trendRange;
-    $trendBucketDays = $trendDays === 7 ? 1 : ($trendDays === 30 ? 7 : 30);
-    $trendBucketCount = (int)ceil($trendDays / $trendBucketDays);
-    $trendFromDt = date('Y-m-d 00:00:00', strtotime('-' . ($trendDays - 1) . ' days'));
-    $trendToDt   = date('Y-m-d 23:59:59');
-
-    $today = new DateTime(date('Y-m-d'));
-    $trendBuckets = [];
-    for ($i = $trendBucketCount - 1; $i >= 0; $i--) {
-        $bucketEnd   = (clone $today)->modify('-' . ($i * $trendBucketDays) . ' days');
-        $bucketStart = (clone $bucketEnd)->modify('-' . ($trendBucketDays - 1) . ' days');
-        $trendBuckets[] = [
-            'start'      => $bucketStart->format('Y-m-d'),
-            'end'        => $bucketEnd->format('Y-m-d'),
-            'engagement' => 0,
-        ];
-    }
-    $trendRows = fetchSocialSeriesRows($db, $tenantId, $trendFromDt, $trendToDt);
-    foreach ($trendRows as $r) {
-        $pubDate = substr((string)$r['published_at'], 0, 10);
-        if ($pubDate === '') continue;
-        foreach ($trendBuckets as &$b) {
-            if ($pubDate >= $b['start'] && $pubDate <= $b['end']) {
-                $b['engagement'] += (int)$r['views'] + (int)$r['likes'];
-                break;
-            }
-        }
-        unset($b);
-    }
-    $engagementTrend = array_map(static fn($b) => [
-        'bucket_label' => $b['end'],
-        'engagement'   => $b['engagement'],
-    ], $trendBuckets);
-
-    // 7) Platform performance — bucketed by the `platform_period` param, rolling
-    // windows (not calendar week/month). Base list = every active platform in
-    // publish_channels, LEFT JOIN'd against synced engagement, so a platform with
-    // zero posts in the selected window still gets a row (never silently hidden).
-    // Union'd with any platform that has synced data but isn't (or is no longer)
-    // an active channel, so historical data never disappears from the table.
-    $platformPeriod = $_GET['platform_period'] ?? 'day';
-    if (!in_array($platformPeriod, ['day', 'week', 'month'], true)) {
-        jsonError('platform_period ต้องเป็น day, week หรือ month', 400);
-    }
-    $periodFromDt = $platformPeriod === 'day'
-        ? date('Y-m-d 00:00:00')
-        : date('Y-m-d 00:00:00', strtotime($platformPeriod === 'week' ? '-6 days' : '-29 days'));
-    $periodToDt = date('Y-m-d 23:59:59');
-    // Window length in days — used to normalize engagement into a per-week rate
-    // regardless of which period is selected (1 day → ×7 extrapolation, 7 days →
-    // as-is, 30 days → ÷~4.29), so "เฉลี่ย/สัปดาห์" means the same thing no matter
-    // which of the 3 period buttons is active.
-    $platformPeriodDays = $platformPeriod === 'day' ? 1 : ($platformPeriod === 'week' ? 7 : 30);
-
-    $platStmt = $db->prepare(
-        "SELECT DISTINCT platform FROM publish_channels
-          WHERE tenant_id = ? AND is_active = 1 AND platform <> ''"
-    );
-    $platStmt->execute([$tenantId]);
-    $basePlatforms = array_column($platStmt->fetchAll(PDO::FETCH_ASSOC), 'platform');
-
-    $periodRows = fetchSocialSeriesRows($db, $tenantId, $periodFromDt, $periodToDt);
-    $perfAgg = []; // platform => ['items' => set, 'views' => int, 'engagement' => int]
-    foreach ($periodRows as $r) {
-        $plat = $r['platform'];
-        if (!isset($perfAgg[$plat])) $perfAgg[$plat] = ['items' => [], 'views' => 0, 'engagement' => 0];
-        $perfAgg[$plat]['items'][$r['content_item_id']] = true;
-        $perfAgg[$plat]['views']      += (int)$r['views'];
-        $perfAgg[$plat]['engagement'] += (int)$r['views'] + (int)$r['likes'];
-    }
-    $allPlatforms = array_values(array_unique(array_merge($basePlatforms, array_keys($perfAgg))));
-
-    $platformPerformance = array_map(static function ($plat) use ($perfAgg, $platformPeriodDays) {
-        $agg        = $perfAgg[$plat] ?? null;
-        $posts      = $agg ? count($agg['items']) : 0;
-        $views      = $agg ? $agg['views'] : 0;
-        $engagement = $agg ? $agg['engagement'] : 0;
-        return [
-            'platform'                  => $plat,
-            'posts'                     => $posts,
-            // Facebook feed posts always report views=0 (Graph API limitation, not
-            // a sync bug — see AnalyticsSocialTab.tsx) — null lets the frontend
-            // show "—" ("not measured") instead of a misleading literal 0 when
-            // there is real engagement but no view count for this platform.
-            'views'                     => $views === 0 && $engagement > 0 ? null : $views,
-            'engagement'                => $engagement,
-            // null when views aren't measured (views=0) — cannot divide by zero,
-            // and a rate computed against an unmeasured denominator would mislead.
-            'engagement_rate'           => $views > 0 ? round($engagement / $views * 100, 1) : null,
-            'avg_engagement_per_post'   => $posts > 0 ? (int)round($engagement / $posts) : null,
-            // Unlike avg/post, this is always a real number (0 is a valid "no
-            // activity this week" reading) — normalized to a weekly rate so the
-            // column means the same thing across the day/week/month period toggle.
-            'avg_engagement_per_week'   => (int)round($engagement * 7 / $platformPeriodDays),
-        ];
-    }, $allPlatforms);
-
-    // Sort desc by avg_engagement_per_post — quality-per-post, not total volume.
-    // Rows with no posts in the window (null average) sort last.
-    usort($platformPerformance, static function ($a, $b) {
-        if ($a['avg_engagement_per_post'] === $b['avg_engagement_per_post']) return 0;
-        if ($a['avg_engagement_per_post'] === null) return 1;
-        if ($b['avg_engagement_per_post'] === null) return -1;
-        return $b['avg_engagement_per_post'] <=> $a['avg_engagement_per_post'];
-    });
-
-    // Facebook page cards — fixed "last 28 days" window, independent of the
-    // trend/platform controls above (same rules as ?action=page_insights).
-    $page28 = pageInsightsRange($db, $tenantId, date('Y-m-d', strtotime('-27 days')), date('Y-m-d'));
-    $followers      = $page28['totals']['page_follows'] ?? null;
-    $followersStart = $page28['first']->page_follows ?? null;
-    $pageSummary = [
-        'has_data'         => $page28['has_data'],
-        'followers'        => $followers,
-        'followers_change' => ($followers !== null && $followersStart !== null) ? $followers - $followersStart : null,
-        'page_views'       => $page28['totals']['page_views_total'] ?? null,
+    $agingCounts = [
+        'd0_7'     => (int)($aging['d0_7'] ?? 0),
+        'd8_30'    => (int)($aging['d8_30'] ?? 0),
+        'd31_90'   => (int)($aging['d31_90'] ?? 0),
+        'd90_plus' => (int)($aging['d90_plus'] ?? 0),
+        'total'    => (int)($aging['total'] ?? 0),
     ];
 
     jsonResponse([
+        'kpi'                => $kpi,
+        'funnel'             => $funnel,
+        'status_summary'     => $statusSummary,
+        // Same query as `aging` below, without the item list — the BI box and the
+        // work-section widget therefore always show the same numbers.
+        'unpublished_aging'  => $agingCounts,
+        'publishing_health'  => $publishingHealth,
+        'schedule_summary'   => $scheduleSummary,
+        'engagement_trend'   => $engagementTrend,
+        'platform_performance' => $platformPerformance,
         'queue' => [
             'pending'         => (int)($q['pending'] ?? 0),
             'processing'      => (int)($q['processing'] ?? 0),
@@ -466,18 +591,7 @@ if ($action === 'overview') {
                 'scheduled_at' => $r['scheduled_at'],
             ], $failures),
         ],
-        'funnel' => [
-            'created'   => (int)($fun['created'] ?? 0),
-            'requested' => (int)($fun['requested'] ?? 0),
-            'approved'  => (int)($fun['approved'] ?? 0),
-            'published' => (int)($fun['published'] ?? 0),
-        ],
-        'aging' => [
-            'd0_7'        => (int)($aging['d0_7'] ?? 0),
-            'd8_30'       => (int)($aging['d8_30'] ?? 0),
-            'd31_90'      => (int)($aging['d31_90'] ?? 0),
-            'd90_plus'    => (int)($aging['d90_plus'] ?? 0),
-            'total'       => (int)($aging['total'] ?? 0),
+        'aging' => $agingCounts + [
             // null only when there is nothing unpublished — "no stale items" is
             // not the same statement as "the oldest is 0 days old".
             'oldest_days' => isset($aging['oldest_days']) && $aging['oldest_days'] !== null
@@ -490,30 +604,6 @@ if ($action === 'overview') {
                 'age_days' => (int)$r['age_days'],
             ], $staleItems),
         ],
-        'assets' => [
-            'image' => [
-                'none'       => (int)($g['img_none'] ?? 0),
-                'generating' => (int)($g['img_generating'] ?? 0),
-                'done'       => (int)($g['img_done'] ?? 0),
-                'failed'     => (int)($g['img_failed'] ?? 0),
-            ],
-            'video' => [
-                'none'       => (int)($g['vid_none'] ?? 0),
-                'generating' => (int)($g['vid_generating'] ?? 0),
-                'done'       => (int)($g['vid_done'] ?? 0),
-                'failed'     => (int)($g['vid_failed'] ?? 0),
-            ],
-        ],
-        'social_snapshot' => [
-            'has_data'                => $snapPosts > 0,
-            'engagement'               => $snapEngagement,
-            'posts'                    => $snapPosts,
-            'likes'                    => $snapLikes,
-            'avg_engagement_per_post'  => $snapPosts > 0 ? (int)round($snapEngagement / $snapPosts) : null,
-        ],
-        'engagement_trend'   => $engagementTrend,
-        'platform_performance' => $platformPerformance,
-        'page_summary'       => $pageSummary,
     ]);
 }
 
@@ -818,6 +908,8 @@ if ($action === 'analytics') {
                 MAX(m.likes)      AS likes,
                 -- NULL stays NULL (MAX over NULLs) = the platform did not report it
                 MAX(m.clicks)             AS clicks,
+                MAX(m.comments)           AS comments,
+                MAX(m.shares)             AS shares,
                 MAX(m.video_avg_watch_ms) AS video_avg_watch_ms,
                 MAX(m.fetched_at) AS fetched_at
          FROM content_post_metrics m
@@ -842,40 +934,36 @@ if ($action === 'analytics') {
     $socialSeries = $socialStmt->fetchAll(PDO::FETCH_ASSOC);
 
     $socialViews       = 0;
-    $socialLikes       = 0;
     $socialLastFetched = null;
     $socialItems       = [];  // content_item_id => true  (distinct-post count)
     $socialPlatforms   = [];  // platform => true
-    $byPlatform        = [];  // platform => ['views','likes','items']
-    $monthlyRaw        = [];  // 'Y-m'    => ['views','likes','items']
+    $byPlatform        = [];  // platform => ['rows','items']
+    $monthlyRaw        = [];  // 'Y-m'    => ['rows','items']
     $topRaw            = [];  // content_item_id => aggregated post
 
+    // Sum of a nullable part across ช่องทาง: stays null until some ช่องทาง reports it
+    // ("—" in the UI, not 0).
+    $addNullable = static fn (?int $acc, $v): ?int => $v === null ? $acc : ($acc ?? 0) + (int)$v;
+
     foreach ($socialSeries as $r) {
-        $v    = (int)$r['views'];
-        $l    = (int)$r['likes'];
         $cid  = $r['content_item_id'];
         $plat = $r['platform'];
 
-        $socialViews += $v;
-        $socialLikes += $l;
-        $socialItems[$cid]     = true;
+        $socialViews += (int)$r['views'];
+        $socialItems[$cid]      = true;
         $socialPlatforms[$plat] = true;
         if ($r['fetched_at'] !== null
             && ($socialLastFetched === null || $r['fetched_at'] > $socialLastFetched)) {
             $socialLastFetched = $r['fetched_at'];
         }
 
-        if (!isset($byPlatform[$plat])) $byPlatform[$plat] = ['views' => 0, 'likes' => 0, 'items' => []];
-        $byPlatform[$plat]['views'] += $v;
-        $byPlatform[$plat]['likes'] += $l;
+        $byPlatform[$plat]['rows'][]      = $r;
         $byPlatform[$plat]['items'][$cid] = true;
 
         // Grouped by the month the post was *published* (ci.published_at), matching
         // $throughput — not the round the metrics happened to be fetched in.
         $mk = substr((string)$r['published_at'], 0, 7);
-        if (!isset($monthlyRaw[$mk])) $monthlyRaw[$mk] = ['views' => 0, 'likes' => 0, 'items' => []];
-        $monthlyRaw[$mk]['views'] += $v;
-        $monthlyRaw[$mk]['likes'] += $l;
+        $monthlyRaw[$mk]['rows'][]      = $r;
         $monthlyRaw[$mk]['items'][$cid] = true;
 
         // One entry per content item, summed across its ช่องทาง.
@@ -887,39 +975,51 @@ if ($action === 'analytics') {
                 'published_url'   => $r['published_url'],
                 'views'           => 0,
                 'likes'           => 0,
+                'comments'        => null,
+                'shares'          => null,
                 'clicks'          => null,
+                'engagement'      => 0,
                 'video_avg_watch_ms' => null,
                 '_platforms'      => [],
             ];
         }
-        $topRaw[$cid]['views'] += $v;
-        $topRaw[$cid]['likes'] += $l;
-        // null until some ช่องทาง actually reports it — "—" in the UI, not 0
-        if ($r['clicks'] !== null) {
-            $topRaw[$cid]['clicks'] = ($topRaw[$cid]['clicks'] ?? 0) + (int)$r['clicks'];
-        }
+        $topRaw[$cid]['views']      += (int)$r['views'];
+        $topRaw[$cid]['likes']      += (int)$r['likes'];
+        $topRaw[$cid]['comments']    = $addNullable($topRaw[$cid]['comments'], $r['comments']);
+        $topRaw[$cid]['shares']      = $addNullable($topRaw[$cid]['shares'], $r['shares']);
+        $topRaw[$cid]['clicks']      = $addNullable($topRaw[$cid]['clicks'], $r['clicks']);
+        $topRaw[$cid]['engagement'] += socialEngagement($r);
         if ($r['video_avg_watch_ms'] !== null) {
             // An average cannot be summed across ช่องทาง; keep the highest one reported.
             $topRaw[$cid]['video_avg_watch_ms'] = max($topRaw[$cid]['video_avg_watch_ms'] ?? 0, (int)$r['video_avg_watch_ms']);
         }
         $topRaw[$cid]['_platforms'][$plat] = true;
     }
-    $socialPosts = count($socialItems);
+    $socialPosts     = count($socialItems);
+    $socialBreakdown = engagementBreakdown($socialSeries);
 
     // Platforms present in the cohort — derived, never hardcoded, so Instagram
     // appears only once it actually has synced data.
     $socialPlatformList = array_keys($socialPlatforms);
     sort($socialPlatformList);
 
+    // views + the four engagement parts + their sum, for one group of rows
+    $socialTotals = static function (array $rows): array {
+        $b = engagementBreakdown($rows);
+        return [
+            'views'      => array_sum(array_map(static fn ($r) => (int)$r['views'], $rows)),
+            'likes'      => $b['reactions'],
+            'comments'   => $b['comments'],
+            'shares'     => $b['shares'],
+            'clicks'     => $b['clicks'],
+            'engagement' => array_sum($b),
+        ];
+    };
+
     $socialByPlatform = [];
     foreach ($byPlatform as $plat => $agg) {
-        $socialByPlatform[] = [
-            'platform'   => $plat,
-            'posts'      => count($agg['items']),
-            'views'      => $agg['views'],
-            'likes'      => $agg['likes'],
-            'engagement' => $agg['views'] + $agg['likes'],
-        ];
+        $socialByPlatform[] = ['platform' => $plat, 'posts' => count($agg['items'])]
+                            + $socialTotals($agg['rows']);
     }
     usort($socialByPlatform, static fn ($a, $b) => $b['engagement'] <=> $a['engagement']);
 
@@ -929,15 +1029,8 @@ if ($action === 'analytics') {
     for ($cursor = clone $fromMonth; $cursor <= $toMonth; $cursor->modify('+1 month')) {
         $mk  = $cursor->format('Y-m');
         $agg = $monthlyRaw[$mk] ?? null;
-        $mv  = $agg ? $agg['views'] : 0;
-        $ml  = $agg ? $agg['likes'] : 0;
-        $socialMonthly[] = [
-            'month'      => $mk,
-            'posts'      => $agg ? count($agg['items']) : 0,
-            'views'      => $mv,
-            'likes'      => $ml,
-            'engagement' => $mv + $ml,
-        ];
+        $socialMonthly[] = ['month' => $mk, 'posts' => $agg ? count($agg['items']) : 0]
+                         + $socialTotals($agg['rows'] ?? []);
     }
 
     // Top posts by engagement, capped at 10.
@@ -953,8 +1046,10 @@ if ($action === 'analytics') {
             'published_at'    => $p['published_at'],
             'views'           => $p['views'],
             'likes'           => $p['likes'],
-            'engagement'      => $p['views'] + $p['likes'],
+            'comments'        => $p['comments'],
+            'shares'          => $p['shares'],
             'clicks'          => $p['clicks'],
+            'engagement'      => $p['engagement'],
             'video_avg_watch_ms' => $p['video_avg_watch_ms'],
             'published_url'   => $p['published_url'],
         ];
@@ -971,9 +1066,13 @@ if ($action === 'analytics') {
             // appears only once it actually has synced data inside the window.
             'platforms'       => $socialPlatformList,
             'posts'           => $socialPosts,
+            // Video plays — reported on their own, not part of engagement.
             'views'           => $socialViews,
-            'likes'           => $socialLikes,
-            'engagement'      => $socialViews + $socialLikes,
+            'likes'           => $socialBreakdown['reactions'],
+            'comments'        => $socialBreakdown['comments'],
+            'shares'          => $socialBreakdown['shares'],
+            'clicks'          => $socialBreakdown['clicks'],
+            'engagement'      => array_sum($socialBreakdown),
             'last_fetched_at' => $socialLastFetched,
             // false when no FB/IG post has ever been synced — the client must show
             // "—" then, not 0, because 0 would read as "no engagement" instead of

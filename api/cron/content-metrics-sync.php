@@ -295,14 +295,16 @@ foreach ($rows as $row) {
     $db->prepare(
         "INSERT INTO content_post_metrics
            (id, tenant_id, content_item_id, channel_id, platform, platform_post_id, views, likes,
-            clicks, reactions_json, video_avg_watch_ms, fetched_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())"
+            clicks, comments, shares, reactions_json, video_avg_watch_ms, fetched_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())"
     )->execute([
         generateUUID(), $row['tenant_id'], $row['content_id'], $row['channel_id'],
         $row['platform'], $row['platform_post_id'],
         (int) $res['views'], (int) $res['likes'],
         // NULL = ปลายทางไม่รายงานค่านี้ (ไม่ใช่ 0) — platform/ชนิดโพสต์ที่ไม่มี key นี้ได้ NULL
         isset($res['clicks']) ? (int) $res['clicks'] : null,
+        isset($res['comments']) ? (int) $res['comments'] : null,
+        isset($res['shares']) ? (int) $res['shares'] : null,
         !empty($res['reactions']) ? json_encode($res['reactions'], JSON_UNESCAPED_UNICODE) : null,
         isset($res['avg_watch_ms']) ? (int) $res['avg_watch_ms'] : null,
     ]);
@@ -310,6 +312,8 @@ foreach ($rows as $row) {
     $touchedContent[$row['content_id']] = $row['tenant_id'];
     $ok++;
     $log[] = "  [{$row['queue_id']}] {$row['platform']} views={$res['views']} likes={$res['likes']}"
+           . ' clicks=' . ($res['clicks'] ?? '-') . ' comments=' . ($res['comments'] ?? '-')
+           . ' shares=' . ($res['shares'] ?? '-')
            // warning = ดึงได้แต่ไม่ครบ (เช่น Meta ยกเลิกชื่อ metric บางตัว) — ต้องเห็นใน log
            // ไม่นับเป็น error เพราะยังได้ตัวเลขบางส่วนและไม่ควรทำให้รอบ cron ดูล้มเหลว
            . (!empty($res['warning']) ? ' ⚠ ' . mb_substr((string) $res['warning'], 0, 150) : '');

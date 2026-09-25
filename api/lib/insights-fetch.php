@@ -1,6 +1,6 @@
 <?php
 /**
- * ดึง engagement (views/likes) ของโพสต์ที่เผยแพร่แล้วกลับจากแพลตฟอร์ม — เฟส 2
+ * ดึง engagement (views/likes/clicks/comments/shares) ของโพสต์ที่เผยแพร่แล้วกลับจากแพลตฟอร์ม — เฟส 2
  *
  * คู่ตรงข้ามของ api/lib/publish-dispatch.php: ที่นั่นส่งโพสต์ออก ที่นี่ดึงผลตอบรับกลับ
  * เรียกจาก api/cron/content-metrics-sync.php
@@ -33,6 +33,9 @@ if (!defined('GRAPH_API_BASE')) {
  *   unsupported: bool   true = platform นี้ยังไม่รองรับในเฟสนี้ (ไม่ใช่ error)
  *   views:       int,
  *   likes:       int,
+ *   clicks:      ?int  (Facebook) null = ปลายทางไม่รายงาน
+ *   comments:    ?int  (Facebook) null = ปลายทางไม่รายงาน
+ *   shares:      ?int  (Facebook) null = ปลายทางไม่รายงาน
  *   error:       ?string,
  *   raw:         mixed  payload ดิบเท่าที่ได้ ไว้ debug
  * }
@@ -164,6 +167,10 @@ function _token_health_fail(string $error, $raw = null): array {
 //   post_reactions_by_type_total  → likes  ผลรวม reaction ทุกชนิด (like/love/haha/…)
 //                                 → reactions  object แยกชนิดดิบ (content_post_metrics.reactions_json)
 //   post_clicks                   → clicks (ตรวจกับเพจจริง 25 ก.ย. 2026 — ใช้ได้, period=lifetime)
+//   post_activity_by_action_type  → comments / shares  object {like, comment, share} (ตรวจ 25 ก.ย. 2026)
+//                                   ชนิดที่ยังไม่เกิดไม่อยู่ใน object = 0 · object ว่าง [] = 0 ทั้งคู่
+//
+// ⚠️ ไม่มี "Save" ระดับโพสต์ของ Facebook: post_saves ตอบ (#100) invalid metric จึงไม่เก็บ
 //
 // ⚠️ metric ตระกูล impressions ถูกยกเลิกไปแล้ว — post_impressions,
 // post_impressions_unique, post_impressions_organic, post_views, post_views_unique,
@@ -175,7 +182,7 @@ function _token_health_fail(string $error, $raw = null): array {
 //  post_video_views_organic/paid, post_consumptions* — ยังไม่มีคอลัมน์เก็บ)
 
 function fb_post_metric_names(): array {
-    return ['post_video_views', 'post_reactions_by_type_total', 'post_clicks'];
+    return ['post_video_views', 'post_reactions_by_type_total', 'post_clicks', 'post_activity_by_action_type'];
 }
 
 function fetch_facebook_insights(array $creds, string $postId): array {
@@ -189,6 +196,7 @@ function fetch_facebook_insights(array $creds, string $postId): array {
 
     $metrics = $res['metrics'];
     $reactions = _insights_metric_raw_value($res['raw'], 'post_reactions_by_type_total');
+    $activity  = _insights_activity_counts($res['raw']);
 
     return [
         'success'     => true,
@@ -197,6 +205,8 @@ function fetch_facebook_insights(array $creds, string $postId): array {
         'likes'       => (int) ($metrics['post_reactions_by_type_total'] ?? 0),
         // null = Graph API ไม่คืน metric นี้มา (ไม่ใช่ 0) — ผู้เรียกเก็บเป็น NULL
         'clicks'      => isset($metrics['post_clicks']) ? (int) $metrics['post_clicks'] : null,
+        'comments'    => $activity['comments'],
+        'shares'      => $activity['shares'],
         'reactions'   => is_array($reactions) ? $reactions : null,
         'error'       => null,
         'warning'     => $res['warning'],
@@ -218,6 +228,18 @@ function _insights_metric_raw_value($raw, string $name) {
         }
     }
     return null;
+}
+
+/**
+ * Comment / Share จาก post_activity_by_action_type ใน raw
+ * metric ถูกปฏิเสธหรือไม่อยู่ใน raw → null ทั้งคู่ (ไม่รู้ค่า) · object ว่าง/ไม่มีชนิดนั้น → 0
+ *
+ * @return array{comments: ?int, shares: ?int}
+ */
+function _insights_activity_counts($raw): array {
+    $v = _insights_metric_raw_value($raw, 'post_activity_by_action_type');
+    if (!is_array($v)) return ['comments' => null, 'shares' => null];
+    return ['comments' => (int) ($v['comment'] ?? 0), 'shares' => (int) ($v['share'] ?? 0)];
 }
 
 /**
@@ -287,6 +309,10 @@ function _insights_fb_metrics(string $postId, array $metrics, string $token, str
 //
 // ⚠️ ห้ามใส่ post_video_views ในชุดนี้: video_insights ตอบ error code 1 "An unknown error"
 // ซึ่งไม่ใช่ code 100 — fallback ทีละ metric จะไม่ทำงานและคำขอจะล้มทั้งชุด
+//
+// Click / Comment / Share ของวิดีโอไม่มีใน video_insights — ต้องถามโพสต์บนเพจที่ห่อวิดีโอไว้:
+//   GET /{video_id}?fields=post_id → "{page_id}_{post_id}" → /insights (post_clicks, post_activity_by_action_type)
+// (ตรวจกับ Reel จริง 25 ก.ย. 2026: post_clicks คืนได้, activity คืน [] เมื่อยังไม่มี)
 
 function fb_video_metric_names(): array {
     return ['fb_reels_total_plays', 'total_video_views', 'post_video_likes_by_reaction_type', 'post_video_avg_time_watched'];
@@ -308,16 +334,60 @@ function fetch_facebook_video_insights(array $creds, string $videoId): array {
         $warning = trim(($warning ? "$warning; " : '') . 'video_insights ไม่คืนยอดเล่นวิดีโอ — views = 0');
     }
 
+    // ส่วนนี้พลาดได้โดยไม่ทำให้ทั้งโพสต์ล้ม — ได้ยอดเล่น/reaction แล้ว ส่วนที่ขาดเป็น NULL + warning
+    $pageSide = _fb_video_page_post_counts($creds, $videoId, $token);
+    if ($pageSide['warning']) {
+        $warning = trim(($warning ? "$warning; " : '') . $pageSide['warning']);
+    }
+
     return [
         'success'     => true,
         'unsupported' => false,
         'views'       => (int) ($metrics['fb_reels_total_plays'] ?? $metrics['total_video_views'] ?? 0),
         'likes'       => (int) ($metrics['post_video_likes_by_reaction_type'] ?? 0),
+        'clicks'      => $pageSide['clicks'],
+        'comments'    => $pageSide['comments'],
+        'shares'      => $pageSide['shares'],
         // null = ไม่มีข้อมูล (ไม่ใช่ 0) — ผู้เรียกเก็บเป็น NULL
         'avg_watch_ms' => isset($metrics['post_video_avg_time_watched']) ? (int) $metrics['post_video_avg_time_watched'] : null,
         'error'       => null,
         'warning'     => $warning,
         'raw'         => $res['raw'],
+    ];
+}
+
+/**
+ * Click / Comment / Share ของวิดีโอ ผ่านโพสต์บนเพจที่ห่อวิดีโอ (ดูหมายเหตุหัวส่วน video)
+ *
+ * @return array{clicks: ?int, comments: ?int, shares: ?int, warning: ?string}
+ */
+function _fb_video_page_post_counts(array $creds, string $videoId, string $token): array {
+    $none = fn(string $why) => ['clicks' => null, 'comments' => null, 'shares' => null, 'warning' => $why];
+
+    $res = _insights_get(GRAPH_API_BASE . '/' . rawurlencode($videoId) . '?' . http_build_query([
+        'fields'       => 'post_id',
+        'access_token' => $token,
+    ]));
+    $postId = $res['success'] ? (string) ($res['data']['post_id'] ?? '') : '';
+    if ($postId === '') {
+        return $none('หา post_id ของวิดีโอไม่ได้ — click/comment/share = NULL');
+    }
+    if (strpos($postId, '_') === false) {
+        $pageId = (string) ($creds['page_id'] ?? '');
+        if ($pageId === '') return $none('creds ไม่มี page_id — click/comment/share = NULL');
+        $postId = $pageId . '_' . $postId;
+    }
+
+    $ins = _insights_fb_metrics($postId, ['post_clicks', 'post_activity_by_action_type'], $token);
+    if (!$ins['success']) {
+        return $none('insights ของโพสต์วิดีโอล้มเหลว — click/comment/share = NULL');
+    }
+    $activity = _insights_activity_counts($ins['raw']);
+    return [
+        'clicks'   => isset($ins['metrics']['post_clicks']) ? (int) $ins['metrics']['post_clicks'] : null,
+        'comments' => $activity['comments'],
+        'shares'   => $activity['shares'],
+        'warning'  => $ins['warning'],
     ];
 }
 

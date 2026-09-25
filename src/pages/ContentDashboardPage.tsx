@@ -15,10 +15,12 @@ import { AnalyticsContentTab } from '@/components/content/AnalyticsContentTab';
 import { AnalyticsSocialTab } from '@/components/content/AnalyticsSocialTab';
 import { AnalyticsWebsiteTab } from '@/components/content/AnalyticsWebsiteTab';
 import { CampaignAnalyticsTab } from '@/components/content/CampaignAnalyticsTab';
-import { OverviewEngagementSummary } from '@/components/content/OverviewEngagementSummary';
-import { OverviewPageSummary } from '@/components/content/OverviewPageSummary';
-import { OverviewEngagementTrendChart, type TrendRange } from '@/components/content/OverviewEngagementTrendChart';
-import { OverviewPlatformPerformanceTable, type PlatformPeriod } from '@/components/content/OverviewPlatformPerformanceTable';
+import { GlobalKpiRow } from '@/components/content/overview/GlobalKpiRow';
+import { ProductionSection } from '@/components/content/overview/ProductionSection';
+import { PublishingSection } from '@/components/content/overview/PublishingSection';
+import { ResultsSection } from '@/components/content/overview/ResultsSection';
+import { SectionHeading } from '@/components/content/overview/shared';
+import { CONTENT_STATUS_ORDER } from '@/components/content/overview/format';
 import ReportDateFilter from '@/components/reports/ReportDateFilter';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -90,15 +92,9 @@ export default function ContentDashboardPage() {
     recalcAnalytics.mutate(undefined, { onSuccess: () => { refetchAnalytics(); } });
   };
 
-  // ตัวเลือกช่วงเวลาของ 2 widget ใหม่ในแท็บภาพรวม — เป็นคนละตัวควบคุมกัน โดยตั้งใจ
-  // (ดู content-overview-social-performance spec): กราฟแนวโน้ม Engagement ใช้ trendRange,
-  // ตารางประสิทธิภาพแยกแพลตฟอร์มใช้ platformPeriod — การ์ดสรุป 4 ใบเป็น all-time
-  // snapshot ไม่มีตัวเลือกช่วงเวลาเลย จึงไม่ต้องมี state ของตัวเอง
-  const [trendRange, setTrendRange] = useState<TrendRange>('7');
-  const [platformPeriod, setPlatformPeriod] = useState<PlatformPeriod>('day');
-
-  // BI aggregations — one request per tab, fetched lazily
-  const { data: bi, isLoading: biLoading, refetch: refetchBi } = useContentOverview(tab === 'overview', trendRange, platformPeriod);
+  // BI aggregations — one request per tab, fetched lazily. แท็บภาพรวมใช้ข้อมูลทั้งหมด
+  // ไม่มีช่วงเวลาและไม่มีการเปรียบเทียบ (spec content-overview-bi)
+  const { data: bi, isLoading: biLoading, refetch: refetchBi } = useContentOverview(tab === 'overview');
   const { data: biAnalytics, isLoading: biAnalyticsLoading } = useContentAnalytics(from, to, tab === 'analytics');
 
   // Retry a failed publish through the existing send_now action. The original
@@ -150,7 +146,8 @@ export default function ContentDashboardPage() {
     draft: draftCount,
     rejected: items.filter(i => i.status === 'rejected').length,
   };
-  const workProgressStatuses = ['published', 'approved', 'pending_approval', 'revision', 'draft', 'rejected'] as const;
+  // ลำดับเดียวกับกล่อง "สถานะคอนเทนต์" ในส่วน BI — ประกาศที่ shared.tsx ที่เดียว
+  const workProgressStatuses = CONTENT_STATUS_ORDER;
 
   // Recent items (last 5)
   const recentItems = [...items]
@@ -205,10 +202,10 @@ export default function ContentDashboardPage() {
         { label: 'การตลาด', href: '/campaigns' },
         { label: 'แดชบอร์ด', isCurrent: true },
       ]}
-      title="แดชบอร์ดการตลาด"
+      title={section === 'campaign' ? 'แดชบอร์ดแคมเปญ' : 'แดชบอร์ดคอนเทนต์'}
       description={section === 'campaign'
         ? 'ผลการส่ง การเปิด และการคลิกของแคมเปญอีเมล'
-        : 'ภาพรวมเนื้อหาและสถานะการผลิต'}
+        : 'ภาพรวมประสิทธิภาพการผลิต การเผยแพร่ และผลลัพธ์'}
       actions={
         // สลับ "ทั้งหน้า" อยู่ในหัวหน้า ต่างจากแท็บภาพรวม/วิเคราะห์ที่สลับ "เนื้อหาในหน้า"
         // แสดงชื่อเต็มทุกขนาดจอ (แท็บในหน้าซ่อน label บนมือถือ แต่ปุ่มนี้มีแค่ 2 ตัวเลือก)
@@ -251,21 +248,18 @@ export default function ContentDashboardPage() {
 
           {/* ── ภาพรวม ─────────────────────────────────────────── */}
           <TabsContent value="overview" className="space-y-6">
-            {/* การ์ดสรุป Engagement — all-time snapshot, สิ่งแรกที่เห็นในแท็บนี้โดยตั้งใจ */}
-            <OverviewEngagementSummary snapshot={bi?.social_snapshot} isLoading={biLoading} />
+            {/* ── BI Summary (ข้อมูลทั้งหมด ไม่มีการเปรียบเทียบ): Global KPI → การผลิต → การเผยแพร่ → ผลลัพธ์ ── */}
+            <GlobalKpiRow kpi={bi?.kpi} isLoading={biLoading} />
+            <ProductionSection data={bi} isLoading={biLoading} />
+            <PublishingSection data={bi} isLoading={biLoading} />
+            <ResultsSection data={bi} isLoading={biLoading} />
 
-            {/* การ์ดเพจ Facebook — 28 วันล่าสุดคงที่ ไม่ผูกตัวเลือกช่วงเวลาของ widget อื่น */}
-            <OverviewPageSummary summary={bi?.page_summary} isLoading={biLoading} />
+            {/* ── งานที่ต้องจัดการ — กล่องงานประจำวันเดิมทั้งก้อน พฤติกรรมไม่เปลี่ยน
+                 ไม่ผูกช่วงเวลาที่เลือก · จะย้ายออกทั้งก้อนเมื่อมีแท็บงานวันนี้ ── */}
+            <section className="space-y-6 border-t pt-6">
+            <SectionHeading title="งานที่ต้องจัดการ" hint="ณ ตอนนี้ · ไม่ผูกช่วงเวลาที่เลือก" />
 
-            {/* กราฟแนวโน้ม Engagement — ควบคุมด้วย trendRange (7/30/90 วัน) แยกจาก platformPeriod ของตารางท้ายหน้า */}
-            <OverviewEngagementTrendChart
-              data={bi?.engagement_trend ?? []}
-              isLoading={biLoading}
-              range={trendRange}
-              onRangeChange={setTrendRange}
-            />
-
-            {/* คิวเผยแพร่ + กำหนดการโพสต์ถัดไป (1:1) — ย้ายมาอยู่ใต้กราฟแนวโน้ม Engagement ตามคำขอ */}
+            {/* คิวเผยแพร่ + กำหนดการโพสต์ถัดไป (1:1) */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* คิวเผยแพร่ */}
               <Card>
@@ -338,16 +332,17 @@ export default function ContentDashboardPage() {
             {overdueCount > 0 && (
               <div className="flex items-center gap-3 px-4 py-3 rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-200 text-sm">
                 <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600" />
-                <span>มีโพสต์ที่เลยกำหนดส่ง <strong>{overdueCount}</strong> รายการ — กรุณาตรวจสอบในปฏิทินคอนเทนต์</span>
-                <Button variant="outline" size="sm" className="ml-auto" onClick={() => navigate('/content-planner')}>
-                  ดูปฏิทิน
+                {/* ปฏิทินคอนเทนต์ไม่แสดงสถานะเลยกำหนด — ชี้ไปแท็บกำหนดการโพสต์ของหน้าคอนเทนต์ซึ่งแสดงอยู่ */}
+                <span>มีโพสต์ที่เลยกำหนดส่ง <strong>{overdueCount}</strong> รายการ — กรุณาตรวจสอบในแท็บ "กำหนดการโพสต์" ของหน้าคอนเทนต์</span>
+                <Button variant="outline" size="sm" className="ml-auto" onClick={() => navigate('/content?tab=schedule')}>
+                  ดูกำหนดการ
                 </Button>
               </div>
             )}
 
             {/* 2 แถวอิสระ อัตราส่วนต่อแถว (mirror HomePage.tsx) — แต่ละแถวไม่ผูกความสูงกับแถวอื่น (แถว "คิวเผยแพร่ + กำหนดการโพสต์ถัดไป" ย้ายไปอยู่ใต้กราฟแนวโน้ม Engagement ด้านบนแล้ว) */}
             <div className="space-y-6">
-              {/* แถว 1: เผยแพร่ล้มเหลว + คอนเทนต์รอดำเนินการ (1:1) */}
+              {/* แถว 1: เผยแพร่ล้มเหลว + คอนเทนต์ที่ยังไม่เผยแพร่ (1:1) */}
               {actionColumnEmpty ? (
                 <Card>
                   <CardContent>
@@ -412,12 +407,12 @@ export default function ContentDashboardPage() {
                     </CardContent>
                   </Card>
 
-                  {/* คอนเทนต์รอดำเนินการ */}
+                  {/* คอนเทนต์ที่ยังไม่เผยแพร่ */}
                   <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                       <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
                         <Hourglass className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        <span className="truncate">คอนเทนต์รอดำเนินการ</span>
+                        <span className="truncate">คอนเทนต์ที่ยังไม่เผยแพร่</span>
                         {hasAgingItems && (
                           <Badge variant="outline" className="shrink-0">{aging!.total}</Badge>
                         )}
@@ -430,7 +425,7 @@ export default function ContentDashboardPage() {
                       {biLoading ? (
                         <p className="py-8 text-center text-sm text-muted-foreground">กำลังโหลด...</p>
                       ) : !hasAgingItems ? (
-                        <p className="py-8 text-center text-sm text-muted-foreground">ไม่มีคอนเทนต์รอดำเนินการ — เผยแพร่ครบทุกชิ้น</p>
+                        <p className="py-8 text-center text-sm text-muted-foreground">ไม่มีคอนเทนต์ที่ยังไม่เผยแพร่ — เผยแพร่ครบทุกชิ้น</p>
                       ) : (
                         <div className="space-y-4">
                           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -578,14 +573,7 @@ export default function ContentDashboardPage() {
                 </Card>
               </div>
             </div>
-
-            {/* ประสิทธิภาพแต่ละแพลตฟอร์ม — widget สุดท้ายของแท็บภาพรวม ควบคุมด้วย platformPeriod (วัน/สัปดาห์/เดือน) แยกจากกราฟแนวโน้มด้านบน */}
-            <OverviewPlatformPerformanceTable
-              rows={bi?.platform_performance ?? []}
-              isLoading={biLoading}
-              period={platformPeriod}
-              onPeriodChange={setPlatformPeriod}
-            />
+            </section>
           </TabsContent>
 
           {/* ── วิเคราะห์ ───────────────────────────────────────── */}

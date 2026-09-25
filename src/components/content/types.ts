@@ -307,55 +307,73 @@ export interface StaleContentItem {
   age_days: number;
 }
 
-export interface AssetGenBreakdown {
-  none: number; generating: number; done: number; failed: number;
+export type FunnelStageKey = 'created' | 'requested' | 'approved' | 'published';
+
+/** แถวสรุปกำหนดการของวันหนึ่ง จัดกลุ่มตามเวลาและแพลตฟอร์ม */
+export interface ScheduleSummaryRow {
+  /** 'HH:MM' */
+  time: string;
+  platform: string | null;
+  count: number;
 }
 
-/** การ์ดสรุป Engagement all-time ของแท็บภาพรวม — ไม่ผูกช่วงเวลา */
-export interface SocialSnapshot {
-  /** false = ยังไม่เคยซิงก์โพสต์ FB/IG เลย → แสดง "—" ไม่ใช่ 0 */
-  has_data: boolean;
-  engagement: number;
-  /** จำนวนโพสต์ (content item) ที่มีข้อมูลซิงก์แล้ว */
-  posts: number;
-  likes: number;
-  /** null เมื่อ posts = 0 (หารด้วยศูนย์ไม่ได้) */
-  avg_engagement_per_post: number | null;
-}
-
-/** จุดข้อมูลกราฟแนวโน้ม Engagement — bucket ตาม trend_range (7=วัน, 30=สัปดาห์, 90=เดือน) */
-export interface EngagementTrendPoint {
-  /** วันที่สิ้นสุดของ bucket (YYYY-MM-DD) */
-  bucket_label: string;
-  engagement: number;
-}
-
-/** แถวตาราง "ประสิทธิภาพแต่ละแพลตฟอร์ม" — ครอบคลุมทุกแพลตฟอร์มที่ตั้งค่าไว้ แม้ไม่มีโพสต์ในช่วงที่เลือก */
-export interface PlatformPerformanceRow {
-  platform: string;
-  posts: number;
-  /** null เมื่อ views=0 แต่ engagement>0 (Facebook feed post ไม่รายงาน views จริง — ไม่ใช่ "ไม่มีคนดู") → แสดง "—" */
-  views: number | null;
-  engagement: number;
-  /** null เมื่อ views=0 (หารด้วย views ไม่ได้) → แสดง "—" */
-  engagement_rate: number | null;
-  /** null เมื่อ posts = 0 → แสดง "—" */
-  avg_engagement_per_post: number | null;
-  /** ไม่มี null — 0 คือค่าจริง (ไม่มีความเคลื่อนไหวในสัปดาห์นั้น) ต่างจาก avg_engagement_per_post ที่หารด้วยโพสต์ไม่ได้เมื่อ posts=0 */
-  avg_engagement_per_week: number;
-}
-
+/**
+ * ?action=overview — End-to-End Overview + BI Summary (spec content-overview-bi)
+ * ข้อมูลทั้งหมดที่ระบบมี ไม่มีช่วงเวลาและไม่มีค่าเปรียบเทียบ · null = ไม่มีข้อมูล (แสดง "—")
+ */
 export interface ContentOverview {
+  /** Engagement = Reaction + Comment + Share + Click · Posts = โพสต์ที่เผยแพร่แล้วและวัดได้ (ตัวหารของ Avg/Post) */
+  kpi: {
+    engagement: number | null;
+    /** ส่วนประกอบของ engagement (รวมกันเท่ากับ engagement) · null = ยังไม่มีโพสต์ที่วัดได้ */
+    breakdown: EngagementBreakdown | null;
+    posts: number;
+    avg_per_post: number | null;
+    /** ผู้ติดตามเพจ (ระดับเพจ ยอดล่าสุด ไม่ใช่ผลรวมรายวัน) */
+    followers: { current: number | null; platforms: string[] };
+    /** แพลตฟอร์มที่มีโพสต์ที่วัดได้ */
+    platforms: string[];
+  };
+  /** คอนเทนต์ทั้งหมด · แต่ละขั้นนับ "ถึงขั้นนี้หรือเลยไปแล้ว" */
+  funnel: {
+    stages: { key: FunnelStageKey; count: number; pct: number | null }[];
+    /** สร้าง − เผยแพร่ */
+    in_progress: number;
+  };
+  /** ณ ตอนนี้ — จำนวนต่อสถานะ ข้อมูลชุดเดียวกับ Work Progress */
+  status_summary: { total: number; by_status: Record<string, number> };
+  /** ณ ตอนนี้ — ตัวเลขชุดเดียวกับ aging (ไม่มีรายการ) */
+  unpublished_aging: { d0_7: number; d8_30: number; d31_90: number; d90_plus: number; total: number };
+  publishing_health: {
+    /** pending + processing */
+    pending: number;
+    sent: number;
+    failed: number;
+    /** null = ยังไม่มีรายการที่ส่งจบ */
+    success_rate: number | null;
+    platforms: string[];
+  };
+  schedule_summary: {
+    today: { date: string; rows: ScheduleSummaryRow[] };
+    tomorrow: { date: string; rows: ScheduleSummaryRow[] };
+  };
+  /** ทุกเดือนตั้งแต่เดือนแรกที่มีโพสต์ที่วัดได้ ตามเดือนที่เผยแพร่ · engagement null = เดือนนั้นไม่มีโพสต์ที่วัดได้ */
+  engagement_trend: { month: string; engagement: number | null; posts: number }[];
+  platform_performance: {
+    platform: string;
+    posts: number;
+    engagement: number | null;
+    avg_per_post: number | null;
+    /** มีเฉพาะ Facebook (ระดับเพจ) — แพลตฟอร์มอื่น null */
+    followers: number | null;
+  }[];
+  /** ส่วน "งานที่ต้องจัดการ" — ไม่ผูกช่วงเวลา */
   queue: {
     pending: number; processing: number; sent: number; failed: number;
     /** pending ที่เลย scheduled_at แล้ว */
     overdue_pending: number;
     total: number;
     failures: QueueFailure[];
-  };
-  /** นับ "เคยผ่าน" แต่ละขั้นจาก timestamp (ไม่ใช่ status ปัจจุบัน) */
-  funnel: {
-    created: number; requested: number; approved: number; published: number;
   };
   aging: {
     d0_7: number; d8_30: number; d31_90: number; d90_plus: number;
@@ -364,24 +382,6 @@ export interface ContentOverview {
     oldest_days: number | null;
     items: StaleContentItem[];
   };
-  assets: { image: AssetGenBreakdown; video: AssetGenBreakdown };
-  social_snapshot: SocialSnapshot;
-  engagement_trend: EngagementTrendPoint[];
-  platform_performance: PlatformPerformanceRow[];
-  /** การ์ดเพจ Facebook ในแท็บภาพรวม — ช่วง 28 วันล่าสุดคงที่ */
-  page_summary: PageSummary;
-}
-
-/** สรุปเพจ Facebook 28 วันล่าสุด (มาจาก facebook_page_insights_daily) */
-export interface PageSummary {
-  /** false = ยังไม่เคยซิงก์ข้อมูลเพจ → ต้องแสดง "—" ไม่ใช่ 0 */
-  has_data: boolean;
-  /** ยอดผู้ติดตามล่าสุด (page_follows เป็นยอดสะสม ไม่ใช่ผลรวมรายวัน) */
-  followers: number | null;
-  /** ผลต่างยอดผู้ติดตามเทียบวันแรกของช่วง 28 วัน */
-  followers_change: number | null;
-  /** ผลรวมการเข้าชมเพจ 28 วัน */
-  page_views: number | null;
 }
 
 /** จุดรายวันของ page insights — key อื่นนอกจาก date คือชื่อ metric ของ Graph API; null = ไม่มีข้อมูลวันนั้น */
@@ -460,25 +460,41 @@ export interface ContentStatsSummary {
  * `content_post_metrics` (แถวล่าสุดต่อคอนเทนต์+ช่องทาง) ไม่ใช่ `content_items.views/likes`
  * ที่เป็นผลรวมทุกแพลตฟอร์ม
  */
-/** สถิติรวมต่อแพลตฟอร์ม (คำนวณจาก snapshot ล่าสุดต่อโพสต์ต่อช่องทาง) */
-export interface SocialPlatformStat {
-  platform: string;
-  posts: number;
+/**
+ * ส่วนประกอบของ Engagement ระดับโพสต์ — Engagement = reactions + comments + shares + clicks
+ * (ไม่รวมยอดเล่นวิดีโอ และไม่มี Save เพราะ Facebook ไม่เปิดเผยระดับโพสต์)
+ */
+export interface EngagementBreakdown {
+  reactions: number;
+  comments: number;
+  shares: number;
+  clicks: number;
+}
+
+/**
+ * ยอดรวมของกลุ่มโพสต์ — views = ยอดเล่นวิดีโอ (แยก ไม่นับใน engagement) ·
+ * likes = Reaction ทุกชนิด · engagement = likes + comments + shares + clicks
+ */
+interface SocialTotals {
   views: number;
   likes: number;
-  /** views + likes */
+  comments: number;
+  shares: number;
+  clicks: number;
   engagement: number;
 }
 
+/** สถิติรวมต่อแพลตฟอร์ม (คำนวณจาก snapshot ล่าสุดต่อโพสต์ต่อช่องทาง) */
+export interface SocialPlatformStat extends SocialTotals {
+  platform: string;
+  posts: number;
+}
+
 /** จุดแนวโน้มรายเดือน — เดือนที่ไม่มีข้อมูลจะมีค่าเป็น 0 ทุกช่อง */
-export interface SocialMonthlyPoint {
+export interface SocialMonthlyPoint extends SocialTotals {
   /** 'YYYY-MM' */
   month: string;
   posts: number;
-  views: number;
-  likes: number;
-  /** views + likes */
-  engagement: number;
 }
 
 /** โพสต์เด่น เรียงตาม engagement มากไปน้อย */
@@ -488,27 +504,28 @@ export interface SocialTopPost {
   /** แพลตฟอร์มของโพสต์ (คั่นด้วย '/' เมื่อ cross-post) */
   platform: string;
   published_at: string;
+  /** ยอดเล่นวิดีโอ — ไม่นับใน engagement */
   views: number;
+  /** Reaction ทุกชนิด */
   likes: number;
-  /** views + likes */
-  engagement: number;
+  /** null = แพลตฟอร์มยังไม่รายงาน → แสดง "—" (นับเป็น 0 ใน engagement) */
+  comments: number | null;
+  shares: number | null;
   /** post_clicks; null = แพลตฟอร์มไม่รายงาน → แสดง "—" */
   clicks: number | null;
+  /** Reaction + Comment + Share + Click */
+  engagement: number;
   /** เวลาดูวิดีโอเฉลี่ย (ms) จาก video_insights; null = ไม่ใช่วิดีโอ/ไม่มีข้อมูล → แสดง "—" */
   video_avg_watch_ms: number | null;
   /** permalink จริงจาก content_items.published_url; null = ไม่มี (ไม่เดา URL) */
   published_url: string | null;
 }
 
-export interface SocialEngagementSummary {
+export interface SocialEngagementSummary extends SocialTotals {
   /** แพลตฟอร์มที่ตัวเลขนี้ครอบคลุมจริง (มาจาก DISTINCT ของ cohort — ไม่ hardcode) */
   platforms: string[];
   /** จำนวนโพสต์ที่มีข้อมูลซิงก์แล้วในช่วงที่เลือก */
   posts: number;
-  views: number;
-  likes: number;
-  /** views + likes */
-  engagement: number;
   /** เวลาซิงก์ล่าสุด; null = ยังไม่เคยซิงก์ */
   last_fetched_at: string | null;
   /** false = ยังไม่มีโพสต์ FB/IG ที่ซิงก์แล้ว → ต้องแสดง "—" ไม่ใช่ 0 */

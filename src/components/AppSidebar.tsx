@@ -87,8 +87,8 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { title: 'แดชบอร์ดการตลาด', href: '/content-dashboard', icon: LayoutDashboard, menuKey: 'marketing' },
       { title: 'คอนเทนต์โซเชียล',  href: '/content',           icon: PenTool,         menuKey: 'marketing' },
-      { title: 'ปฏิทินคอนเทนต์',  href: '/content-planner',   icon: CalendarDays,    menuKey: 'marketing' },
       { title: 'แคมเปญอีเมล',     href: '/campaigns',          icon: Send,            menuKey: 'marketing' },
+      { title: 'ปฏิทินคอนเทนต์',  href: '/content-planner',   icon: CalendarDays,    menuKey: 'marketing' },
       { title: 'สตูดิโอสื่อ', href: '/media-studio', icon: Wand2, menuKey: 'media_studio' },
     ],
   },

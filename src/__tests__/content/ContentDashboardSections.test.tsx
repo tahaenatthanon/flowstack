@@ -15,7 +15,6 @@ const state = vi.hoisted(() => ({
   contentPending: false,
 }));
 
-const mockAssets = { none: 0, generating: 0, done: 0, failed: 0 };
 
 vi.mock('@/lib/api', () => ({
   apiFetch: vi.fn(async (url: string) => {
@@ -34,9 +33,7 @@ vi.mock('@/lib/api', () => ({
     if (url.includes('content-analytics.php?action=overview')) {
       return {
         queue: { pending: 0, processing: 0, sent: 0, failed: 0, overdue_pending: 0, total: 0, failures: [] },
-        funnel: { created: 0, requested: 0, approved: 0, published: 0 },
         aging: { d0_7: 0, d8_30: 0, d31_90: 0, d90_plus: 0, total: 0, oldest_days: null, items: [] },
-        assets: { image: mockAssets, video: mockAssets },
       };
     }
     return [];
@@ -77,10 +74,11 @@ beforeEach(() => {
 });
 
 describe('ContentDashboardPage — ส่วนคอนเทนต์/แคมเปญ', () => {
-  it('ไม่มีพารามิเตอร์: แสดงส่วนคอนเทนต์ หัวข้อ "แดชบอร์ดการตลาด" และไม่เรียก API แคมเปญ', async () => {
+  it('ไม่มีพารามิเตอร์: แสดงส่วนคอนเทนต์ หัวข้อ "แดชบอร์ดคอนเทนต์" และไม่เรียก API แคมเปญ', async () => {
     wrap('/content-dashboard');
-    expect(await screen.findByText('แดชบอร์ดการตลาด')).toBeInTheDocument();
-    expect(await screen.findByText('ภาพรวมเนื้อหาและสถานะการผลิต')).toBeInTheDocument();
+    // หัวข้อเปลี่ยนตามส่วน (marketing-dashboard-sections › หัวข้อหน้าเปลี่ยนตามส่วน)
+    expect(await screen.findByText('แดชบอร์ดคอนเทนต์')).toBeInTheDocument();
+    expect(await screen.findByText('ภาพรวมประสิทธิภาพการผลิต การเผยแพร่ และผลลัพธ์')).toBeInTheDocument();
     expect(state.urls.some(u => u.startsWith('/campaign-analytics.php'))).toBe(false);
   });
 
@@ -88,6 +86,7 @@ describe('ContentDashboardPage — ส่วนคอนเทนต์/แค�
     wrap('/content-dashboard?section=campaign');
     expect(await screen.findByText('CTOR (คลิกต่อการเปิด)')).toBeInTheDocument();
     expect(screen.getByText('ผลการส่ง การเปิด และการคลิกของแคมเปญอีเมล')).toBeInTheDocument();
+    expect(screen.getByText('แดชบอร์ดแคมเปญ')).toBeInTheDocument();
     expect(screen.getByText('30 วันล่าสุด')).toBeInTheDocument();
   });
 

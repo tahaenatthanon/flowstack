@@ -12,7 +12,6 @@ import type { ContentItem, StaleContentItem } from '@/components/content/types';
  * แพลตฟอร์ม ทำให้ไม่แสดง badge แพลตฟอร์มใดๆ เลย — เปลี่ยนมาใช้ PlatformBadgeList
  */
 
-const mockAssets = { none: 0, generating: 0, done: 0, failed: 0 };
 
 function makeItem(overrides: Partial<ContentItem>): ContentItem {
   return {
@@ -36,15 +35,15 @@ vi.mock('@/lib/api', () => ({
     if (url.includes('action=channels-connection-status')) return [];
     if (url.includes('action=channels')) return [];
     if (url.includes('content-analytics.php?action=overview')) {
+      // payload ของส่วน BI ไม่จำเป็นต่อ test นี้ — ส่งเฉพาะ queue/aging ของส่วนงานที่ต้องจัดการ
+      // (component BI ต้องไม่ crash เมื่อกลุ่มอื่นไม่มา)
       return {
         queue: { pending: 0, processing: 0, sent: 0, failed: 0, overdue_pending: 0, total: 0, failures: [] },
-        funnel: { created: 0, requested: 0, approved: 0, published: 0 },
         aging: {
           d0_7: state.agingItems.length, d8_30: 0, d31_90: 0, d90_plus: 0,
           total: state.agingItems.length, oldest_days: state.agingItems.length > 0 ? 1 : null,
           items: state.agingItems,
         },
-        assets: { image: mockAssets, video: mockAssets },
       };
     }
     return {};

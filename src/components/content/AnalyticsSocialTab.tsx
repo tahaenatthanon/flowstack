@@ -1,4 +1,4 @@
-import { Heart, Eye, ThumbsUp, FileText, TrendingUp, Info, ExternalLink, BarChart3, Trophy, Radio, ArrowRight } from 'lucide-react';
+import { Heart, Eye, ThumbsUp, MessageCircle, Share2, MousePointerClick, TrendingUp, Info, ExternalLink, BarChart3, Trophy, Radio, ArrowRight } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -44,6 +44,11 @@ function formatPeriod(period: string): string {
   return new Date(y, m - 1, 1).toLocaleDateString('th-TH', { month: 'short', year: '2-digit' });
 }
 
+/** null = แพลตฟอร์มยังไม่รายงานค่านี้ → "—" (ต่างจาก 0 ที่รายงานว่าเป็นศูนย์) */
+function nullableCount(n: number | null): string {
+  return n === null ? '—' : n.toLocaleString();
+}
+
 function formatDate(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
@@ -75,6 +80,8 @@ export function AnalyticsSocialTab({ social, socialLoading = false, from, to }: 
   const cellValue = (real: number | null): string =>
     socialLoading ? 'กำลังโหลด...' : real === null ? '—' : fmt(real);
 
+  // Engagement = Reaction + Comment + Share + Click (นิยามเดียวกับแท็บภาพรวม)
+  // ยอดเล่นวิดีโอไม่ใช่การโต้ตอบ จึงแสดงแยกและไม่นับรวม
   const statCards = [
     {
       key: 'engagement',
@@ -82,32 +89,47 @@ export function AnalyticsSocialTab({ social, socialLoading = false, from, to }: 
       icon: Heart,
       color: 'text-pink-600',
       value: hasData ? social!.engagement : null,
-      hint: 'วิว + ไลก์',
+      hint: 'Reaction + Comment + Share + Click',
     },
     {
-      key: 'posts',
-      label: 'โพสต์ที่วัดได้',
-      icon: FileText,
-      color: 'text-blue-600',
-      value: hasData ? social!.posts : null,
-      hint: 'ที่ซิงก์ข้อมูลสำเร็จ',
-    },
-    {
-      key: 'likes',
-      label: 'ไลก์รวม',
+      key: 'reactions',
+      label: 'Reaction',
       icon: ThumbsUp,
       color: 'text-violet-600',
       value: hasData ? social!.likes : null,
+      hint: 'ทุกชนิด (ถูกใจ รักเลย ฯลฯ)',
+    },
+    {
+      key: 'comments',
+      label: 'Comment',
+      icon: MessageCircle,
+      color: 'text-sky-600',
+      value: hasData ? social!.comments : null,
       hint: null,
     },
     {
+      key: 'shares',
+      label: 'Share',
+      icon: Share2,
+      color: 'text-emerald-600',
+      value: hasData ? social!.shares : null,
+      hint: null,
+    },
+    {
+      key: 'clicks',
+      label: 'Click',
+      icon: MousePointerClick,
+      color: 'text-blue-600',
+      value: hasData ? social!.clicks : null,
+      hint: 'คลิกทุกชนิดบนโพสต์',
+    },
+    {
       key: 'views',
-      label: 'วิวรวม',
+      label: 'ยอดเล่นวิดีโอ',
       icon: Eye,
       color: 'text-amber-600',
       value: hasData ? social!.views : null,
-      // อธิบายตรง ๆ ว่าทำไมวิวเป็น 0 (Facebook feed post คืน 0) แทนที่จะซ่อน
-      hint: hasData && social!.views === 0 ? 'โพสต์ Facebook feed คืน 0' : null,
+      hint: 'แสดงแยก ไม่นับใน Engagement',
     },
   ];
 
@@ -129,9 +151,12 @@ export function AnalyticsSocialTab({ social, socialLoading = false, from, to }: 
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-2">
           <h3 className="text-sm font-semibold">ภาพรวม Engagement</h3>
-          <span className="shrink-0 text-xs text-muted-foreground">ครอบคลุม: {platformsLabel}</span>
+          <span className="shrink-0 text-xs text-muted-foreground">
+            ครอบคลุม: {platformsLabel}
+            {hasData && <> · {social!.posts.toLocaleString()} โพสต์ที่วัดได้</>}
+          </span>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           {statCards.map(card => {
             const Icon = card.icon;
             const display = cellValue(card.value);
@@ -225,7 +250,8 @@ export function AnalyticsSocialTab({ social, socialLoading = false, from, to }: 
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-medium">{platformLabel(p.platform)}</span>
                     <span className="text-muted-foreground">
-                      {p.posts.toLocaleString()} โพสต์ · {p.views.toLocaleString()} วิว · {p.likes.toLocaleString()} ไลก์
+                      {p.posts.toLocaleString()} โพสต์ · Reaction {p.likes.toLocaleString()} · Comment {p.comments.toLocaleString()}
+                      {' · '}Share {p.shares.toLocaleString()} · Click {p.clicks.toLocaleString()}
                       {' · '}<span className="font-mono text-foreground">{p.engagement.toLocaleString()}</span> engagement
                     </span>
                   </div>
@@ -262,9 +288,11 @@ export function AnalyticsSocialTab({ social, socialLoading = false, from, to }: 
                       <th className="py-2 pr-3 font-medium">คอนเทนต์</th>
                       <th className="py-2 px-3 font-medium">แพลตฟอร์ม</th>
                       <th className="py-2 px-3 font-medium whitespace-nowrap">วันเผยแพร่</th>
-                      <th className="py-2 px-3 font-medium text-right">วิว</th>
-                      <th className="py-2 px-3 font-medium text-right">ไลก์</th>
-                      <th className="py-2 px-3 font-medium text-right">คลิก</th>
+                      <th className="py-2 px-3 font-medium text-right">Reaction</th>
+                      <th className="py-2 px-3 font-medium text-right">Comment</th>
+                      <th className="py-2 px-3 font-medium text-right">Share</th>
+                      <th className="py-2 px-3 font-medium text-right">Click</th>
+                      <th className="py-2 px-3 font-medium text-right whitespace-nowrap">เล่นวิดีโอ</th>
                       <th className="py-2 px-3 font-medium text-right whitespace-nowrap">ดูเฉลี่ย</th>
                       <th className="py-2 pl-3 font-medium text-right">Engagement</th>
                     </tr>
@@ -293,10 +321,12 @@ export function AnalyticsSocialTab({ social, socialLoading = false, from, to }: 
                           </span>
                         </td>
                         <td className="py-2 px-3 whitespace-nowrap text-muted-foreground">{formatDate(post.published_at)}</td>
-                        <td className="py-2 px-3 text-right font-mono">{post.views.toLocaleString()}</td>
                         <td className="py-2 px-3 text-right font-mono">{post.likes.toLocaleString()}</td>
-                        {/* null = แพลตฟอร์มไม่รายงาน / ไม่ใช่วิดีโอ → "—" ไม่ใช่ 0 */}
-                        <td className="py-2 px-3 text-right font-mono">{post.clicks === null ? '—' : post.clicks.toLocaleString()}</td>
+                        {/* null = แพลตฟอร์มยังไม่รายงาน → "—" ไม่ใช่ 0 */}
+                        <td className="py-2 px-3 text-right font-mono">{nullableCount(post.comments)}</td>
+                        <td className="py-2 px-3 text-right font-mono">{nullableCount(post.shares)}</td>
+                        <td className="py-2 px-3 text-right font-mono">{nullableCount(post.clicks)}</td>
+                        <td className="py-2 px-3 text-right font-mono">{post.views.toLocaleString()}</td>
                         <td className="py-2 px-3 text-right font-mono whitespace-nowrap">{formatDurationMs(post.video_avg_watch_ms)}</td>
                         <td className="py-2 pl-3 text-right font-mono font-semibold">{post.engagement.toLocaleString()}</td>
                       </tr>
@@ -319,15 +349,16 @@ export function AnalyticsSocialTab({ social, socialLoading = false, from, to }: 
         </CardHeader>
         <CardContent className="space-y-3 text-sm text-muted-foreground">
           <p>
-            ตัวเลขระดับโพสต์คือ engagement (วิว + ไลก์) ดึงกลับจาก Graph API โดยงานซิงก์อัตโนมัติ
+            ตัวเลขระดับโพสต์ดึงกลับจาก Facebook Insights (Graph API) โดยงานซิงก์อัตโนมัติ
             ครอบคลุมเฉพาะ <span className="text-foreground">{platformsLabel}</span> ที่เผยแพร่ในช่วงวันที่ที่เลือก
             {social?.last_fetched_at && (
               <> · ซิงก์ล่าสุด {new Date(social.last_fetched_at).toLocaleString('th-TH')}</>
             )}
           </p>
           <p>
-            <span className="text-foreground">วิว</span> และ <span className="text-foreground">ไลก์</span> แสดงแยกกัน —
-            ปัจจุบันโพสต์ Facebook feed คืนค่าวิวเป็น 0 ดังนั้น Engagement รวม (= วิว + ไลก์) จึงมาจากไลก์เป็นหลัก
+            <span className="text-foreground">Engagement</span> = Reaction + Comment + Share + Click (นิยามเดียวกับแท็บภาพรวม)
+            ส่วน <span className="text-foreground">ยอดเล่นวิดีโอ</span> แสดงแยกและไม่นับรวม เพราะการเล่น (รวม autoplay) ไม่ใช่การโต้ตอบ ·
+            Facebook ไม่เปิดเผยจำนวน Save ระดับโพสต์ · ตัวเลขจาก Insights อาจต่างจากที่เห็นบนหน้าเพจ
           </p>
           <p>
             <span className="text-foreground">ข้อมูลเพจ</span> (ผู้ติดตาม, เข้าชมเพจ, reaction, วิดีโอ) มาจาก Facebook Page Insights

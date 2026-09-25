@@ -1,10 +1,4 @@
-# content-dashboard-social-placeholder Specification
-
-## Purpose
-
-กำหนด sub-tab "โซเชียล" ของแท็บ "วิเคราะห์" — แสดง engagement ระดับโพสต์จริงจากตาราง time-series `content_post_metrics` (Facebook/Instagram) ผ่าน stat card, กราฟแนวโน้มรายเดือน, breakdown รายแพลตฟอร์ม และตารางโพสต์เด่น พร้อม notice card ภาษาไทยอธิบายขอบเขตและที่มาของข้อมูล — ข้อมูลระดับเพจแสดงใน sub-tab เดียวกันตาม `content-dashboard-page-insights`
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: backend social block คืน per-platform, time-series และ top posts
 `api/content-analytics.php` action `?action=analytics` ส่วน `social` SHALL คืนข้อมูลที่คำนวณจากตาราง `content_post_metrics` (dedupe เอาแถว `fetched_at` ล่าสุดต่อ (content_item_id, channel_id/platform_post_id) ตาม cohort `content_items.published_at BETWEEN from AND to` ตามพฤติกรรมเดิม) ได้แก่ ฟิลด์รวม `posts`, `views`, `likes`, `comments`, `shares`, `clicks`, `engagement`, `last_fetched_at`, `has_data` และ:
@@ -52,17 +46,6 @@ sub-tab "โซเชียล" SHALL แสดง stat card ที่ค่า�
 - **WHEN** sub-tab "โซเชียล" ถูก render ในทุกสถานะ
 - **THEN** ไม่มีตัวเลข, กราฟ หรือรายการที่ไม่ได้มาจาก `social` ที่ backend คืน
 
-### Requirement: แท็บโซเชียลแสดงกราฟแนวโน้ม engagement รายเดือน
-sub-tab "โซเชียล" SHALL แสดงกราฟแนวโน้ม engagement รายเดือนจาก `social.monthly` ตลอดช่วงวันที่ที่เลือก โดยผูกกับตัวกรองช่วงวันที่ของแท็บวิเคราะห์
-
-#### Scenario: แสดงกราฟรายเดือนตามช่วงที่เลือก
-- **WHEN** sub-tab "โซเชียล" ถูก render ขณะมี `social.monthly`
-- **THEN** เห็นกราฟที่มีหนึ่งจุด/แท่งต่อเดือนตามช่วงที่เลือก และเดือนที่ค่าเป็น 0 ยังปรากฏบนแกน
-
-#### Scenario: ไม่มีข้อมูลไม่แสดงกราฟปลอม
-- **WHEN** `social.has_data` = false
-- **THEN** ส่วนกราฟแสดงข้อความว่างแทน ไม่วาดเส้น/แท่งจากค่า 0 ปลอม
-
 ### Requirement: แท็บโซเชียลแสดง breakdown รายแพลตฟอร์ม
 sub-tab "โซเชียล" SHALL แสดง breakdown ต่อแพลตฟอร์มจาก `social.by_platform` (posts, Reaction, Comment, Share, Click และ engagement) สำหรับแพลตฟอร์มที่มีข้อมูลจริงเท่านั้น
 
@@ -103,3 +86,9 @@ sub-tab "โซเชียล" SHALL แสดง notice card ภาษาไ�
 #### Scenario: notice card อธิบายที่มาของข้อมูลเพจ
 - **WHEN** notice card ถูก render
 - **THEN** อธิบายว่าข้อมูลระดับเพจมาจาก Facebook Page Insights และข้อมูลของวันล่าสุดอาจยังไม่ครบ โดยไม่มีข้อความว่าต้องรอ OAuth page insights
+
+## REMOVED Requirements
+
+### Requirement: แท็บโซเชียลแสดง วิว และ ไลก์ แยกกันอย่างตรงไปตรงมา
+**Reason**: Engagement ไม่ได้เป็น `views + likes` อีกต่อไป — เปลี่ยนเป็น Reaction + Comment + Share + Click และยอดเล่นวิดีโอแสดงแยกโดยไม่นับรวม (design D9)
+**Migration**: การแสดงแยกและการกำกับสูตรย้ายไปอยู่ใน requirement "แท็บโซเชียลแสดง stat card จากข้อมูลจริง" และ notice card; ข้อมูล `views` ยังคืนจาก backend ตามเดิม

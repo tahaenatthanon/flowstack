@@ -27,9 +27,9 @@ export const contentKeys = {
     [...contentKeys.all, 'resultMetrics', from ?? null, to ?? null] as const,
   /** prefix สำหรับ invalidate ทุกช่วงวันที่พร้อมกัน */
   resultMetricsAll: () => [...contentKeys.all, 'resultMetrics'] as const,
-  /** trendRange/platformPeriod อยู่ใน key เพื่อให้แต่ละตัวเลือก cache แยกกัน (widget ภาพรวมมีตัวเลือกเวลาอิสระต่อกัน) */
-  biOverview: (trendRange?: '7' | '30' | '90', platformPeriod?: 'day' | 'week' | 'month') =>
-    [...contentKeys.all, 'biOverview', trendRange ?? '7', platformPeriod ?? 'day'] as const,
+  /** แท็บภาพรวม — ข้อมูลทั้งหมด ไม่มีพารามิเตอร์ช่วงเวลา */
+  biOverview: () =>
+    [...contentKeys.all, 'biOverview'] as const,
   biAnalytics: (from?: string, to?: string) =>
     [...contentKeys.all, 'biAnalytics', from ?? null, to ?? null] as const,
   pageInsights: (from?: string, to?: string) =>
@@ -173,18 +173,13 @@ export function useResultMetrics(from?: string, to?: string, enabled = true) {
 }
 
 /**
- * BI แท็บภาพรวม — fetch เฉพาะเมื่อแท็บนั้น active
- * trendRange ควบคุมเฉพาะ engagement_trend, platformPeriod ควบคุมเฉพาะ
- * platform_performance — เป็นคนละตัวควบคุม ไม่ผูกกัน (ดู content-overview-social-performance spec)
+ * แท็บภาพรวม (End-to-End Overview + BI Summary) — fetch เฉพาะเมื่อแท็บนั้น active
+ * ข้อมูลทั้งหมดที่ระบบมี ไม่มีช่วงเวลาและไม่มีค่าเปรียบเทียบ (ดู content-overview-bi spec)
  */
-export function useContentOverview(
-  enabled = true,
-  trendRange: '7' | '30' | '90' = '7',
-  platformPeriod: 'day' | 'week' | 'month' = 'day',
-) {
+export function useContentOverview(enabled = true) {
   return useQuery<ContentOverview>({
-    queryKey: contentKeys.biOverview(trendRange, platformPeriod),
-    queryFn: () => apiFetch(`/content-analytics.php?action=overview&trend_range=${trendRange}&platform_period=${platformPeriod}`),
+    queryKey: contentKeys.biOverview(),
+    queryFn: () => apiFetch('/content-analytics.php?action=overview'),
     staleTime: 60_000,
     enabled,
   });

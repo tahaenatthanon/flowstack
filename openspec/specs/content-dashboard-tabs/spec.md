@@ -39,17 +39,6 @@ The active tab SHALL be driven by the `tab` URL query parameter, where `tab=over
 - **WHEN** the `tab` query parameter has an unrecognized value
 - **THEN** the "ภาพรวม" tab is active
 
-### Requirement: แท็บภาพรวมแสดงข้อมูลเชิงปฏิบัติการ
-The "ภาพรวม" tab SHALL contain the operational/action sections: the production stat cards (เนื้อหาทั้งหมด, เผยแพร่แล้ว, รออนุมัติ, ฉบับร่าง), the overdue alert, "ภาพรวมสถานะคอนเทนต์" (Work Progress), "สุขภาพคิวเผยแพร่", "Funnel การผลิต", "คอนเทนต์ค้างท่อ", "สถานะสร้างสื่อ AI", "เนื้อหาล่าสุด", "รออนุมัติ", "กำหนดการโพสต์ถัดไป", and "สถานะช่องทาง".
-
-#### Scenario: แท็บภาพรวมไม่มี widget วิเคราะห์
-- **WHEN** the "ภาพรวม" tab is active
-- **THEN** it does NOT show the "แพลตฟอร์ม", "เนื้อหายอดนิยม", or "เวลาที่ดีที่สุดในการโพสต์" widgets
-
-#### Scenario: แท็บภาพรวมมี section ครบ
-- **WHEN** the "ภาพรวม" tab is active
-- **THEN** it shows the production stat cards, overdue alert (when applicable), Work Progress, "สุขภาพคิวเผยแพร่", "Funnel การผลิต", "คอนเทนต์ค้างท่อ", "สถานะสร้างสื่อ AI", "เนื้อหาล่าสุด", "รออนุมัติ", "กำหนดการโพสต์ถัดไป", and "สถานะช่องทาง"
-
 ### Requirement: แท็บวิเคราะห์แสดงข้อมูลเชิง insight
 The "วิเคราะห์" tab SHALL be split into 3 sub-tabs — "โซเชียล" (social), "เว็บไซต์" (website), and "เนื้อหา" (content) — where the "เนื้อหา" sub-tab SHALL contain the insight/engagement sections: the content stat cards (เนื้อหาทั้งหมด, เผยแพร่แล้ว, Engagement รวม, Content Performance), "แพลตฟอร์ม", "เนื้อหายอดนิยม", "เวลาที่ดีที่สุดในการโพสต์", "ประสิทธิภาพการผลิต", "แนวโน้ม Throughput รายเดือน", "Lead time แยกตามขั้น", "ความสมบูรณ์ SEO", "Plan → Content conversion", and "อัตราสำเร็จการเผยแพร่แยกแพลตฟอร์ม".
 
