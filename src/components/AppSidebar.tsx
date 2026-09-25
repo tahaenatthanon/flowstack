@@ -85,11 +85,10 @@ const NAV_GROUPS: NavGroup[] = [
     icon: Megaphone,
     defaultOpen: false,
     items: [
-      { title: 'แดชบอร์ดคอนเทนต์', href: '/content-dashboard', icon: LayoutDashboard, menuKey: 'marketing' },
+      { title: 'แดชบอร์ดการตลาด', href: '/content-dashboard', icon: LayoutDashboard, menuKey: 'marketing' },
       { title: 'คอนเทนต์โซเชียล',  href: '/content',           icon: PenTool,         menuKey: 'marketing' },
       { title: 'ปฏิทินคอนเทนต์',  href: '/content-planner',   icon: CalendarDays,    menuKey: 'marketing' },
       { title: 'แคมเปญอีเมล',     href: '/campaigns',          icon: Send,            menuKey: 'marketing' },
-      { title: 'วิเคราะห์แคมเปญ',   href: '/campaign-analytics', icon: BarChart3,       menuKey: 'marketing' },
       { title: 'สตูดิโอสื่อ', href: '/media-studio', icon: Wand2, menuKey: 'media_studio' },
     ],
   },

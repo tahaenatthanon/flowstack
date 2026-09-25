@@ -28,5 +28,5 @@ Route `/marketing` SHALL redirect ไปยัง `/campaigns` เสมอ เ�
 - **THEN** ระบบ SHALL นำทางไปยัง `/campaigns` โดยตรง ไม่ผ่าน redirect
 
 #### Scenario: คลิก breadcrumb จากหน้าที่เกี่ยวข้อง
-- **WHEN** ผู้ใช้คลิก breadcrumb ที่ชี้ไปหน้าแคมเปญอีเมลจากหน้า `CampaignAnalyticsPage`, `ContentPage`, `ContentPlannerPage`, หรือ `ContentDashboardPage`
+- **WHEN** ผู้ใช้คลิก breadcrumb ที่ชี้ไปหน้าแคมเปญอีเมลจากหน้า `ContentPage`, `ContentPlannerPage`, หรือ `ContentDashboardPage` (รวมเมื่ออยู่ส่วนแคมเปญ)
 - **THEN** ระบบ SHALL นำทางไปยัง `/campaigns` โดยตรง ไม่ผ่าน redirect

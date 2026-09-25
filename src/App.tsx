@@ -37,7 +37,6 @@ const AutomationPage = lazy(() => import('./pages/AutomationPage'));
 const BudgetPage = lazy(() => import('./pages/BudgetPage'));
 const SupportPage = lazy(() => import('./pages/SupportPage'));
 const KnowledgeBasePage = lazy(() => import('./pages/KnowledgeBasePage'));
-const CampaignAnalyticsPage = lazy(() => import('./pages/CampaignAnalyticsPage'));
 const ContentPage = lazy(() => import('./pages/ContentPage'));
 const ContentPlannerPage = lazy(() => import('./pages/ContentPlannerPage'));
 const ContentDashboardPage = lazy(() => import('./pages/ContentDashboardPage'));
@@ -158,7 +157,8 @@ export default function App() {
                 <Route path="/brand-setting" element={<PermissionRoute menuKey="brand_setting"><BrandSettingPage /></PermissionRoute>} />
                 <Route path="/data-management" element={<PermissionRoute menuKey="data_management"><DataManagementPage /></PermissionRoute>} />
                 <Route path="/campaigns" element={<PermissionRoute menuKey="marketing"><CampaignsPage />   </PermissionRoute>} />
-                <Route path="/campaign-analytics" element={<PermissionRoute menuKey="marketing"> <CampaignAnalyticsPage /> </PermissionRoute>} />
+                {/* analytics แคมเปญย้ายไปเป็นส่วน "แคมเปญ" ของแดชบอร์ดการตลาด — เก็บ route ไว้ให้ลิงก์/bookmark เก่ายังใช้ได้ */}
+                <Route path="/campaign-analytics" element={<PermissionRoute menuKey="marketing"><Navigate to="/content-dashboard?section=campaign" replace /></PermissionRoute>} />
                 <Route path="/content"         element={<PermissionRoute menuKey="marketing"> <ContentPage />         </PermissionRoute>} />
                 <Route path="/content-dashboard" element={<PermissionRoute menuKey="marketing"> <ContentDashboardPage />         </PermissionRoute>} />
                 <Route path="/content-planner" element={<PermissionRoute menuKey="marketing"> <ContentPlannerPage /> </PermissionRoute>} />

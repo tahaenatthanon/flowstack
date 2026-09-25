@@ -38,7 +38,7 @@ export default function ContentGoalForm() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        <p className="text-xs text-muted-foreground">ใช้เปรียบเทียบกับจำนวนโพสต์ที่เผยแพร่จริงในรอบ 7 วันล่าสุด บนแท็บวิเคราะห์ของแดชบอร์ดคอนเทนต์ — ใส่ 0 หากยังไม่ต้องการตั้งเป้าหมาย</p>
+        <p className="text-xs text-muted-foreground">ใช้เปรียบเทียบกับจำนวนโพสต์ที่เผยแพร่จริงในรอบ 7 วันล่าสุด บนแท็บวิเคราะห์ของแดชบอร์ดการตลาด — ใส่ 0 หากยังไม่ต้องการตั้งเป้าหมาย</p>
         <div className="space-y-1.5">
           <Label htmlFor="weekly-posts-target" className="text-sm">เป้าหมายโพสต์/สัปดาห์</Label>
           <Input

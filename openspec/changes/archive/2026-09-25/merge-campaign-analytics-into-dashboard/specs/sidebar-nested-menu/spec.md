@@ -1,17 +1,4 @@
-# sidebar-nested-menu Specification
-
-## ADDED Requirements
-
-### Requirement: Sidebar supports three-level menu nesting
-`NavItem` interface SHALL รองรับ `children?: NavItem[]` property สำหรับการสร้างเมนูย่อยแบบ recursive
-
-#### Scenario: Render nested sub-items
-- **WHEN** `NavItem` มี `children` property
-- **THEN** `CollapsibleGroup` component แสดงผลเป็น sub-group ที่ยุบ-ขยายได้ (collapsible) ภายในกลุ่มหลัก
-
-#### Scenario: Active state for nested items
-- **WHEN** URL ปัจจุบันตรงกับ `href` ของ item ใน children
-- **THEN** sub-group parent แสดงสถานะ active (highlight) และขยายอัตโนมัติ
+## MODIFIED Requirements
 
 ### Requirement: Marketing menu flattened
 เมนู "การตลาด" SHALL มีโครงสร้างแบบแบนราบ (ไม่มี sub-group "คอนเทนต์โซเชียล") โดย "แดชบอร์ดการตลาด" อยู่เป็นรายการแรกสุด และรายการถัดมาเรียงตามลำดับดังนี้:
@@ -42,10 +29,3 @@
 #### Scenario: ไม่มีเมนูวิเคราะห์แคมเปญ
 - **WHEN** ผู้ใช้เปิดกลุ่ม "การตลาด"
 - **THEN** ไม่มีรายการ "วิเคราะห์แคมเปญ" หรือรายการที่ลิงก์ไป `/campaign-analytics`
-
-### Requirement: Non-marketing groups remain unchanged
-กลุ่มเมนูอื่น (จัดการโปรเจค, การขายและ CRM, สนับสนุน, ImpactOS, การจัดการระบบ) SHALL คงโครงสร้าง 2 ระดับเหมือนเดิม
-
-#### Scenario: Other groups unaffected
-- **WHEN** ผู้ใช้เปิดกลุ่ม "จัดการโปรเจค"
-- **THEN** เห็นรายการย่อยแบบแบนราบเหมือนเดิม ไม่มีการเปลี่ยนแปลง

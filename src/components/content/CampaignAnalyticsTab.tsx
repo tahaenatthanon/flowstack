@@ -16,7 +16,15 @@ import {
 import { apiFetch } from '@/lib/api';
 import { Send, Eye, MousePointerClick, Megaphone, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import PageShell from '@/components/PageShell';
+
+/**
+ * ส่วน "แคมเปญ" ของแดชบอร์ดการตลาด (/content-dashboard?section=campaign)
+ * ย้ายมาจากหน้า /campaign-analytics เดิม (change: merge-campaign-analytics-into-dashboard)
+ * — เนื้อหา, ตัวกรอง 30 วัน/90 วัน/12 เดือน และ API เดิมทุกอย่าง ตัดแค่ PageShell/breadcrumb/หัวข้อ
+ *
+ * ถูก mount เฉพาะเมื่ออยู่ส่วนแคมเปญ จึงไม่เรียก campaign-analytics.php ตอนอยู่ส่วนคอนเทนต์
+ * สถานะโหลด/error แสดงในพื้นที่ของ component นี้เท่านั้น ตัวกรองยังอยู่ให้เปลี่ยนได้ระหว่างโหลด
+ */
 
 const STATUS_COLORS: Record<string, string> = {
   draft: '#94a3b8', scheduled: '#60a5fa', sending: '#f59e0b',
@@ -50,7 +58,7 @@ const TOP_SORT_OPTIONS = [
   { value: 'click_rate', label: 'อัตราคลิก' },
 ];
 
-export default function CampaignAnalyticsPage() {
+export function CampaignAnalyticsTab() {
   const [range, setRange] = useState('30d');
   const [topSort, setTopSort] = useState('opens');
 
@@ -59,18 +67,42 @@ export default function CampaignAnalyticsPage() {
     queryFn: () => apiFetch(`/campaign-analytics.php?range=${range}&top_sort=${topSort}`),
   });
 
+  // ตัวกรองช่วงเวลา — เดิมอยู่ในช่อง actions ของหัวหน้า ตอนนี้หัวหน้าเป็นของแดชบอร์ด
+  // (มีปุ่มสลับส่วน) จึงย้ายมาเป็นแถวแรกของส่วนนี้ และคงแสดงไว้ระหว่างโหลด
+  const rangeFilter = (
+    <div className="flex items-center justify-end gap-2">
+      <span className="text-sm text-muted-foreground">ช่วงเวลา</span>
+      <Select value={range} onValueChange={setRange}>
+        <SelectTrigger className="w-36 h-9 text-sm">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="30d">30 วันล่าสุด</SelectItem>
+          <SelectItem value="90d">90 วันล่าสุด</SelectItem>
+          <SelectItem value="12m">12 เดือนล่าสุด</SelectItem>
+        </SelectContent>
+      </Select>
+    </div>
+  );
+
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div className="space-y-6">
+        {rangeFilter}
+        <div className="flex items-center justify-center min-h-[400px]">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
       </div>
     );
   }
 
   if (!data) {
     return (
-      <div className="flex items-center justify-center min-h-[400px] text-muted-foreground">
-        ไม่สามารถโหลดข้อมูลได้
+      <div className="space-y-6">
+        {rangeFilter}
+        <div className="flex items-center justify-center min-h-[400px] text-muted-foreground">
+          ไม่สามารถโหลดข้อมูลได้
+        </div>
       </div>
     );
   }
@@ -78,26 +110,8 @@ export default function CampaignAnalyticsPage() {
   const { summary, status_breakdown, trends, top_campaigns, campaigns } = data;
 
   return (
-    <PageShell
-      breadcrumbs={[
-        { label: 'แคมเปญอีเมล', href: '/campaigns' },
-        { label: 'วิเคราะห์แคมเปญ', isCurrent: true },
-      ]}
-      title="วิเคราะห์แคมเปญ"
-      description="ภาพรวมประสิทธิภาพแคมเปญอีเมล อัตราการเปิดและคลิก"
-      actions={
-        <Select value={range} onValueChange={setRange}>
-          <SelectTrigger className="w-36 h-9 text-sm">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="30d">30 วันล่าสุด</SelectItem>
-            <SelectItem value="90d">90 วันล่าสุด</SelectItem>
-            <SelectItem value="12m">12 เดือนล่าสุด</SelectItem>
-          </SelectContent>
-        </Select>
-      }
-    >
+    <div className="space-y-6">
+      {rangeFilter}
 
       {/* Summary stat cards */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
@@ -319,6 +333,6 @@ export default function CampaignAnalyticsPage() {
           )}
         </CardContent>
       </Card>
-    </PageShell>
+    </div>
   );
 }

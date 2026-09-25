@@ -1,5 +1,5 @@
 ﻿import { useState, useMemo, useEffect, useRef } from 'react';
-import { useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import type { ContentItem } from '@/components/content/types';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,7 +14,7 @@ import ArticleEditor from '@/components/content/ArticleEditor';
 import type { SeoFields } from '@/components/content/types';
 import { emailTemplates, type EmailTemplate } from '@/data/emailTemplates';
 import { composeCampaignHtml } from '@/lib/campaignTemplateCompose';
-import { Loader2, Plus, Send, Eye, MousePointer, X, Search, Mail, Users, Pencil, Trash2, UserMinus, Copy, Building2, FileText, LayoutTemplate, Palette, Route, Clock, Sparkles, Wand2, Layers } from 'lucide-react';
+import { Loader2, Plus, Send, Eye, MousePointer, X, Search, Mail, Users, Pencil, Trash2, UserMinus, Copy, Building2, FileText, LayoutTemplate, Palette, Route, Clock, Sparkles, Wand2, Layers, BarChart3 } from 'lucide-react';
 import AttributionTab from '@/components/marketing/AttributionTab';
 import PullFromContentDialog from '@/components/content/dialogs/PullFromContentDialog';
 import ProductPicker from '@/components/campaigns/ProductPicker';
@@ -979,6 +979,16 @@ export default function CampaignsPage() {
 
         {/* ── Campaigns Tab ── */}
         <TabsContent value="campaigns" className="space-y-4">
+          {/* ลิงก์ไปผลแคมเปญเชิงลึก (ส่วนแคมเปญของแดชบอร์ดการตลาด) — ตั้งใจไม่ใส่ในแถวปุ่มหลักของหัวหน้า
+              ที่มี 3 ปุ่มแล้ว วางต่อจากการ์ดสรุป all-time ที่เป็นจุดดูตัวเลขเร็ว ๆ */}
+          <div className="flex justify-end -mb-2">
+            <Button asChild variant="ghost" size="sm" className="gap-1.5 text-muted-foreground">
+              <Link to="/content-dashboard?section=campaign">
+                <BarChart3 className="w-4 h-4" />
+                ดูผลแคมเปญ
+              </Link>
+            </Button>
+          </div>
           {/* Summary stats */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Card><CardContent className="p-3 sm:p-4"><p className="text-xs text-muted-foreground">แคมเปญทั้งหมด</p><p className="text-2xl font-bold text-primary">{campaigns.length}</p></CardContent></Card>

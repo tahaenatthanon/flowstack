@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { FileText, Clock, CheckCircle2, AlertTriangle, ArrowRight, BarChart3, CalendarClock, Share2, Globe, LayoutDashboard, Hourglass, Send, RefreshCw, XCircle, Loader2 } from 'lucide-react';
+import { FileText, Clock, CheckCircle2, AlertTriangle, ArrowRight, BarChart3, CalendarClock, Share2, Globe, LayoutDashboard, Hourglass, Send, RefreshCw, XCircle, Loader2, Mail } from 'lucide-react';
 import { format, startOfMonth, subMonths } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { useContentItems, useOverdueCount, useAllSchedules, usePostingAnalytics, useRecalculateAnalytics, useResultMetrics, useContentOverview, useContentAnalytics, useSendNow } from '@/hooks/useContent';
 import PageShell from '@/components/PageShell';
 import { STATUS_MAP, PLATFORM_MAP, TYPE_MAP } from '@/components/content/types';
@@ -13,6 +14,7 @@ import { PlatformBadgeList } from '@/components/content/PlatformBadgeList';
 import { AnalyticsContentTab } from '@/components/content/AnalyticsContentTab';
 import { AnalyticsSocialTab } from '@/components/content/AnalyticsSocialTab';
 import { AnalyticsWebsiteTab } from '@/components/content/AnalyticsWebsiteTab';
+import { CampaignAnalyticsTab } from '@/components/content/CampaignAnalyticsTab';
 import { OverviewEngagementSummary } from '@/components/content/OverviewEngagementSummary';
 import { OverviewPageSummary } from '@/components/content/OverviewPageSummary';
 import { OverviewEngagementTrendChart, type TrendRange } from '@/components/content/OverviewEngagementTrendChart';
@@ -64,6 +66,15 @@ export default function ContentDashboardPage() {
   };
   const handleViewChange = (value: string) => {
     setSearchParams({ tab: 'analytics', view: value });
+  };
+
+  // ส่วนของหน้า (ชั้นบนสุด): `section=campaign` = แคมเปญ, ไม่มี/ค่าอื่น = คอนเทนต์
+  // ใช้ชื่อ `section` เพราะ `view` เป็น sub-tab ของแท็บวิเคราะห์อยู่แล้ว
+  // handler สองตัวข้างบนเขียนทับ params ทั้งชุดได้โดยไม่ต้องแก้ เพราะทำงานเฉพาะในส่วนคอนเทนต์
+  // ซึ่งไม่มี `section` อยู่แล้ว — กลับมาส่วนคอนเทนต์ = ล้าง params (แท็บภาพรวม)
+  const section: 'content' | 'campaign' = searchParams.get('section') === 'campaign' ? 'campaign' : 'content';
+  const handleSectionChange = (value: string) => {
+    setSearchParams(value === 'campaign' ? { section: 'campaign' } : {});
   };
 
   // Date range for the analytics tab. Kept in component state (not the URL) —
@@ -192,13 +203,38 @@ export default function ContentDashboardPage() {
     <PageShell
       breadcrumbs={[
         { label: 'การตลาด', href: '/campaigns' },
-        { label: 'คอนเทนต์โซเชียล' },
         { label: 'แดชบอร์ด', isCurrent: true },
       ]}
-      title="แดชบอร์ดคอนเทนต์"
-      description="ภาพรวมเนื้อหาและสถานะการผลิต"
+      title="แดชบอร์ดการตลาด"
+      description={section === 'campaign'
+        ? 'ผลการส่ง การเปิด และการคลิกของแคมเปญอีเมล'
+        : 'ภาพรวมเนื้อหาและสถานะการผลิต'}
+      actions={
+        // สลับ "ทั้งหน้า" อยู่ในหัวหน้า ต่างจากแท็บภาพรวม/วิเคราะห์ที่สลับ "เนื้อหาในหน้า"
+        // แสดงชื่อเต็มทุกขนาดจอ (แท็บในหน้าซ่อน label บนมือถือ แต่ปุ่มนี้มีแค่ 2 ตัวเลือก)
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          value={section}
+          // Radix คืน '' เมื่อกดตัวที่เลือกอยู่ซ้ำ — ไม่ถือเป็นการสลับ
+          onValueChange={(v) => { if (v) handleSectionChange(v); }}
+          aria-label="เลือกส่วนของแดชบอร์ด"
+        >
+          <ToggleGroupItem value="content" className="gap-1.5 px-3">
+            <FileText className="h-4 w-4" />
+            คอนเทนต์
+          </ToggleGroupItem>
+          <ToggleGroupItem value="campaign" className="gap-1.5 px-3">
+            <Mail className="h-4 w-4" />
+            แคมเปญ
+          </ToggleGroupItem>
+        </ToggleGroup>
+      }
     >
-      {isLoading ? (
+      {/* ส่วนแคมเปญไม่รอข้อมูลคอนเทนต์ — รอเฉพาะ query ของตัวเองใน CampaignAnalyticsTab */}
+      {section === 'campaign' ? (
+        <CampaignAnalyticsTab />
+      ) : isLoading ? (
         <div className="flex items-center justify-center py-20 text-muted-foreground">กำลังโหลด...</div>
       ) : (
         <Tabs value={tab} onValueChange={handleTabChange} className="space-y-6">

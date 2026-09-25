@@ -9,7 +9,7 @@ import { getStatusLabel, getPriorityLabel } from '@/lib/projectUtils';
 import {
   FolderKanban, CheckSquare, Building2, TrendingUp, Home,
   Clock, Target, Wallet, Zap, BarChart3, FileText, DollarSign,
-  LifeBuoy, Megaphone, ShieldCheck, Layers, Sparkles, ClipboardList,
+  LifeBuoy, Megaphone, ShieldCheck, Layers, Sparkles, ClipboardList, LayoutDashboard,
 } from 'lucide-react';
 
 interface GlobalSearchProps {
@@ -32,7 +32,9 @@ const NAV_ITEMS: NavItem[] = [
   { title: 'รายงานรายได้',      href: '/revenue',     icon: DollarSign },
   { title: 'Helpdesk',           href: '/support',     icon: LifeBuoy },
   { title: 'แคมเปญอีเมล',       href: '/campaigns',           icon: Megaphone },
-  { title: 'วิเคราะห์แคมเปญ',   href: '/campaign-analytics',  icon: BarChart3 },
+  { title: 'แดชบอร์ดการตลาด',   href: '/content-dashboard',   icon: LayoutDashboard },
+  // ชี้ไปส่วนแคมเปญของแดชบอร์ดการตลาดตรง ๆ ไม่ผ่าน redirect ของ /campaign-analytics
+  { title: 'วิเคราะห์แคมเปญ',   href: '/content-dashboard?section=campaign', icon: BarChart3 },
   { title: 'IMPACTOS',          href: '/impactos',    icon: Layers },
   { title: 'Benchmark',          href: '/benchmark',   icon: BarChart3 },
   { title: 'KPI Analytics',      href: '/analytics',   icon: BarChart3 },
