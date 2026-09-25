@@ -3,7 +3,6 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getPlatformLabel } from '@/lib/platformConfig';
 import type { ContentOverview } from '@/components/content/types';
-import { ScopeTag, SectionHeading } from './shared';
 import { fmtNumber } from './format';
 
 /**
@@ -29,15 +28,13 @@ export function ResultsSection({ data, isLoading = false }: Props) {
 
   return (
     <section className="space-y-3">
-      <SectionHeading index={3} title="ผลลัพธ์" />
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
               <TrendingUp className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <span className="truncate">Engagement Trend</span>
+              <span className="truncate">แนวโน้มการมีส่วนร่วม</span>
             </CardTitle>
-            <ScopeTag>รายเดือน</ScopeTag>
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -62,7 +59,6 @@ export function ResultsSection({ data, isLoading = false }: Props) {
                     <Line type="monotone" dataKey="engagement" stroke="#EC4899" strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />
                   </LineChart>
                 </ResponsiveContainer>
-                <p className="mt-1 text-xs text-muted-foreground">Reaction + Comment + Share + Click ตามเดือนที่เผยแพร่ · เดือนที่เว้นว่าง = ไม่มีโพสต์ที่วัดผลได้</p>
               </>
             )}
           </CardContent>
@@ -72,7 +68,7 @@ export function ResultsSection({ data, isLoading = false }: Props) {
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
               <BarChart3 className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <span className="truncate">Platform Performance</span>
+              <span className="truncate">ประสิทธิภาพรายแพลตฟอร์ม</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -105,9 +101,6 @@ export function ResultsSection({ data, isLoading = false }: Props) {
                   </tbody>
                 </table>
               </div>
-            )}
-            {!isLoading && rows.length > 0 && (
-              <p className="mt-2 text-xs text-muted-foreground">Followers = ผู้ติดตามเพจ มีข้อมูลเฉพาะ Facebook</p>
             )}
           </CardContent>
         </Card>

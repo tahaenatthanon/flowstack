@@ -1,14 +1,66 @@
 import { Activity, CalendarClock } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { getPlatformLabel } from '@/lib/platformConfig';
-import type { ContentOverview, ScheduleSummaryRow } from '@/components/content/types';
-import { ScopeTag, SectionHeading } from './shared';
-import { fmtNumber, fmtPct, platformsLabel } from './format';
+import { PLATFORM_MAP } from '@/components/content/types';
+import type { ContentOverview, QueueFailure, ScheduleSummaryRow } from '@/components/content/types';
+import { fmtNumber, fmtPct } from './format';
 
 /**
  * 2. การเผยแพร่ — Publishing Health จากคิวทั้งหมด + สรุปกำหนดการวันนี้/พรุ่งนี้
- * เป็นตัวเลขสรุปเท่านั้น รายการคิวและปุ่มลองส่งใหม่อยู่ในส่วน "งานที่ต้องจัดการ"
+ * ใต้ Success Rate แสดงรายการที่ล้มเหลว (ข้อยกเว้นเดียวของ "ส่วน BI ไม่แสดงรายการรายชิ้น")
+ * เพื่อให้เห็นรายการที่มีปัญหาทันที — แสดงอย่างเดียว ไม่มีปุ่มลองส่งใหม่
  */
+
+function formatDateTime(d: string): string {
+  const dt = new Date(d);
+  return Number.isNaN(dt.getTime())
+    ? d
+    : dt.toLocaleString('th-TH', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function FailureList({ failures, total }: { failures: QueueFailure[]; total: number }) {
+  if (failures.length === 0) return null;
+  return (
+    <div className="space-y-2 border-t pt-3">
+      <p className="text-xs font-medium text-muted-foreground">การเผยแพร่ที่ล้มเหลว</p>
+      <ul className="space-y-2">
+        {failures.map(f => {
+          const platform = f.platform ? PLATFORM_MAP[f.platform] : undefined;
+          const platformLabel = f.platform ? (platform?.label ?? getPlatformLabel(f.platform)) : null;
+          return (
+            <li key={f.id} className="space-y-1 rounded-lg border border-red-200 bg-red-50/50 p-2 dark:border-red-900 dark:bg-red-950/20">
+              <div className="flex items-start justify-between gap-2">
+                <p className="min-w-0 flex-1 truncate text-sm font-medium" title={f.title}>{f.title}</p>
+                {platformLabel ? (
+                  <Badge variant="outline" className={`shrink-0 ${platform?.color ?? ''}`}>{platformLabel}</Badge>
+                ) : (
+                  <span className="shrink-0 text-xs text-muted-foreground">ไม่ระบุแพลตฟอร์ม</span>
+                )}
+              </div>
+              {/* ชื่อช่องทางเฉพาะเมื่อไม่ซ้ำกับชื่อแพลตฟอร์ม (เช่น channel ชื่อ "Facebook") */}
+              {f.channel_name && f.channel_name !== platformLabel && (
+                <p className="truncate text-xs text-muted-foreground">ช่องทาง: {f.channel_name}</p>
+              )}
+              <p className="whitespace-pre-line break-words text-xs text-red-700 dark:text-red-300">
+                {f.error_msg?.trim() || 'ไม่ทราบสาเหตุ'}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {f.retry_count > 0 ? `ลองส่งแล้ว ${f.retry_count.toLocaleString('th-TH')} ครั้ง` : 'ยังไม่ลองส่งใหม่'}
+                {' · '}กำหนดส่ง {formatDateTime(f.scheduled_at)}
+              </p>
+            </li>
+          );
+        })}
+      </ul>
+      {total > failures.length && (
+        <p className="text-xs text-muted-foreground">
+          แสดง {failures.length.toLocaleString('th-TH')} จาก {total.toLocaleString('th-TH')} รายการ
+        </p>
+      )}
+    </div>
+  );
+}
 
 interface Props {
   data?: ContentOverview;
@@ -45,13 +97,12 @@ export function PublishingSection({ data, isLoading = false }: Props) {
 
   return (
     <section className="space-y-3">
-      <SectionHeading index={2} title="การเผยแพร่" />
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
               <Activity className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <span className="truncate">Publishing Health</span>
+              <span className="truncate">ภาพรวมการเผยแพร่</span>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -71,9 +122,7 @@ export function PublishingSection({ data, isLoading = false }: Props) {
                   <span className="text-sm text-muted-foreground">Success Rate</span>
                   <span className="text-xl font-bold tabular-nums">{fmtPct(h?.success_rate)}</span>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  คิวเผยแพร่ทั้งหมด · ครอบคลุม: {platformsLabel(h?.platforms ?? [])} · ไม่รวมอีเมลแคมเปญ
-                </p>
+                <FailureList failures={h?.failures ?? []} total={h?.failed ?? 0} />
               </>
             )}
           </CardContent>
@@ -85,7 +134,6 @@ export function PublishingSection({ data, isLoading = false }: Props) {
               <CalendarClock className="h-4 w-4 shrink-0 text-muted-foreground" />
               <span className="truncate">กำหนดการ</span>
             </CardTitle>
-            <ScopeTag>วันนี้–พรุ่งนี้</ScopeTag>
           </CardHeader>
           <CardContent className="space-y-4">
             {isLoading || !sched ? (

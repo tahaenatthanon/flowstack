@@ -29,13 +29,8 @@ vi.mock('@/lib/api', () => ({
       if (state.contentPending) return new Promise(() => {});
       return [];
     }
-    if (url.includes('action=overdue_count')) return { count: 0 };
-    if (url.includes('content-analytics.php?action=overview')) {
-      return {
-        queue: { pending: 0, processing: 0, sent: 0, failed: 0, overdue_pending: 0, total: 0, failures: [] },
-        aging: { d0_7: 0, d8_30: 0, d31_90: 0, d90_plus: 0, total: 0, oldest_days: null, items: [] },
-      };
-    }
+    // payload ของส่วน BI ไม่จำเป็นต่อ test นี้ — component ต้องไม่ crash เมื่อกลุ่มไม่มา
+    if (url.includes('content-analytics.php?action=overview')) return {};
     return [];
   }),
 }));

@@ -65,9 +65,6 @@ export function GlobalKpiRow({ kpi, isLoading = false }: Props) {
           );
         })}
       </div>
-      <p className="text-xs text-muted-foreground">
-        ข้อมูลทั้งหมดตั้งแต่เริ่มใช้งาน · ครอบคลุมโพสต์: {platformsLabel(kpi?.platforms ?? [])}
-      </p>
     </div>
   );
 }

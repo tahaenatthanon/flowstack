@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { GlobalKpiRow } from '@/components/content/overview/GlobalKpiRow';
@@ -10,8 +10,8 @@ import ContentDashboardPage from '@/pages/ContentDashboardPage';
 import type { ContentOverview } from '@/components/content/types';
 
 /**
- * openspec/changes/content-overview-bi-summary — แท็บภาพรวมแบบ End-to-End + BI Summary
- * (spec content-overview-bi) ค่าตัวอย่างเป็นตัวเลขจาก spec และข้อมูล local
+ * แท็บภาพรวมแบบ End-to-End + BI Summary (spec content-overview-bi, change
+ * remove-overview-work-section) ค่าตัวอย่างเป็นตัวเลขจาก spec และข้อมูล local
  */
 
 // recharts ResponsiveContainer ใช้ ResizeObserver ซึ่ง jsdom ไม่มี
@@ -48,6 +48,10 @@ function makeOverview(overrides: Partial<ContentOverview> = {}): ContentOverview
     unpublished_aging: { d0_7: 8, d8_30: 20, d31_90: 0, d90_plus: 18, total: 46 },
     publishing_health: {
       pending: 0, sent: 19, failed: 2, success_rate: 90.5, platforms: ['facebook'],
+      failures: [
+        { id: 'q1', title: 'ต้นสัปดาห์เปลี่ยนงานซ้ำซากให้เป็นเรื่องง่ายด้วย AI', channel_name: 'Facebook', platform: 'facebook', error_msg: 'SEO gate: ไม่ผ่านเกณฑ์ SEO 1 ข้อ', retry_count: 0, scheduled_at: '2026-09-02 12:26:00' },
+        { id: 'q2', title: 'ทำความรู้จัก Duckkit AI Portal', channel_name: 'เพจทดสอบ', platform: 'facebook', error_msg: null, retry_count: 2, scheduled_at: '2026-09-05 20:40:00' },
+      ],
     },
     schedule_summary: {
       today: { date: '2026-09-25', rows: [{ time: '10:00', platform: 'facebook', count: 2 }] },
@@ -58,8 +62,6 @@ function makeOverview(overrides: Partial<ContentOverview> = {}): ContentOverview
       { month: '2026-09', engagement: 20, posts: 4 },
     ],
     platform_performance: [{ platform: 'facebook', posts: 4, engagement: 20, avg_per_post: 5, followers: 3 }],
-    queue: { pending: 0, processing: 0, sent: 0, failed: 0, overdue_pending: 0, total: 0, failures: [] },
-    aging: { d0_7: 0, d8_30: 0, d31_90: 0, d90_plus: 0, total: 0, oldest_days: null, items: [] },
     ...overrides,
   };
 }
@@ -70,7 +72,6 @@ describe('Global KPI (ข้อมูลทั้งหมด)', () => {
     expect(screen.getByText('20')).toBeInTheDocument();
     expect(screen.getByText('3')).toBeInTheDocument();
     expect(screen.getByText(/ระดับเพจ · ครอบคลุม: Facebook/)).toBeInTheDocument();
-    expect(screen.getByText(/ข้อมูลทั้งหมดตั้งแต่เริ่มใช้งาน/)).toBeInTheDocument();
   });
 
   it('ไม่มีการเปรียบเทียบ: ไม่มี ▲/▼ หรือ % เปลี่ยนแปลง', () => {
@@ -94,11 +95,11 @@ describe('Global KPI (ข้อมูลทั้งหมด)', () => {
 });
 
 describe('การผลิต', () => {
-  it('funnel แสดงจำนวน % ต่อขั้น คำกำกับขั้นอนุมัติ และยังอยู่ระหว่างทาง', () => {
+  it('funnel แสดงจำนวน % ต่อขั้น และยังอยู่ระหว่างทาง', () => {
     render(<ProductionSection data={makeOverview()} />);
+    expect(screen.getByText('กระบวนการผลิตคอนเทนต์')).toBeInTheDocument();
     expect(screen.getByText('86')).toBeInTheDocument();
     expect(screen.getByText('77.4%')).toBeInTheDocument();
-    expect(screen.getByText('(อนุมัติอยู่ ณ ตอนนี้)')).toBeInTheDocument();
     expect(screen.getByText('68')).toBeInTheDocument();
   });
 
@@ -108,9 +109,11 @@ describe('การผลิต', () => {
     expect(screen.getByText('ยังไม่มีคอนเทนต์')).toBeInTheDocument();
   });
 
-  it('สถานะคอนเทนต์และคอนเทนต์ที่ยังไม่เผยแพร่มีป้าย "ณ ตอนนี้"', () => {
+  it('กล่องสถานะคอนเทนต์และคอนเทนต์ที่ยังไม่เผยแพร่แสดงจำนวนรวม', () => {
     render(<ProductionSection data={makeOverview()} />);
-    expect(screen.getAllByText('ณ ตอนนี้')).toHaveLength(2);
+    expect(screen.getByText('สถานะคอนเทนต์')).toBeInTheDocument();
+    expect(screen.getByText('คอนเทนต์ที่ยังไม่เผยแพร่')).toBeInTheDocument();
+    expect(screen.getByText('58')).toBeInTheDocument();
     expect(screen.getByText('46')).toBeInTheDocument();
   });
 
@@ -128,14 +131,38 @@ describe('การเผยแพร่', () => {
     expect(screen.getByText('10:00')).toBeInTheDocument();
     expect(screen.getByText('2 รายการ')).toBeInTheDocument();
     expect(screen.getByText('ไม่มีกำหนดการ')).toBeInTheDocument();
-    expect(screen.getByText('วันนี้–พรุ่งนี้')).toBeInTheDocument();
   });
 
-  it('ไม่มีรายการจบ → Success Rate แสดง "—"', () => {
+  it('ไม่มีรายการจบ → Success Rate แสดง "—" และไม่มีรายการที่ล้มเหลว', () => {
     const data = makeOverview();
-    data.publishing_health = { ...data.publishing_health, sent: 0, failed: 0, success_rate: null };
+    data.publishing_health = { ...data.publishing_health, sent: 0, failed: 0, success_rate: null, failures: [] };
     render(<PublishingSection data={data} />);
     expect(screen.getByText('—')).toBeInTheDocument();
+    expect(screen.queryByText('การเผยแพร่ที่ล้มเหลว')).not.toBeInTheDocument();
+  });
+
+  it('รายการที่ล้มเหลวใต้ Success Rate แสดงชื่อ แพลตฟอร์ม สาเหตุ และสถานะ โดยไม่มีปุ่ม', () => {
+    render(<PublishingSection data={makeOverview()} />);
+    expect(screen.getByText('การเผยแพร่ที่ล้มเหลว')).toBeInTheDocument();
+    expect(screen.getByText('ต้นสัปดาห์เปลี่ยนงานซ้ำซากให้เป็นเรื่องง่ายด้วย AI')).toBeInTheDocument();
+    expect(screen.getAllByText('Facebook').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText('SEO gate: ไม่ผ่านเกณฑ์ SEO 1 ข้อ')).toBeInTheDocument();
+    expect(screen.getByText(/ยังไม่ลองส่งใหม่ · กำหนดส่ง/)).toBeInTheDocument();
+    // error_msg ว่าง → ไม่ทราบสาเหตุ · retry > 0 → ลองส่งแล้ว N ครั้ง · ชื่อช่องทางไม่ซ้ำแพลตฟอร์มจึงแสดง
+    expect(screen.getByText('ไม่ทราบสาเหตุ')).toBeInTheDocument();
+    expect(screen.getByText(/ลองส่งแล้ว 2 ครั้ง/)).toBeInTheDocument();
+    expect(screen.getByText('ช่องทาง: เพจทดสอบ')).toBeInTheDocument();
+    expect(screen.queryByText('ช่องทาง: Facebook')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    // แสดงครบทุกรายการ → ไม่มี "แสดง N จาก M"
+    expect(screen.queryByText(/^แสดง \d+ จาก/)).not.toBeInTheDocument();
+  });
+
+  it('ล้มเหลวมากกว่าที่แสดง → "แสดง N จาก M รายการ"', () => {
+    const data = makeOverview();
+    data.publishing_health = { ...data.publishing_health, failed: 14 };
+    render(<PublishingSection data={data} />);
+    expect(screen.getByText('แสดง 2 จาก 14 รายการ')).toBeInTheDocument();
   });
 });
 
@@ -155,16 +182,14 @@ describe('ผลลัพธ์', () => {
   });
 });
 
-// ── หน้าเต็ม: ลำดับส่วน + ปุ่มลองส่งใหม่ในส่วนงานที่ต้องจัดการ ──
+// ── หน้าเต็ม: เหลือ 4 ส่วน ไม่มีส่วนงานที่ต้องจัดการ (remove-overview-work-section) ──
 const api = vi.hoisted(() => ({ calls: [] as { url: string; init?: RequestInit }[], overview: null as unknown }));
 
 vi.mock('@/lib/api', () => ({
   apiFetch: vi.fn(async (url: string, init?: RequestInit) => {
     api.calls.push({ url, init });
     if (url.startsWith('/content-items.php')) return [];
-    if (url.includes('action=overdue_count')) return { count: 0 };
     if (url.includes('content-analytics.php?action=overview')) return api.overview;
-    if (url.startsWith('/content-publish.php')) return { results: [{ status: 'sent' }] };
     return [];
   }),
 }));
@@ -172,13 +197,8 @@ vi.mock('@/lib/api', () => ({
 describe('แท็บภาพรวม (หน้าเต็ม)', () => {
   beforeEach(() => { api.calls = []; });
 
-  it('เรียงส่วนตาม spec และปุ่ม "ลองส่งใหม่" ในส่วนงานที่ต้องจัดการเรียก send_now', async () => {
-    api.overview = makeOverview({
-      queue: {
-        pending: 0, processing: 0, sent: 0, failed: 1, overdue_pending: 0, total: 1,
-        failures: [{ id: 'q1', content_id: 'c1', channel_id: 'ch1', title: 'โพสต์ล้มเหลว', channel_name: 'Facebook', platform: 'facebook', error_msg: 'token', retry_count: 0, scheduled_at: '2026-09-20 10:00:00' }],
-      },
-    });
+  it('เรียง KPI → การผลิต → การเผยแพร่ → ผลลัพธ์ และไม่มีส่วนงานที่ต้องจัดการ แถบเตือน หรือปุ่มลองส่งใหม่', async () => {
+    api.overview = makeOverview();
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={qc}>
@@ -186,14 +206,19 @@ describe('แท็บภาพรวม (หน้าเต็ม)', () => {
       </QueryClientProvider>,
     );
 
-    const headings = (await screen.findAllByRole('heading', { level: 2 })).map(h => h.textContent);
-    expect(headings).toEqual(['1.การผลิต', '2.การเผยแพร่', '3.ผลลัพธ์', 'งานที่ต้องจัดการ']);
+    // ไม่มีหัวข้อส่วนแล้ว — ยืนยันลำดับจากชื่อกล่องแรกของแต่ละส่วน
+    const order = ['ผู้ติดตามเพจ', 'กระบวนการผลิตคอนเทนต์', 'ภาพรวมการเผยแพร่', 'แนวโน้มการมีส่วนร่วม'];
+    const els = await Promise.all(order.map(t => screen.findByText(t)));
+    for (let i = 1; i < els.length; i++) {
+      expect(els[i - 1].compareDocumentPosition(els[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
 
-    fireEvent.click(await screen.findByRole('button', { name: /ลองส่งใหม่/ }));
-    await waitFor(() => {
-      const call = api.calls.find(c => c.url === '/content-publish.php');
-      expect(call).toBeDefined();
-      expect(JSON.parse(String(call!.init?.body))).toMatchObject({ action: 'send_now', content_id: 'c1', channel_ids: ['ch1'] });
-    });
+    // รายการที่ล้มเหลวอยู่ในกล่องภาพรวมการเผยแพร่แทน
+    expect(screen.getByText('การเผยแพร่ที่ล้มเหลว')).toBeInTheDocument();
+    expect(screen.queryByText('งานที่ต้องจัดการ')).not.toBeInTheDocument();
+    expect(screen.queryByText(/เลยกำหนดส่ง/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /ลองส่งใหม่/ })).not.toBeInTheDocument();
+    // ไม่เรียก API ของกล่องงานเดิมอีก
+    expect(api.calls.some(c => c.url.includes('overdue_count') || c.url.includes('all-schedules'))).toBe(false);
   });
 });

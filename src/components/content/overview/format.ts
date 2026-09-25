@@ -7,8 +7,7 @@ import { getPlatformLabel } from '@/lib/platformConfig';
  */
 
 /**
- * ลำดับสถานะคอนเทนต์ — ใช้ทั้งกล่อง "สถานะคอนเทนต์" (BI) และ "ภาพรวมสถานะคอนเทนต์"
- * ในส่วนงานที่ต้องจัดการ ประกาศที่นี่ที่เดียวเพื่อให้สองกล่องเรียงเหมือนกัน
+ * ลำดับสถานะคอนเทนต์ของกล่อง "สถานะคอนเทนต์" ในส่วนการผลิต
  */
 export const CONTENT_STATUS_ORDER = ['published', 'approved', 'pending_approval', 'revision', 'draft', 'rejected'] as const;
 

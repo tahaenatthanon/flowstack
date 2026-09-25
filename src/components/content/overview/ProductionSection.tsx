@@ -2,7 +2,6 @@ import { Filter, ListChecks, Hourglass } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { STATUS_MAP } from '@/components/content/types';
 import type { ContentOverview, FunnelStageKey } from '@/components/content/types';
-import { ScopeTag, SectionHeading } from './shared';
 import { CONTENT_STATUS_ORDER, fmtNumber, fmtPct } from './format';
 
 /**
@@ -39,14 +38,13 @@ export function ProductionSection({ data, isLoading = false }: Props) {
 
   return (
     <section className="space-y-3">
-      <SectionHeading index={1} title="การผลิต" />
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         {/* Production Funnel */}
         <Card className="lg:col-span-1">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
               <Filter className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <span className="truncate">Production Funnel</span>
+              <span className="truncate">กระบวนการผลิตคอนเทนต์</span>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -61,7 +59,6 @@ export function ProductionSection({ data, isLoading = false }: Props) {
                     <div className="flex items-baseline justify-between gap-2 text-sm">
                       <span className="text-muted-foreground">
                         {STAGE_LABEL[stage.key]}
-                        {stage.key === 'approved' && <span className="ml-1 text-xs">(อนุมัติอยู่ ณ ตอนนี้)</span>}
                       </span>
                       <span className="tabular-nums">
                         <span className="font-semibold">{stage.count.toLocaleString('th-TH')}</span>
@@ -89,7 +86,6 @@ export function ProductionSection({ data, isLoading = false }: Props) {
               <ListChecks className="h-4 w-4 shrink-0 text-muted-foreground" />
               <span className="truncate">สถานะคอนเทนต์</span>
             </CardTitle>
-            <ScopeTag>ณ ตอนนี้</ScopeTag>
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -127,7 +123,6 @@ export function ProductionSection({ data, isLoading = false }: Props) {
               <Hourglass className="h-4 w-4 shrink-0 text-muted-foreground" />
               <span className="truncate">คอนเทนต์ที่ยังไม่เผยแพร่</span>
             </CardTitle>
-            <ScopeTag>ณ ตอนนี้</ScopeTag>
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -145,7 +140,7 @@ export function ProductionSection({ data, isLoading = false }: Props) {
                   ))}
                 </div>
                 <div className="flex items-center justify-between border-t pt-2 text-sm">
-                  <span className="text-muted-foreground">รวม (นับอายุจากวันที่สร้าง)</span>
+                  <span className="text-muted-foreground">รวม</span>
                   <span className="font-bold tabular-nums">{aging.total.toLocaleString('th-TH')}</span>
                 </div>
               </div>

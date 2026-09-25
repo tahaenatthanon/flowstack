@@ -8,9 +8,8 @@
 // Actions:
 //   ?action=overview   → End-to-End Overview + BI Summary (spec content-overview-bi):
 //                        KPI, production funnel, status, unpublished aging,
-//                        publishing health, today/tomorrow schedule, engagement
-//                        trend, platform performance — plus the work section's
-//                        queue/aging (not date-bound)
+//                        publishing health (+ failed rows), today/tomorrow
+//                        schedule, engagement trend, platform performance
 //   ?action=analytics  → throughput trend, lead time, SEO, plan conversion,
 //                        publish success by platform
 //   ?action=page_insights → Facebook page metrics per day (facebook_page_insights_daily)
@@ -257,7 +256,7 @@ function pageInsightsRange(PDO $db, string $tenantId, string $from, string $to):
 // ─── OVERVIEW ──────────────────────────────────────────────────────
 // End-to-End Overview + BI Summary (spec content-overview-bi): การผลิต → การเผยแพร่
 // → ผลลัพธ์ จาก "ข้อมูลทั้งหมดที่ระบบมี" — ไม่มีช่วงเวลาและไม่มีการเปรียบเทียบ
-// (ผู้ใช้ตัดสินให้ไม่เทียบเดือนต่อเดือน) พร้อมข้อมูลของส่วน "งานที่ต้องจัดการ" (queue / aging)
+// (ผู้ใช้ตัดสินให้ไม่เทียบเดือนต่อเดือน) — ไม่มีส่วน "งานที่ต้องจัดการ" แล้ว (remove-overview-work-section)
 
 /**
  * Engagement = Reaction + Comment + Share + Click (D2, engagementBreakdown()) of the
@@ -388,6 +387,24 @@ if ($action === 'overview') {
     $hpStmt->execute([$tenantId]);
     $healthPlatforms = array_values(array_filter(array_column($hpStmt->fetchAll(PDO::FETCH_ASSOC), 'platform')));
     sort($healthPlatforms);
+
+    // Failed rows listed under Success Rate so problems are visible at a glance
+    // (remove-overview-work-section D4). View only — no retry button, so no
+    // content_id/channel_id. The total count is `failed` above.
+    $flStmt = $db->prepare(
+        "SELECT q.id, q.scheduled_at, q.error_msg, q.retry_count,
+                ci.title,
+                pc.name                 AS channel_name,
+                NULLIF(pc.platform, '') AS platform
+         FROM content_publish_queue q
+         LEFT JOIN content_items    ci ON ci.id = q.content_id
+         LEFT JOIN publish_channels pc ON pc.id = q.channel_id
+         WHERE q.tenant_id = ? AND q.status = 'failed'
+         ORDER BY q.scheduled_at DESC
+         LIMIT 10"
+    );
+    $flStmt->execute([$tenantId]);
+
     $publishingHealth = [
         'pending'      => (int)($h['pending'] ?? 0),
         'sent'         => $hSent,
@@ -395,6 +412,15 @@ if ($action === 'overview') {
         // null = nothing finished yet — a queue that never ran is not 0% or 100%.
         'success_rate' => ($hSent + $hFailed) > 0 ? round($hSent / ($hSent + $hFailed) * 100, 1) : null,
         'platforms'    => $healthPlatforms,
+        'failures'     => array_map(static fn($r) => [
+            'id'           => $r['id'],
+            'title'        => $r['title'] ?? '(ไม่พบคอนเทนต์)',
+            'channel_name' => $r['channel_name'],
+            'platform'     => $r['platform'],
+            'error_msg'    => $r['error_msg'],
+            'retry_count'  => (int)$r['retry_count'],
+            'scheduled_at' => $r['scheduled_at'],
+        ], $flStmt->fetchAll(PDO::FETCH_ASSOC)),
     ];
 
     // ── การเผยแพร่: กำหนดการวันนี้ / พรุ่งนี้ (D4) ────────────────
@@ -491,41 +517,7 @@ if ($action === 'overview') {
         return $b['avg_per_post'] <=> $a['avg_per_post'];
     });
 
-    // ── งานที่ต้องจัดการ (ณ ตอนนี้, ไม่ผูกช่วงเวลา) ─────────────────
-    // Unchanged from before this change: queue health + failed rows for the retry
-    // button, and unpublished aging + oldest offenders.
-    // "overdue" uses the same definition as content-publish.php?action=overdue_count
-    // so the two never disagree on screen.
-    $qStmt = $db->prepare(
-        "SELECT
-            SUM(status = 'pending')                          AS pending,
-            SUM(status = 'processing')                        AS processing,
-            SUM(status = 'sent')                             AS sent,
-            SUM(status = 'failed')                           AS failed,
-            SUM(status = 'pending' AND scheduled_at < NOW()) AS overdue_pending,
-            COUNT(*)                                         AS total
-         FROM content_publish_queue WHERE tenant_id = ?"
-    );
-    $qStmt->execute([$tenantId]);
-    $q = $qStmt->fetch(PDO::FETCH_ASSOC) ?: [];
-
-    // Failed entries with the actionable error text, newest first.
-    // channel_id is returned so the retry button can call send_now.
-    $flStmt = $db->prepare(
-        "SELECT q.id, q.content_id, q.channel_id, q.scheduled_at, q.error_msg, q.retry_count,
-                ci.title,
-                pc.name                 AS channel_name,
-                NULLIF(pc.platform, '') AS platform
-         FROM content_publish_queue q
-         LEFT JOIN content_items    ci ON ci.id = q.content_id
-         LEFT JOIN publish_channels pc ON pc.id = q.channel_id
-         WHERE q.tenant_id = ? AND q.status = 'failed'
-         ORDER BY q.scheduled_at DESC
-         LIMIT 8"
-    );
-    $flStmt->execute([$tenantId]);
-    $failures = $flStmt->fetchAll(PDO::FETCH_ASSOC);
-
+    // ── การผลิต: คอนเทนต์ที่ยังไม่เผยแพร่ (ณ ตอนนี้) ─────────────────
     // Unpublished content bucketed by days since creation.
     $aStmt = $db->prepare(
         "SELECT
@@ -533,77 +525,28 @@ if ($action === 'overview') {
             SUM(DATEDIFF(NOW(), created_at) > 7  AND DATEDIFF(NOW(), created_at) <= 30) AS d8_30,
             SUM(DATEDIFF(NOW(), created_at) > 30 AND DATEDIFF(NOW(), created_at) <= 90) AS d31_90,
             SUM(DATEDIFF(NOW(), created_at) > 90)                                       AS d90_plus,
-            COUNT(*)                                                                    AS total,
-            MAX(DATEDIFF(NOW(), created_at))                                            AS oldest_days
+            COUNT(*)                                                                    AS total
          FROM content_items
          WHERE tenant_id = ? AND status <> 'published'"
     );
     $aStmt->execute([$tenantId]);
     $aging = $aStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
-    // Oldest unpublished items, so the widget can name the actual offenders.
-    $sStmt = $db->prepare(
-        "SELECT id, title, status, NULLIF(platform, '') AS platform,
-                DATEDIFF(NOW(), created_at) AS age_days
-         FROM content_items
-         WHERE tenant_id = ? AND status <> 'published'
-         ORDER BY created_at ASC
-         LIMIT 5"
-    );
-    $sStmt->execute([$tenantId]);
-    $staleItems = $sStmt->fetchAll(PDO::FETCH_ASSOC);
-
-    $agingCounts = [
-        'd0_7'     => (int)($aging['d0_7'] ?? 0),
-        'd8_30'    => (int)($aging['d8_30'] ?? 0),
-        'd31_90'   => (int)($aging['d31_90'] ?? 0),
-        'd90_plus' => (int)($aging['d90_plus'] ?? 0),
-        'total'    => (int)($aging['total'] ?? 0),
-    ];
-
     jsonResponse([
         'kpi'                => $kpi,
         'funnel'             => $funnel,
         'status_summary'     => $statusSummary,
-        // Same query as `aging` below, without the item list — the BI box and the
-        // work-section widget therefore always show the same numbers.
-        'unpublished_aging'  => $agingCounts,
+        'unpublished_aging'  => [
+            'd0_7'     => (int)($aging['d0_7'] ?? 0),
+            'd8_30'    => (int)($aging['d8_30'] ?? 0),
+            'd31_90'   => (int)($aging['d31_90'] ?? 0),
+            'd90_plus' => (int)($aging['d90_plus'] ?? 0),
+            'total'    => (int)($aging['total'] ?? 0),
+        ],
         'publishing_health'  => $publishingHealth,
         'schedule_summary'   => $scheduleSummary,
         'engagement_trend'   => $engagementTrend,
         'platform_performance' => $platformPerformance,
-        'queue' => [
-            'pending'         => (int)($q['pending'] ?? 0),
-            'processing'      => (int)($q['processing'] ?? 0),
-            'sent'            => (int)($q['sent'] ?? 0),
-            'failed'          => (int)($q['failed'] ?? 0),
-            'overdue_pending' => (int)($q['overdue_pending'] ?? 0),
-            'total'           => (int)($q['total'] ?? 0),
-            'failures'        => array_map(static fn($r) => [
-                'id'           => $r['id'],
-                'content_id'   => $r['content_id'],
-                'channel_id'   => $r['channel_id'],
-                'title'        => $r['title'] ?? '(ไม่พบคอนเทนต์)',
-                'channel_name' => $r['channel_name'],
-                'platform'     => $r['platform'],
-                'error_msg'    => $r['error_msg'],
-                'retry_count'  => (int)$r['retry_count'],
-                'scheduled_at' => $r['scheduled_at'],
-            ], $failures),
-        ],
-        'aging' => $agingCounts + [
-            // null only when there is nothing unpublished — "no stale items" is
-            // not the same statement as "the oldest is 0 days old".
-            'oldest_days' => isset($aging['oldest_days']) && $aging['oldest_days'] !== null
-                ? (int)$aging['oldest_days'] : null,
-            'items'       => array_map(static fn($r) => [
-                'id'       => $r['id'],
-                'title'    => $r['title'],
-                'status'   => $r['status'],
-                'platform' => $r['platform'],
-                'age_days' => (int)$r['age_days'],
-            ], $staleItems),
-        ],
     ]);
 }
 

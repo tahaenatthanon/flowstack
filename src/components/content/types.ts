@@ -290,8 +290,10 @@ export interface ResultMetricsResponse {
 
 // ── Content BI (api/content-analytics.php) ─────────────────────
 
+/** รายการเผยแพร่ที่ล้มเหลว — แสดงอย่างเดียว ไม่มีปุ่มลงมือทำ */
 export interface QueueFailure {
-  id: string; content_id: string; channel_id: string;
+  id: string;
+  /** "(ไม่พบคอนเทนต์)" เมื่อคอนเทนต์ถูกลบ */
   title: string;
   channel_name: string | null;
   /** null เมื่อ channel มี platform เป็นสตริงว่าง */
@@ -299,12 +301,6 @@ export interface QueueFailure {
   error_msg: string | null;
   retry_count: number;
   scheduled_at: string;
-}
-
-export interface StaleContentItem {
-  id: string; title: string; status: string;
-  platform: string | null;
-  age_days: number;
 }
 
 export type FunnelStageKey = 'created' | 'requested' | 'approved' | 'published';
@@ -340,9 +336,9 @@ export interface ContentOverview {
     /** สร้าง − เผยแพร่ */
     in_progress: number;
   };
-  /** ณ ตอนนี้ — จำนวนต่อสถานะ ข้อมูลชุดเดียวกับ Work Progress */
+  /** ณ ตอนนี้ — จำนวนต่อสถานะ */
   status_summary: { total: number; by_status: Record<string, number> };
-  /** ณ ตอนนี้ — ตัวเลขชุดเดียวกับ aging (ไม่มีรายการ) */
+  /** ณ ตอนนี้ — คอนเทนต์ที่ยังไม่เผยแพร่ตามช่วงอายุ (ไม่มีรายการ) */
   unpublished_aging: { d0_7: number; d8_30: number; d31_90: number; d90_plus: number; total: number };
   publishing_health: {
     /** pending + processing */
@@ -352,6 +348,8 @@ export interface ContentOverview {
     /** null = ยังไม่มีรายการที่ส่งจบ */
     success_rate: number | null;
     platforms: string[];
+    /** รายการล้มเหลวล่าสุดสูงสุด 10 รายการ (จำนวนรวม = failed) */
+    failures: QueueFailure[];
   };
   schedule_summary: {
     today: { date: string; rows: ScheduleSummaryRow[] };
@@ -367,21 +365,6 @@ export interface ContentOverview {
     /** มีเฉพาะ Facebook (ระดับเพจ) — แพลตฟอร์มอื่น null */
     followers: number | null;
   }[];
-  /** ส่วน "งานที่ต้องจัดการ" — ไม่ผูกช่วงเวลา */
-  queue: {
-    pending: number; processing: number; sent: number; failed: number;
-    /** pending ที่เลย scheduled_at แล้ว */
-    overdue_pending: number;
-    total: number;
-    failures: QueueFailure[];
-  };
-  aging: {
-    d0_7: number; d8_30: number; d31_90: number; d90_plus: number;
-    total: number;
-    /** null = ไม่มีคอนเทนต์ที่ยังไม่เผยแพร่ */
-    oldest_days: number | null;
-    items: StaleContentItem[];
-  };
 }
 
 /** จุดรายวันของ page insights — key อื่นนอกจาก date คือชื่อ metric ของ Graph API; null = ไม่มีข้อมูลวันนั้น */
